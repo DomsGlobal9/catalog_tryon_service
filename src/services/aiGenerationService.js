@@ -170,8 +170,8 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress) {
     console.log('Downloading and processing Base Model Images...');
     const frontBase = await augmentedResize(await imageUrlToBase64(baseModels.front));
     const backBase = await augmentedResize(await imageUrlToBase64(baseModels.back));
-    const sideBase = await augmentedResize(await imageUrlToBase64(baseModels.right));
-    const sittingBase = await augmentedResize(await imageUrlToBase64(baseModels.left));
+    const sideBase = await augmentedResize(await imageUrlToBase64(baseModels.side));
+    const sittingBase = await augmentedResize(await imageUrlToBase64(baseModels.sitting));
 
     // Process input garments to bypass filters
     const processedFullDress = await augmentedResize(fullDress);
