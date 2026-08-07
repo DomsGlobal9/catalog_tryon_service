@@ -95,11 +95,11 @@ You will receive multiple chunks separated by `\n\n`. Each chunk contains a JSON
 ```json
 {
   "type": "VIEW_READY",
-  "view": "FRONT",
+  "view": "front",
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
 }
 ```
-*(Valid `view` values: `FRONT`, `BACK`, `SIDE`, `SITTING`)*
+*(Valid `view` values: `front`, `back`, `side`, `sitting`)*
 
 **3. `COMPLETE`** - Emitted when the entire 4-view generation is finished.
 ```json

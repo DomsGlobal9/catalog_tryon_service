@@ -247,21 +247,21 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress) {
       buildPayloadParts(getDynamicPrompt('SIDE', category, inputSlots, randomEnv), sideBase, generatedFront)
     );
     console.log('✅ Side View generated successfully.');
-    if (onProgress) onProgress({ view: 'right', image: generatedSide });
+    if (onProgress) onProgress({ view: 'side', image: generatedSide });
 
     const generatedSitting = await callGeminiImageGen(
       buildPayloadParts(getDynamicPrompt('SITTING', category, inputSlots, randomEnv), sittingBase, generatedFront)
     );
     console.log('✅ Sitting View generated successfully.');
-    if (onProgress) onProgress({ view: 'left', image: generatedSitting });
+    if (onProgress) onProgress({ view: 'sitting', image: generatedSitting });
 
     console.log('✅ All Dependent Views generated successfully.');
 
     return {
       front: generatedFront,
       back: generatedBack,
-      right: generatedSide,
-      left: generatedSitting
+      side: generatedSide,
+      sitting: generatedSitting
     };
 
   } catch (error) {

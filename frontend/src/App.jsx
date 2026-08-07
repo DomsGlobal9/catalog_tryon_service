@@ -66,7 +66,7 @@ function App() {
                 if (!inputs.fullDress) targetField = 'fullDress';
                 else if (!inputs.topFront) targetField = 'topFront';
                 else if (!inputs.bottom) targetField = 'bottom';
-              } else if (category === 'KURTHI') {
+              } else if (category === 'KURTI') {
                 if (!inputs.topFront) targetField = 'topFront';
                 else if (!inputs.fullDress) targetField = 'fullDress';
                 else if (!inputs.bottom) targetField = 'bottom';
@@ -109,7 +109,7 @@ function App() {
       case 'ANARKALI':
         if (!inputs.fullDress) return "Please upload the primary Anarkali suit flat-lay (Full Dress).";
         break;
-      case 'KURTHI':
+      case 'KURTI':
         if (!inputs.topFront) return "Please upload the Top (Kurti) flat-lay.";
         break;
       default:
@@ -128,10 +128,16 @@ function App() {
     setLoading(true);
     setError(null);
     // Initialize results so the grid appears immediately with skeletons/placeholders
-    setResults({ front: null, back: null, right: null, left: null });
+    setResults({ front: null, back: null, side: null, sitting: null });
     setStatusMsg("Starting streaming connection...");
 
     try {
+      // Pick a random model number between 1 and 4
+      const randomModelNum = Math.floor(Math.random() * 4) + 1;
+      const dynamicModelId = `${category.toLowerCase()}${randomModelNum}`;
+      
+      console.log(`Sending to backend with modelId: ${dynamicModelId}`);
+
       await generateCatalog({
         category: category,
         fullDress: inputs.fullDress?.base64 || null,
@@ -147,7 +153,7 @@ function App() {
           setLoading(false);
           setStatusMsg(null);
         }
-      }, "model1");
+      }, dynamicModelId);
 
     } catch (err) {
       setError(err.message);
@@ -191,7 +197,7 @@ function App() {
           <option value="LEHANGA">Lehenga</option>
           <option value="ANARKALI">Anarkali</option>
           <option value="SHARARA">Sharara</option>
-          <option value="KURTHI">Kurthi</option>
+          <option value="KURTI">Kurti</option>
         </select>
 
         <h3 style={{marginBottom: '2rem', color: 'var(--text-muted)'}}>Upload Garment Components</h3>
@@ -220,9 +226,9 @@ function App() {
             </>
           )}
 
-          {category === 'KURTHI' && (
+          {category === 'KURTI' && (
             <>
-              {renderUploadSlot("Kurthi Top (Required)", "topFront")}
+              {renderUploadSlot("Kurti Top (Required)", "topFront")}
               {renderUploadSlot("Dupatta / Full (Optional)", "fullDress")}
               {renderUploadSlot("Bottoms (Optional)", "bottom")}
             </>
@@ -237,7 +243,7 @@ function App() {
           {loading ? (
             <><div className="spinner"></div> {statusMsg || "Generating..."}</>
           ) : (
-            "🚀 Generate Catalog (Model 1)"
+            "🚀 Generate Catalog (Random Model)"
           )}
         </button>
 
@@ -261,11 +267,11 @@ function App() {
               <div className="label">Back View</div>
             </div>
             <div className="result-card">
-              {results.right ? <img src={results.right} alt="Side View" /> : <div className="skeleton-image">{results.back ? "Generating Side..." : "Waiting..."}</div>}
-              <div className="label">Right Side View</div>
+              {results.side ? <img src={results.side} alt="Side View" /> : <div className="skeleton-image">{results.back ? "Generating Side..." : "Waiting..."}</div>}
+              <div className="label">Side View</div>
             </div>
             <div className="result-card">
-              {results.left ? <img src={results.left} alt="Sitting View" /> : <div className="skeleton-image">{results.right ? "Generating Sitting..." : "Waiting..."}</div>}
+              {results.sitting ? <img src={results.sitting} alt="Sitting View" /> : <div className="skeleton-image">{results.side ? "Generating Sitting..." : "Waiting..."}</div>}
               <div className="label">Sitting View</div>
             </div>
           </div>
