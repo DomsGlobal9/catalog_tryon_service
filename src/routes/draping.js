@@ -9,6 +9,15 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+router.get('/debug-model', async (req, res) => {
+  try {
+    const model = await prisma.aiModel.findUnique({ where: { id: 'saree1' } });
+    res.json({ model });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/generate-catalog', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;
