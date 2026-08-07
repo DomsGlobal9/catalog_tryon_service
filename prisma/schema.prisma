@@ -19,8 +19,8 @@ model AiModel {
   // The crucial base images for the 4 views
   frontBaseUrl   String    @map("front_base_url")
   backBaseUrl    String    @map("back_base_url")
-  leftBaseUrl    String    @map("left_base_url")   // Used for Sitting View
-  rightBaseUrl   String    @map("right_base_url")  // Used for Side View
+  sittingBaseUrl String    @map("sitting_base_url")   // Used for Sitting View
+  sideBaseUrl    String    @map("side_base_url")  // Used for Side View
 
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")

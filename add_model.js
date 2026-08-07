@@ -15,8 +15,8 @@ async function main() {
       gender: 'female',
       frontBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/frnt.png',
       backBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/back.png',
-      rightBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/side.png', // side view
-      leftBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/sitting.png' // sitting view
+      sideBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/side.png', // side view
+      sittingBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/sitting.png' // sitting view
     }
   });
 

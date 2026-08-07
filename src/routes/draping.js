@@ -67,8 +67,8 @@ router.post('/generate-catalog', async (req, res) => {
       {
         front: model.frontBaseUrl,
         back: model.backBaseUrl,
-        right: model.rightBaseUrl,
-        left: model.leftBaseUrl
+        side: model.sideBaseUrl,
+        sitting: model.sittingBaseUrl
       },
       (progressEvent) => {
         // Fire events back to the client the millisecond a view finishes!
