@@ -1,0 +1,62 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["se_catalog"]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+// ─── 1. AI MODELS (The Default Poses) ───
+// Stores the 4 base reference images for every model we offer.
+model AiModel {
+  id             String    @id
+  name           String    // e.g., "Model 1 (Female)"
+  gender         String    @default("female")
+  isActive       Boolean   @default(true) @map("is_active")
+  
+  // The crucial base images for the 4 views
+  frontBaseUrl   String    @map("front_base_url")
+  backBaseUrl    String    @map("back_base_url")
+  leftBaseUrl    String    @map("left_base_url")   // Used for Sitting View
+  rightBaseUrl   String    @map("right_base_url")  // Used for Side View
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  jobs           DrapeJob[]
+
+  @@map("draping_models")
+  @@schema("se_catalog")
+}
+
+// ─── 2. DRAPING JOBS (Generation History & Logging) ───
+// Tracks every request made to the API, storing inputs and outputs.
+model DrapeJob {
+  id                  String   @id @default(uuid())
+  
+  // Client ID comes from the Super Admin Gateway header.
+  clientId            String   @map("client_id") 
+  
+  // Which AI model did they select?
+  modelId             String   @map("model_id")
+  model               AiModel  @relation(fields: [modelId], references: [id], onDelete: Restrict)
+
+  status              String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  
+  // Note: Input and Output images are intentionally NOT stored in the database.
+  // The API operates on a Base64-in, Base64-out model for data privacy, 
+  // so we only log the metadata of the job for billing/auditing purposes.
+
+  // Diagnostics
+  errorMessage        String?  @db.Text @map("error_message")
+  latencyMs           Int?     @map("latency_ms")
+
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@map("draping_jobs")
+  @@schema("se_catalog")
+}
