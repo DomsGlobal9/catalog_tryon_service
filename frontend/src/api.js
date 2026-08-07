@@ -1,5 +1,5 @@
 export const generateCatalog = async ({ fullDress, topFront, bottom, category }, onEvent, modelId = "model1") => {
-  const url = "http://localhost:4005/api/v1/draping/generate-catalog";
+  const url = import.meta.env.VITE_API_URL || "https://catalog-tryon-microservice.onrender.com/api/v1/draping/generate-catalog";
   const apiKey = "se_catalog_internal_key_v1_99283";
 
   let payload = {
