@@ -98,6 +98,7 @@ async function callGeminiImageGen(partsArray, abortSignal) {
       break;
 
     } catch (err) {
+      if (err.name === 'AbortError' || err.message.includes('AbortError')) throw err;
       if (retries === 1 || err.message.includes('HTTP 400')) throw err; 
       console.warn(`[Gemini API] Request Failed: ${err.message}. Retries left: ${retries - 1}`);
       retries--;

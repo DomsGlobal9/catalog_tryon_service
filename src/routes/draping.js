@@ -5,6 +5,9 @@ const { PrismaPg } = require('@prisma/adapter-pg');
 const { PrismaClient } = require('@prisma/client');
 const aiGenerationService = require('../services/aiGenerationService');
 
+// Global registry to track active jobs per client to kill zombies on page refresh
+const activeClientJobs = new Map();
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
@@ -52,6 +55,16 @@ router.post('/generate-catalog', async (req, res) => {
       return res.status(404).json({ success: false, error: 'AI Model not found' });
     }
 
+    // --- ZOMBIE PROCESS KILLER ---
+    // If this client already has a generation running (e.g. they hit refresh and clicked generate again),
+    // instantly kill their old running pipeline to save GPU compute and prevent 503 pileups.
+    if (activeClientJobs.has(clientId)) {
+      console.log(`[Zombie Killer] Client ${clientId} started a new job. Killing previous zombie job...`);
+      const oldController = activeClientJobs.get(clientId);
+      oldController.abort();
+      activeClientJobs.delete(clientId);
+    }
+
     // 2. Log the Job Start in Prisma (Zero-Retention: We don't save the Base64 images)
     const job = await prisma.drapeJob.create({
       data: {
@@ -63,6 +76,8 @@ router.post('/generate-catalog', async (req, res) => {
     jobId = job.id;
 
     const abortController = new AbortController();
+    activeClientJobs.set(clientId, abortController);
+
     req.on('close', () => {
       console.log(`Client connection closed for job ${jobId}. Aborting pipeline...`);
       abortController.abort();
@@ -107,14 +122,14 @@ router.post('/generate-catalog', async (req, res) => {
 
   } catch (error) {
     if (error.name === 'AbortError' || error.message.includes('AbortError')) {
-      console.log(`Job ${jobId} was aborted by client.`);
+      console.log(`Job ${jobId} was aborted (Likely due to Zombie Killer or client disconnect).`);
       if (jobId) {
         await prisma.drapeJob.update({
           where: { id: jobId },
           data: { status: 'CANCELLED', latencyMs: Date.now() - startTime }
         });
       }
-      return; // Connection is already closed, do not write to res
+      return; // Connection is already closed or superseded, do not write to res
     }
 
     if (jobId) {
@@ -133,6 +148,11 @@ router.post('/generate-catalog', async (req, res) => {
       res.end();
     } else {
       res.status(500).json({ success: false, error: 'Generation failed', details: error.message });
+    }
+  } finally {
+    // Cleanup the global registry
+    if (activeClientJobs.get(req.body.clientId) === abortController) {
+      activeClientJobs.delete(req.body.clientId);
     }
   }
 });
