@@ -102,7 +102,8 @@ export const cancelGeneration = async (clientId = "frontend-test-suite") => {
         "Content-Type": "application/json",
         "x-api-key": apiKey
       },
-      body: JSON.stringify({ clientId })
+      body: JSON.stringify({ clientId }),
+      keepalive: true
     });
   } catch (error) {
     console.error("Failed to send cancellation signal", error);
