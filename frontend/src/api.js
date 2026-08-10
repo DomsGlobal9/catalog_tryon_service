@@ -1,4 +1,4 @@
-export const generateCatalog = async ({ fullDress, topFront, bottom, category }, onEvent, modelId = "saree1") => {
+export const generateCatalog = async ({ fullDress, topFront, bottom, category }, onEvent, modelId = "saree1", abortSignal = null) => {
   const url = import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog";
   const apiKey = import.meta.env.VITE_API_KEY;
 
@@ -17,14 +17,23 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category },
     payload.bottom = bottom;
   }
 
+    // If the frontend uses an AbortController, automatically send a kill signal to the backend!
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', () => {
+        cancelGeneration("frontend-test-suite");
+      });
+    }
+
   try {
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": apiKey
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: abortSignal
     });
 
     if (!response.ok) {
@@ -78,5 +87,24 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category },
   } catch (error) {
     console.error("API Error:", error);
     throw error;
+  }
+};
+
+export const cancelGeneration = async (clientId = "frontend-test-suite") => {
+  const url = import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog";
+  const cancelUrl = url.replace('/generate-catalog', '/cancel-job');
+  const apiKey = import.meta.env.VITE_API_KEY;
+
+  try {
+    await fetch(cancelUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({ clientId })
+    });
+  } catch (error) {
+    console.error("Failed to send cancellation signal", error);
   }
 };

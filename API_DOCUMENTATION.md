@@ -63,6 +63,26 @@ For generic 3-piece sets, the API expects `full` (or `fullDress`), `top`, and `b
 
 ---
 
+## 🛑 Endpoint: Cancel Job
+**`POST /api/v1/draping/cancel-job`**
+
+This endpoint forcefully terminates a running AI generation pipeline on the backend. Because the `generate-catalog` endpoint is a long-running streaming request, reverse proxies (like Next.js Gateway) can sometimes hide client disconnects from the backend. **You should always call this endpoint if the user clicks "Stop" or refreshes the page mid-generation.**
+
+### Request Payload (JSON)
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `clientId` | String | **Yes** | The exact same `clientId` used to start the generation. |
+
+### Example Request
+```json
+{
+  "clientId": "frontend-test-suite"
+}
+```
+
+---
+
 ## 🎭 Available Model IDs (`modelId`)
 
 The database contains exactly 20 perfectly standardized models. You **MUST** pass one of these exact strings.
