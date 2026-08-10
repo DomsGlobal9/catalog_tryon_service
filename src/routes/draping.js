@@ -24,6 +24,7 @@ router.get('/debug-model', async (req, res) => {
 router.post('/generate-catalog', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;
+  let abortController = null;
 
   try {
     const { clientId, modelId, bottom } = req.body;
@@ -75,7 +76,7 @@ router.post('/generate-catalog', async (req, res) => {
     });
     jobId = job.id;
 
-    const abortController = new AbortController();
+    abortController = new AbortController();
     activeClientJobs.set(clientId, abortController);
 
     req.on('close', () => {
