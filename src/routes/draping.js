@@ -62,6 +62,12 @@ router.post('/generate-catalog', async (req, res) => {
     });
     jobId = job.id;
 
+    const abortController = new AbortController();
+    req.on('close', () => {
+      console.log(`Client connection closed for job ${jobId}. Aborting pipeline...`);
+      abortController.abort();
+    });
+
     // --- SSE STREAMING INITIALIZATION ---
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -82,7 +88,8 @@ router.post('/generate-catalog', async (req, res) => {
       (progressEvent) => {
         // Fire events back to the client the millisecond a view finishes!
         res.write(`data: ${JSON.stringify({ type: 'VIEW_READY', ...progressEvent })}\n\n`);
-      }
+      },
+      abortController.signal
     );
 
     // 4. Update Job Status to COMPLETED
@@ -99,6 +106,17 @@ router.post('/generate-catalog', async (req, res) => {
     res.end();
 
   } catch (error) {
+    if (error.name === 'AbortError' || error.message.includes('AbortError')) {
+      console.log(`Job ${jobId} was aborted by client.`);
+      if (jobId) {
+        await prisma.drapeJob.update({
+          where: { id: jobId },
+          data: { status: 'CANCELLED', latencyMs: Date.now() - startTime }
+        });
+      }
+      return; // Connection is already closed, do not write to res
+    }
+
     if (jobId) {
       await prisma.drapeJob.update({
         where: { id: jobId },

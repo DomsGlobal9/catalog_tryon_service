@@ -50,7 +50,7 @@ async function augmentedResize(base64Str) {
 /**
  * Helper: Call Gemini 3.1 Flash Image Generation
  */
-async function callGeminiImageGen(partsArray) {
+async function callGeminiImageGen(partsArray, abortSignal) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set in .env');
 
@@ -76,6 +76,7 @@ async function callGeminiImageGen(partsArray) {
           'x-goog-api-key': GEMINI_API_KEY,
         },
         body: JSON.stringify(payload),
+        signal: abortSignal
       });
 
       if (resp.status === 503 || resp.status === 429) {
@@ -157,7 +158,7 @@ async function callGeminiImageGen(partsArray) {
  * Executes the Sequential Generation Flow for the 4-view catalog.
  * Accepts Base64 inputs, returns Base64 outputs, and optionally yields progress events for SSE.
  */
-async function generate4ViewCatalog(inputs, baseModels, onProgress) {
+async function generate4ViewCatalog(inputs, baseModels, onProgress, abortSignal) {
   try {
     const { fullDress, topFront, bottom, category } = inputs;
     console.log(`Starting Sequential Generation Flow for Category: ${category}`);
@@ -221,9 +222,10 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress) {
 
     // 1. Generate Front View (Anchor)
     console.log('Generating Front View...');
+    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
     const frontPrompt = getDynamicPrompt('FRONT', category, inputSlots, randomEnv);
     const frontParts = buildPayloadParts(frontPrompt, frontBase);
-    const generatedFront = await callGeminiImageGen(frontParts);
+    const generatedFront = await callGeminiImageGen(frontParts, abortSignal);
     console.log('✅ Front View generated successfully.');
     if (onProgress) onProgress({ view: 'front', image: generatedFront });
 
@@ -237,20 +239,26 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress) {
     inputSlots.hasBottom = false;
 
     // Run sequentially to prevent Gemini API 503 Deadline Exceeded errors
+    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
     const generatedBack = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('BACK', category, inputSlots, randomEnv), backBase, generatedFront)
+      buildPayloadParts(getDynamicPrompt('BACK', category, inputSlots, randomEnv), backBase, generatedFront),
+      abortSignal
     );
     console.log('✅ Back View generated successfully.');
     if (onProgress) onProgress({ view: 'back', image: generatedBack });
 
+    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
     const generatedSide = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('SIDE', category, inputSlots, randomEnv), sideBase, generatedFront)
+      buildPayloadParts(getDynamicPrompt('SIDE', category, inputSlots, randomEnv), sideBase, generatedFront),
+      abortSignal
     );
     console.log('✅ Side View generated successfully.');
     if (onProgress) onProgress({ view: 'side', image: generatedSide });
 
+    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
     const generatedSitting = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('SITTING', category, inputSlots, randomEnv), sittingBase, generatedFront)
+      buildPayloadParts(getDynamicPrompt('SITTING', category, inputSlots, randomEnv), sittingBase, generatedFront),
+      abortSignal
     );
     console.log('✅ Sitting View generated successfully.');
     if (onProgress) onProgress({ view: 'sitting', image: generatedSitting });
