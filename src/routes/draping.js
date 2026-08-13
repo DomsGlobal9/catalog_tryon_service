@@ -21,6 +21,22 @@ router.get('/debug-model', async (req, res) => {
   }
 });
 
+// Explicit endpoint to kill jobs since reverse proxies sometimes mask TCP disconnects
+router.post('/cancel-job', async (req, res) => {
+  const { clientId } = req.body;
+  if (!clientId) return res.status(400).json({ success: false, error: 'clientId required' });
+
+  if (activeClientJobs.has(clientId)) {
+    console.log(`[Zombie Killer] Explicit cancellation received from frontend for client ${clientId}. Assasinating pipeline...`);
+    const oldController = activeClientJobs.get(clientId);
+    oldController.abort();
+    activeClientJobs.delete(clientId);
+    return res.json({ success: true, message: 'Pipeline successfully aborted.' });
+  }
+  
+  res.json({ success: false, message: 'No active job running for this client.' });
+});
+
 router.post('/generate-catalog', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;

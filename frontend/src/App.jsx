@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { generateCatalog } from './api';
+import { useState, useEffect, useRef } from 'react';
+import { generateCatalog, cancelGeneration } from './api';
 import './index.css';
 
 let lehengaModelCounter = 1;
@@ -27,6 +27,22 @@ function App() {
     setResults(null);
     setStatusMsg(null);
     setSelectedDupattaStyle('');
+  };
+
+  // Ensure backend stops generating if the user refreshes the page or closes the tab mid-generation
+  useEffect(() => {
+    const handleUnload = () => {
+      cancelGeneration("frontend-test-suite");
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
+  const handleCancel = () => {
+    cancelGeneration("frontend-test-suite");
+    setLoading(false);
+    setStatusMsg("Generation cancelled.");
+    setError("Cancelled by user.");
   };
 
   const handleFileChange = (e, fieldName) => {
@@ -325,17 +341,30 @@ console.log(`Sending to backend with modelId: ${dynamicModelId}`);
           )}
         </div>
 
-        <button 
-          className="btn-generate" 
-          onClick={handleGenerate}
-          disabled={loading || !!validateInputs()}
-        >
-          {loading ? (
-            <><div className="spinner"></div> {statusMsg || "Generating..."}</>
-          ) : (
-            "🚀 Generate Catalog (Random Model)"
+        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+          <button 
+            className="btn-generate" 
+            style={{ marginTop: 0 }}
+            onClick={handleGenerate}
+            disabled={loading || !!validateInputs()}
+          >
+            {loading ? (
+              <><div className="spinner"></div> {statusMsg || "Generating..."}</>
+            ) : (
+              "🚀 Generate Catalog (Random Model)"
+            )}
+          </button>
+
+          {loading && (
+            <button 
+              className="btn-generate btn-cancel" 
+              style={{ marginTop: 0 }}
+              onClick={handleCancel}
+            >
+              🛑 Stop Generation
+            </button>
           )}
-        </button>
+        </div>
 
         {error && (
           <div className="error-msg">

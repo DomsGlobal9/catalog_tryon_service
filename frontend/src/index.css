@@ -181,6 +181,14 @@ body {
   cursor: not-allowed;
 }
 
+.btn-cancel {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+}
+
+.btn-cancel:hover:not(:disabled) {
+  box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.5) !important;
+}
+
 .spinner {
   border: 3px solid rgba(255, 255, 255, 0.3);
   border-top: 3px solid white;
