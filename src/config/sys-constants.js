@@ -7,10 +7,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const CATEGORY_PROMPTS = {
   'SAREE': `THE SAREE (from Saree Reference):
-Faithfully reproduce every detail of the saree draping. Preserve the complete pallu with its full length and natural fall over the shoulder, maintain every pleat at the waist with their exact crispness, and keep the precise wrapping pattern around the body. Transfer the exact color palette, weave pattern, embroidery, zari borders, and motifs.
-FABRIC PHYSICS (CRITICAL): The fabric is a stiff, heavy, structured Kanjivaram silk that falls perfectly straight down and stops abruptly. It does not flow, it does not trail, and it does not pool on the floor. 
-CRITICAL BORDER RULE: The fabric is cut exactly at the woven zari border. The zari border is the absolute lowest part of the saree and the pallu. There is absolutely no plain fabric extending below the zari border at the bottom hem or the pallu. The border itself is the final edge touching the air. The clean studio floor must be visible directly beneath the gold border, proving no fabric extends past it.
-PRESERVE EXACT BORDER THICKNESS: You MUST perfectly maintain the exact thickness/width of the border seen in the reference. If the reference has a small/thin border, the generated garment MUST have exactly that small/thin border. Do not enlarge, exaggerate, or stretch the border.`,
+Faithfully reproduce every detail of the saree. Transfer the exact color palette, weave pattern, embroidery, borders, and motifs EXACTLY as they appear in the Saree Reference.
+STRICT ADHERENCE TO REFERENCE (CRITICAL):
+- If the uploaded Saree Reference is completely plain with no borders or patterns, the generated saree MUST be completely plain with absolutely NO borders. DO NOT hallucinate, invent, or add any zari borders, gold lines, or patterns that do not exist in the reference.
+- If the uploaded Saree Reference DOES have a border, you MUST perfectly maintain the exact thickness, width, and style of the border seen in the reference.
+FABRIC PHYSICS: The fabric should drape naturally. It falls perfectly straight down and stops abruptly at the hemline. It does not trail, and it does not pool on the floor. The clean studio floor must be visible directly beneath the hemline.`,
   
 'LEHANGA': `THE LEHANGA SET (from Garment Reference):
 Faithfully reproduce the Lehenga set.
