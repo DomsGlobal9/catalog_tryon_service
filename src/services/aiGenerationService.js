@@ -161,7 +161,13 @@ async function callGeminiImageGen(partsArray, abortSignal) {
  */
 async function generate4ViewCatalog(inputs, baseModels, onProgress, abortSignal) {
   try {
-    const { fullDress, topFront, bottom, category } = inputs;
+const {
+  fullDress,
+  topFront,
+  bottom,
+  category,
+  dupattaStyleUrl
+} = inputs;
     console.log(`Starting Sequential Generation Flow for Category: ${category}`);
 
     // Select a random premium environment for this generation session
@@ -175,13 +181,37 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress, abortSignal)
     const sideBase = await augmentedResize(await imageUrlToBase64(baseModels.side));
     const sittingBase = await augmentedResize(await imageUrlToBase64(baseModels.sitting));
 
-    // Process input garments to bypass filters
-    const processedFullDress = await augmentedResize(fullDress);
-    const processedTopFront = await augmentedResize(topFront);
-    const processedBottom = await augmentedResize(bottom);
+    // Process input garments to bypass filters (supports both Base64 and public URLs)
+    const resolveInput = async (input) => {
+      if (!input) return null;
+      const cleanInput = input.trim();
+      if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://')) {
+        console.log('Downloading external image URL for input garment...');
+        return await augmentedResize(await imageUrlToBase64(cleanInput));
+      }
+      return await augmentedResize(cleanInput);
+    };
+
+    const processedFullDress = await resolveInput(fullDress);
+    const processedTopFront = await resolveInput(topFront);
+    const processedBottom = await resolveInput(bottom);
+    let processedDupattaStyle = null;
+
+if (category === 'LEHANGA' && dupattaStyleUrl) {
+  console.log('[Lehenga] Processing selected Dupatta Style reference...');
+
+  processedDupattaStyle = await augmentedResize(
+    await imageUrlToBase64(dupattaStyleUrl)
+  );
+}
 
     // Helper to build the exact sequence of images with inline text labels
-    const buildPayloadParts = (promptText, baseImage, referenceImage = null) => {
+const buildPayloadParts = (
+  promptText,
+  baseImage,
+  referenceImage = null,
+  includeDupattaReference = false
+) => {
       const parts = [ { text: promptText } ];
 
       // ONLY include flat-lays if we are generating the Anchor (Front) view.
@@ -191,6 +221,18 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress, abortSignal)
           parts.push({ text: "GARMENT REFERENCE — The primary outfit to wear (Saree/Dress/Suit):" });
           parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(processedFullDress) } });
         }
+        if (includeDupattaReference && processedDupattaStyle) {
+  parts.push({
+    text: "DUPATTA DRAPE STYLE REFERENCE — Reproduce this exact dupatta draping style, including shoulder placement, pleats, direction, fall, length, and overall arrangement. Do not invent a different dupatta style."
+  });
+
+  parts.push({
+    inline_data: {
+      mime_type: "image/png",
+      data: cleanBase64(processedDupattaStyle)
+    }
+  });
+}
 
         if (processedTopFront) {
           parts.push({ text: "BLOUSE REFERENCE — The blouse to wear under the saree (use this exact neckline, sleeves, fabric, and embroidery):" });
@@ -225,7 +267,12 @@ async function generate4ViewCatalog(inputs, baseModels, onProgress, abortSignal)
     console.log('Generating Front View...');
     if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
     const frontPrompt = getDynamicPrompt('FRONT', category, inputSlots, randomEnv);
-    const frontParts = buildPayloadParts(frontPrompt, frontBase);
+   const frontParts = buildPayloadParts(
+  frontPrompt,
+  frontBase,
+  null,
+  category === 'LEHANGA' && !!processedDupattaStyle
+);
     const generatedFront = await callGeminiImageGen(frontParts, abortSignal);
     console.log('✅ Front View generated successfully.');
     if (onProgress) onProgress({ view: 'front', image: generatedFront });

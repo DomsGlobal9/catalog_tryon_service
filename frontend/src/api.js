@@ -1,12 +1,20 @@
-export const generateCatalog = async ({ fullDress, topFront, bottom, category }, onEvent, modelId = "saree1") => {
-  const url = import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog";
-  const apiKey = import.meta.env.VITE_API_KEY;
+export const generateCatalog = async ({ fullDress, topFront, bottom, category, dupattaStyleUrl }, onEvent, modelId = "saree1") => {
+  const isDev = import.meta.env.DEV;
+  const url = isDev 
+    ? "http://localhost:4005/api/v1/draping/generate-catalog"
+    : (import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog");
+  const apiKey = isDev
+    ? "se_catalog_internal_key_v1_99283"
+    : import.meta.env.VITE_API_KEY;
 
   let payload = {
     clientId: "frontend-test-suite",
     modelId: modelId,
     category: category,
   };
+  if (category === 'LEHANGA' && dupattaStyleUrl) {
+  payload.dupattaStyleUrl = dupattaStyleUrl;
+}
 
   if (category === 'SAREE') {
     payload.saree = fullDress;

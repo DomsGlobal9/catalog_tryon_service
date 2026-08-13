@@ -8,24 +8,57 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  const model = await prisma.aiModel.create({
+
+  // Existing Saree model is already in the database.
+  // DO NOT create model1 again.
+
+
+  const lehengaSingleShoulder = await prisma.aiModel.create({
     data: {
-      id: 'model1',
-      name: 'Saree Model 1',
+      id: 'lehenga_single_shoulder',
+      name: 'Lehenga - Classic Single Shoulder',
       gender: 'female',
-      frontBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/frnt.png',
-      backBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/back.png',
-      sideBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/side.png', // side view
-      sittingBaseUrl: 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/catalog_default_models/saree/model1/sitting.png' // sitting view
+
+      frontBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga1_duppat.png',
+
+      backBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga2_duppat.png',
+
+      sideBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga3_duppa.png',
+
+      sittingBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga4_duppata.png'
     }
   });
 
-  console.log(`✅ Successfully added Saree Model 1 to the database!`);
-  console.log(`Model ID: ${model.id}`);
-  
-  // Also log it as JSON so the user can easily copy it for their frontend
-  console.log("\nFrontend Reference JSON:");
-  console.log(JSON.stringify(model, null, 2));
+  console.log('✅ Added Lehenga - Classic Single Shoulder');
+  console.log(JSON.stringify(lehengaSingleShoulder, null, 2));
+
+
+  const lehengaTraditional = await prisma.aiModel.create({
+    data: {
+      id: 'lehenga_traditional_front_pleat',
+      name: 'Lehenga - Traditional Front Pleat',
+      gender: 'female',
+
+      frontBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga1_default.png',
+
+      backBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga2_default.png',
+
+      sideBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga3_default.png',
+
+      sittingBaseUrl:
+        'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/default%20models/lehanga/lehanga4_default.png'
+    }
+  });
+
+  console.log('✅ Added Lehenga - Traditional Front Pleat');
+  console.log(JSON.stringify(lehengaTraditional, null, 2));
 }
 
 main()

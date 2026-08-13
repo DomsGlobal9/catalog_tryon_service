@@ -12,11 +12,38 @@ FABRIC PHYSICS (CRITICAL): The fabric is a stiff, heavy, structured Kanjivaram s
 CRITICAL BORDER RULE: The fabric is cut exactly at the woven zari border. The zari border is the absolute lowest part of the saree and the pallu. There is absolutely no plain fabric extending below the zari border at the bottom hem or the pallu. The border itself is the final edge touching the air. The clean studio floor must be visible directly beneath the gold border, proving no fabric extends past it.
 PRESERVE EXACT BORDER THICKNESS: You MUST perfectly maintain the exact thickness/width of the border seen in the reference. If the reference has a small/thin border, the generated garment MUST have exactly that small/thin border. Do not enlarge, exaggerate, or stretch the border.`,
   
-  'LEHANGA': `THE LEHANGA SET (from Garment Reference):
-Faithfully reproduce the Lehenga set. 
+'LEHANGA': `THE LEHANGA SET (from Garment Reference):
+Faithfully reproduce the Lehenga set.
+
 1. SKIRT (Lehenga): Preserve the exact volume, heavy flare, and pleating of the Lehenga skirt from the reference. Transfer the exact borders, embroidery, and fabric texture.
-2. BLOUSE (Choli): Reproduce the exact cut, neckline, and sleeve length of the top/blouse.`,
-  
+
+2. BLOUSE (Choli): Reproduce the exact cut, neckline, and sleeve length of the top/blouse.
+
+3. DUPATTA — SELECTED CUSTOMER DRAPING STYLE:
+A separate DUPATTA DRAPE STYLE REFERENCE image is provided when the customer selects a dupatta style.
+
+IMPORTANT: The DUPATTA DRAPE STYLE REFERENCE controls ONLY HOW THE DUPATTA IS DRAPED. It does NOT control the dupatta's color, embroidery, fabric, model, background, or any other garment detail.
+
+When a DUPATTA DRAPE STYLE REFERENCE is provided, you MUST reproduce its exact draping arrangement:
+- exact shoulder placement
+- exact side of the body where the dupatta is placed
+- exact pleat arrangement
+- exact direction of the dupatta
+- exact front fall
+- exact length and hanging position
+- exact way the dupatta wraps around or falls over the body
+
+DO NOT replace the selected style with a standard or default dupatta drape.
+DO NOT automatically use a front-pleated dupatta.
+DO NOT invent a different dupatta arrangement.
+
+If the selected reference shows a single-shoulder drape, reproduce the single-shoulder drape.
+If the selected reference shows a traditional front-pleat drape, reproduce the traditional front-pleat drape.
+
+The Lehenga garment reference controls the garment's color, fabric, embroidery, borders and design.
+The DUPATTA DRAPE STYLE REFERENCE controls only the dupatta's draping style.
+
+If no dupatta style reference is provided, use the natural dupatta drape visible in the garment reference.`,
   'ANARKALI': `THE ANARKALI SUIT (from Garment Reference):
 Faithfully reproduce the Anarkali suit. 
 1. SILHOUETTE: Preserve the long, frock-style flared silhouette from the waist down, maintaining the exact fabric volume, weight, and drape. 
@@ -51,14 +78,17 @@ const VIEW_INSTRUCTIONS = {
 - Drape the garments perfectly onto the model in the Final Image (the Base Model).
 - The model is facing forward. Ensure all patterns align logically on the body.`,
   BACK: `
-- CONSISTENCY LOCK: The Last Image (Reference) shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CONSISTENCY LOCK: The Front-View Reference image shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CRITICAL DRAPING RULE: Completely IGNORE the default dupatta or draping style visible on the Base Model. You must adapt the dupatta draping strictly from the Front-View Reference image to fit this back view.
 - The model is facing away from the camera. Show the intricate back design or fall of the garment naturally.`,
   SIDE: `
-- CONSISTENCY LOCK: The Last Image (Reference) shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CONSISTENCY LOCK: The Front-View Reference image shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CRITICAL DRAPING RULE: Completely IGNORE the default dupatta or draping style visible on the Base Model. You must adapt the dupatta draping strictly from the Front-View Reference image to fit this side view.
 - The model is standing in a true right-side profile (only the right side is visible).
 - Ensure the pattern placement seamlessly wraps around the side of the body exactly as it would based on the reference.`,
   SITTING: `
-- CONSISTENCY LOCK: The Last Image (Reference) shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CONSISTENCY LOCK: The Front-View Reference image shows exactly how this garment looks on this specific model. You MUST perfectly replicate the exact colors, fabric texture, and draping style seen in that reference image.
+- CRITICAL DRAPING RULE: Completely IGNORE the default dupatta or draping style visible on the Base Model. You must adapt the dupatta draping strictly from the Front-View Reference image to fit this sitting pose.
 - The garment must drape naturally around the legs and lap, simulating realistic gravity and fabric tension for a seated pose.`
 };
 
