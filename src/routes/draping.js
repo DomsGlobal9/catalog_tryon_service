@@ -14,7 +14,7 @@ const prisma = new PrismaClient({ adapter });
 
 router.get('/debug-model', async (req, res) => {
   try {
-    const model = await prisma.aiModel.findUnique({ where: { id: 'saree1' } });
+    const model = await prisma.aiModel.findUnique({ where: { id: 'lehanga1' } });
     res.json({ model });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -43,8 +43,19 @@ router.post('/generate-catalog', async (req, res) => {
   let abortController = null;
 
   try {
-    const { clientId, modelId, bottom } = req.body;
+  const { clientId, modelId, bottom } = req.body;
     let category = req.body.category || 'SAREE';
+
+    // Hardcoded Dupatta URL Mapping for third-party client convenience
+    const DUPATTA_URLS = {
+      'lehanga_duppatta1': 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehanga_duppatta1.jpg',
+      'lehangaduppatta2': 'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehangaduppatta2.jpg'
+    };
+
+    let dupattaStyleUrl = req.body.dupattaStyleUrl;
+    if (dupattaStyleUrl && DUPATTA_URLS[dupattaStyleUrl]) {
+      dupattaStyleUrl = DUPATTA_URLS[dupattaStyleUrl];
+    }
     
     // Support Tryon platform key names (saree, blouse, full, top) or generic keys
     const fullDress = req.body.saree || req.body.full || req.body.fullDress;
@@ -67,9 +78,32 @@ router.post('/generate-catalog', async (req, res) => {
     const model = await prisma.aiModel.findUnique({
       where: { id: modelId }
     });
+    console.log('===== MODEL SELECTED =====');
+console.log('modelId:', modelId);
+console.log('frontBaseUrl:', model?.frontBaseUrl);
+console.log('backBaseUrl:', model?.backBaseUrl);
+console.log('sideBaseUrl:', model?.sideBaseUrl);
+console.log('sittingBaseUrl:', model?.sittingBaseUrl);
+console.log('==========================');
 
     if (!model) {
       return res.status(404).json({ success: false, error: 'AI Model not found' });
+    }
+
+    let finalFrontBaseUrl = model.frontBaseUrl;
+    
+    // DUPATTA SELECTION OVERRIDE
+    if (safeCategory === 'LEHANGA' && dupattaStyleUrl) {
+      if (dupattaStyleUrl.includes('lehanga_duppatta1')) {
+        let specialFileName = 'front%20single%20pleated%20dupatta.png'; // lehanga1
+        if (modelId === 'lehanga2') specialFileName = 'front%20single%20pleated%20duptta.png';
+        if (modelId === 'lehanga3') specialFileName = 'front%20single%20pleated%20dupatta%20(2).png';
+        if (modelId === 'lehanga4') specialFileName = 'front%20single%20pleated%20dupatta%20(3).png';
+        
+        const baseUrlPath = model.frontBaseUrl.substring(0, model.frontBaseUrl.lastIndexOf('/'));
+        finalFrontBaseUrl = `${baseUrlPath}/${specialFileName}`;
+        console.log("DUPATTA OVERRIDE: Using special front image:", finalFrontBaseUrl);
+      }
     }
 
     // --- ZOMBIE PROCESS KILLER ---
@@ -109,10 +143,17 @@ router.post('/generate-catalog', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'STATUS', message: 'Starting AI Generation Pipeline...' })}\n\n`);
 
     // 3. Initiate the Generation Service Flow
-    const generatedViews = await aiGenerationService.generate4ViewCatalog(
-      { fullDress, topFront, topBack, bottom, category: safeCategory },
+   const generatedViews = await aiGenerationService.generate4ViewCatalog(
+  {
+    fullDress,
+    topFront,
+    topBack,
+    bottom,
+    category: safeCategory,
+    dupattaStyleUrl
+  },
       {
-        front: model.frontBaseUrl,
+        front: finalFrontBaseUrl,
         back: model.backBaseUrl,
         side: model.sideBaseUrl,
         sitting: model.sittingBaseUrl

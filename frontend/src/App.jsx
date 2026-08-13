@@ -2,9 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { generateCatalog, cancelGeneration } from './api';
 import './index.css';
 
+let lehengaModelCounter = 1;
+
 function App() {
   const [category, setCategory] = useState('SAREE');
+  const [selectedDupattaStyle, setSelectedDupattaStyle] = useState('');
   const [inputs, setInputs] = useState({
+    
     fullDress: null,
     topFront: null,
     bottom: null
@@ -22,6 +26,7 @@ function App() {
     setError(null);
     setResults(null);
     setStatusMsg(null);
+    setSelectedDupattaStyle('');
   };
 
   // Ensure backend stops generating if the user refreshes the page or closes the tab mid-generation
@@ -149,16 +154,23 @@ function App() {
 
     try {
       // Pick a random model number between 1 and 4
-      const randomModelNum = Math.floor(Math.random() * 4) + 1;
-      const dynamicModelId = `${category.toLowerCase()}${randomModelNum}`;
-      
-      console.log(`Sending to backend with modelId: ${dynamicModelId}`);
+let dynamicModelId;
+
+if (category === 'LEHANGA') {
+  dynamicModelId = `lehanga${lehengaModelCounter}`;
+  lehengaModelCounter = lehengaModelCounter >= 4 ? 1 : lehengaModelCounter + 1;
+} else {
+  const randomModelNum = Math.floor(Math.random() * 4) + 1;
+  dynamicModelId = `${category.toLowerCase()}${randomModelNum}`;
+}
+console.log(`Sending to backend with modelId: ${dynamicModelId}`);
 
       await generateCatalog({
         category: category,
         fullDress: inputs.fullDress?.base64 || null,
         topFront: inputs.topFront?.base64 || null,
-        bottom: inputs.bottom?.base64 || null
+        bottom: inputs.bottom?.base64 || null,
+        dupattaStyleUrl: selectedDupattaStyle
       }, (event) => {
         // This callback is fired multiple times over the SSE stream!
         if (event.type === 'STATUS') {
@@ -233,6 +245,84 @@ function App() {
               {renderUploadSlot("Bottom / Skirt / Pants (Required)", "bottom")}
             </>
           )}
+          
+          {category === 'LEHANGA' && (
+  <div style={{ marginTop: '2rem', width: '100%' }}>
+    <h3 style={{ marginBottom: '1rem', color: 'var(--text-muted)' }}>
+      Select Dupatta Style
+    </h3>
+
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+      gap: '1rem'
+    }}>
+      <button
+        type="button"
+        onClick={() =>
+          setSelectedDupattaStyle(
+            'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehanga_duppatta1.jpg'
+          )
+        }
+        style={{
+          padding: '1rem',
+          border: selectedDupattaStyle.includes('lehanga_duppatta1')
+            ? '3px solid #000'
+            : '1px solid #ccc',
+          borderRadius: '12px',
+          background: '#fff',
+          cursor: 'pointer'
+        }}
+      >
+        <img
+          src="https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehanga_duppatta1.jpg"
+          alt="Classic Single-Shoulder"
+          style={{
+            width: '100%',
+            height: '220px',
+            objectFit: 'cover',
+            borderRadius: '8px'
+          }}
+        />
+        <div style={{ marginTop: '0.75rem', fontWeight: '600' }}>
+          Classic Single-Shoulder
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          setSelectedDupattaStyle(
+            'https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehangaduppatta2.jpg'
+          )
+        }
+        style={{
+          padding: '1rem',
+          border: selectedDupattaStyle.includes('lehangaduppatta2')
+            ? '3px solid #000'
+            : '1px solid #ccc',
+          borderRadius: '12px',
+          background: '#fff',
+          cursor: 'pointer'
+        }}
+      >
+        <img
+          src="https://gsriztjnocjwgqkaxhhz.supabase.co/storage/v1/object/public/tryon-fits/lehangaduppatta2.jpg"
+          alt="Traditional Front Pleat"
+          style={{
+            width: '100%',
+            height: '220px',
+            objectFit: 'cover',
+            borderRadius: '8px'
+          }}
+        />
+        <div style={{ marginTop: '0.75rem', fontWeight: '600' }}>
+          Traditional Front Pleat
+        </div>
+      </button>
+    </div>
+  </div>
+)}
 
           {category === 'ANARKALI' && (
             <>
