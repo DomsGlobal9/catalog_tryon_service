@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-export const generateCatalog = async ({ fullDress, topFront, bottom, category, dupattaStyleUrl }, onEvent, modelId = "saree1") => {
+export const generateCatalog = async ({ fullDress, topFront, bottom, category, dupattaStyleUrl }, onEvent, modelId = "saree1", abortSignal = null) => {
   const isDev = import.meta.env.DEV;
   const url = isDev 
     ? "http://localhost:4005/api/v1/draping/generate-catalog"
@@ -7,11 +6,6 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category, d
   const apiKey = isDev
     ? "se_catalog_internal_key_v1_99283"
     : import.meta.env.VITE_API_KEY;
-=======
-export const generateCatalog = async ({ fullDress, topFront, bottom, category }, onEvent, modelId = "saree1", abortSignal = null) => {
-  const url = import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog";
-  const apiKey = import.meta.env.VITE_API_KEY;
->>>>>>> a7cadea467c838c04dfc59604b43def4e9afa91d
 
   let payload = {
     clientId: "frontend-test-suite",
