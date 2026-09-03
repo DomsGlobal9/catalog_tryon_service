@@ -113,9 +113,26 @@ The database contains exactly 20 perfectly standardized models. You **MUST** pas
 
 ## 📥 Response Format (Server-Sent Events)
 
-Because image generation takes 30-90 seconds for all 4 views, this API does **not** return a standard JSON response. It streams the response using **Server-Sent Events (SSE)** (`text/event-stream`).
+Because image generation takes roughly 30-70 seconds for all 4 views, this API does **not** return a standard JSON response. It streams the response using **Server-Sent Events (SSE)** (`text/event-stream`).
 
 You will receive multiple chunks separated by `\n\n`. Each chunk contains a JSON string prefixed with `data: `.
+
+**Two things a consumer must handle:**
+
+1. **Keepalive comment lines.** During the gaps between views the server emits SSE comment
+   lines so proxies do not idle the connection out:
+
+   ```
+   : keepalive 1757000000000
+   ```
+
+   They begin with `:` rather than `data: `. Skip any chunk not prefixed `data: ` — which is
+   what the SSE spec requires regardless.
+
+2. **Views arrive out of order.** The three dependent views (back, side, sitting) are
+   generated concurrently, so they complete in whatever order the model returns them.
+   `front` is always first, because the other three use it as their reference. Key your state
+   off `event.view`, never off arrival position.
 
 ### Event Types:
 
