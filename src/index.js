@@ -61,14 +61,33 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful Shutdown Handler
+let shuttingDown = false;
+
 function gracefulShutdown(signal) {
-  console.log(`\n${signal} received. Shutting down gracefully...`);
-  server.close(() => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received. Shutting down gracefully...`);
+
+  // Stop accepting new connections, then actually release the database. The
+  // previous version relied on process exit to clean up, which leaves the pool
+  // and the Prisma client dangling through a rolling restart.
+  server.close(async () => {
     console.log('Express server closed.');
-    // The Prisma connection will be cleanly terminated by the process exit, 
-    // but in a larger app, you would call prisma.$disconnect() here.
+    try {
+      if (typeof drapingRoutes.shutdown === 'function') await drapingRoutes.shutdown();
+      console.log('Database connections released.');
+    } catch (err) {
+      console.warn('Shutdown cleanup failed:', err.message);
+    }
     process.exit(0);
   });
+
+  // Never hang forever waiting on in-flight generations, which run 90s+.
+  const FORCE_MS = Number(process.env.SHUTDOWN_GRACE_MS || 30000);
+  setTimeout(() => {
+    console.warn(`Forced exit after ${FORCE_MS}ms grace period.`);
+    process.exit(1);
+  }, FORCE_MS).unref();
 }
 
 process.on('SIGINT', gracefulShutdown);

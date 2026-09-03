@@ -65,10 +65,34 @@ Faithfully reproduce the Kurthi outfit.
 Faithfully reproduce every detail of the outfit. Preserve the exact silhouette, neckline, sleeve style, and pant/skirt structure. Transfer the exact color palette, weave pattern, and embroidery. The outfit must conform naturally to the customer's body without altering the customer's proportions.`
 };
 
+/**
+ * Spelling variants that must resolve to the same prompt.
+ *
+ * The frontend dropdown and API_DOCUMENTATION both use KURTI, while the prompt
+ * map is keyed KURTHI - so every Kurti generation silently fell through to the
+ * generic DEFAULT prompt and lost its tunic-length, side-slit, neckline and
+ * bottoms rules. It still generated, so nothing ever surfaced; only quality
+ * dropped. Same class of trap exists for LEHENGA vs LEHANGA.
+ */
+const CATEGORY_ALIASES = {
+  KURTI: 'KURTHI',
+  KURTA: 'KURTHI',
+  LEHENGA: 'LEHANGA',
+  GHAGRA: 'LEHANGA',
+  SARI: 'SAREE',
+  GHARARA: 'SHARARA'
+};
+
 function getCategoryPrompt(category) {
   if (!category) return CATEGORY_PROMPTS['DEFAULT'];
-  const normalizedCat = category.toUpperCase();
-  return CATEGORY_PROMPTS[normalizedCat] || CATEGORY_PROMPTS['DEFAULT'];
+  const raw = String(category).trim().toUpperCase();
+  const normalizedCat = CATEGORY_ALIASES[raw] || raw;
+  const prompt = CATEGORY_PROMPTS[normalizedCat];
+  if (!prompt) {
+    console.warn(`[Prompt] Unknown category "${category}" - falling back to the generic DEFAULT prompt.`);
+    return CATEGORY_PROMPTS['DEFAULT'];
+  }
+  return prompt;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,7 +148,7 @@ CRITICAL: Analyze the Saree Reference image carefully.
     }
   }
 
-  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor]
+  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, altered colour, colour shift, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
 
 You are a professional fashion photographer conducting a catalog shoot for e-commerce.
   
@@ -140,6 +164,28 @@ RULE #2 — THE GARMENT & CATEGORY RULES
 ═══════════════════════════════════════════════════════════════════
 ${categoryInstruction}
 ${blouseInstruction}
+═══════════════════════════════════════════════════════════════════
+RULE #2B — FLAT-LAY FIDELITY (APPLIES TO EVERY GARMENT)
+═══════════════════════════════════════════════════════════════════
+The garment reference is the product being sold. It is a specification, not
+inspiration. Reproduce THAT EXACT PIECE — not a similar one, not an improved one.
+
+- ADD NOTHING. Do not invent borders, zari lines, motifs, embroidery, sequins,
+  buttons, tassels, lace, piping or any embellishment that is not visibly
+  present in the reference. If an area of the reference is plain, it stays plain.
+- REMOVE NOTHING. Every motif, border, pattern break and texture visible in the
+  reference must appear in the output. Do not simplify busy areas.
+- EXACT COLOUR. Match the hue, saturation and tone of the reference precisely.
+  Do not brighten, deepen, warm, cool or "correct" the colour.
+- EXACT SCALE. Keep motifs and borders in the same proportion to the garment as
+  in the reference. A small motif stays small; a narrow border stays narrow.
+- EXACT PLACEMENT. Patterns must sit where they sit in the reference, and
+  continue logically around the body rather than being redrawn.
+- FABRIC BEHAVIOUR. Match the weight and sheen of the reference fabric. A stiff
+  fabric must not drape like chiffon, and a matte fabric must not turn glossy.
+
+If any detail of the garment is unclear in the reference, reproduce it as plainly
+as possible. Never fill an uncertainty with invention.
 ═══════════════════════════════════════════════════════════════════
 RULE #3 — VIEW SPECIFIC & STUDIO SCENE
 ═══════════════════════════════════════════════════════════════════

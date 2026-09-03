@@ -63,20 +63,28 @@ async function callGeminiImageGen(partsArray, abortSignal) {
     }
   };
 
-  let resp;
+  // Wall-clock ceiling for a single Gemini call. Without this a hung upstream
+  // holds the worker open until the client happens to disconnect.
+  const CALL_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 120000);
+
+  let respJson;
   let retries = 3;
   let delay = 2000;
 
   while (retries > 0) {
+    // Abort on EITHER the client cancelling or our own timeout.
+    const timeoutSignal = AbortSignal.timeout(CALL_TIMEOUT_MS);
+    const signal = abortSignal ? AbortSignal.any([abortSignal, timeoutSignal]) : timeoutSignal;
+
     try {
-      resp = await fetch(GEMINI_URL, {
+      const resp = await fetch(GEMINI_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-goog-api-key': GEMINI_API_KEY,
         },
         body: JSON.stringify(payload),
-        signal: abortSignal
+        signal
       });
 
       if (resp.status === 503 || resp.status === 429) {
@@ -93,21 +101,35 @@ async function callGeminiImageGen(partsArray, abortSignal) {
         const errText = await resp.text();
         throw new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`);
       }
-      
+
+      // CRITICAL: read the body INSIDE the retry block.
+      //
+      // This used to sit after the loop, so the request was retried three times
+      // but reading the response was not retried at all. Gemini image responses
+      // are multiple megabytes of base64, which makes the body read the single
+      // most likely point for the connection to drop - and a reset there
+      // (TypeError: terminated / ECONNRESET) killed the whole 4-view job with
+      // zero retries. Observed failing 2 of 2 end-to-end runs.
+      respJson = await resp.json();
+
       // Success
       break;
 
     } catch (err) {
-      if (err.name === 'AbortError' || err.message.includes('AbortError')) throw err;
-      if (retries === 1 || err.message.includes('HTTP 400')) throw err; 
-      console.warn(`[Gemini API] Request Failed: ${err.message}. Retries left: ${retries - 1}`);
+      // A genuine client cancellation must not be retried.
+      if (abortSignal && abortSignal.aborted) throw err;
+      const message = (err && err.message) || String(err);
+      if (err && err.name === 'AbortError' && !(err.name === 'TimeoutError')) throw err;
+      if (message.includes('AbortError')) throw err;
+      if (retries === 1 || message.includes('HTTP 400')) throw err;
+      console.warn(`[Gemini API] Request Failed: ${message}. Retries left: ${retries - 1}`);
       retries--;
       await new Promise(res => setTimeout(res, delay));
       delay *= 2;
     }
   }
 
-  const respJson = await resp.json();
+  if (!respJson) throw new Error('Gemini API produced no response after retries.');
   const candidates = respJson.candidates;
   
   if (!candidates || candidates.length === 0) {

@@ -30,6 +30,15 @@ SERVICE_API_KEY="se_catalog_internal_key_v1_..."
 # Server Port
 PORT=4005
 
+# ── Reliability / capacity (all optional, sensible defaults shown) ───────────
+GEMINI_TIMEOUT_MS=120000          # wall-clock ceiling for one Gemini call
+MAX_CONCURRENT_GENERATIONS=3      # excess requests get 429, not a queue
+SSE_HEARTBEAT_MS=15000            # keepalive during the gaps between views
+SHUTDOWN_GRACE_MS=30000           # forced exit if in-flight work will not drain
+DB_POOL_MAX=10
+DB_POOL_IDLE_MS=30000
+DB_POOL_CONNECT_MS=10000
+
 # ── Design Discovery (optional) ──────────────────────────────────────────────
 # Leave SERPER_API_KEY empty to run without design discovery: the service still
 # boots and catalog generation works normally, while /api/v1/discovery/* returns
