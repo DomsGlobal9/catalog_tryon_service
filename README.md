@@ -113,9 +113,16 @@ npm run dev
 * **Zombie Process Killer:** The backend tracks active jobs per `clientId`. If a user refreshes the page and requests a new generation, the server automatically aborts the old zombie pipeline to save GPU compute.
 * **Prisma ORM:** Used for strict schema validation and database interactions.
 * **Design Discovery:** A second, independent capability at `/api/v1/discovery/*` that turns keywords
-  into web design references via Serper. It is browse-only — it never downloads or stores images, and
-  it is entirely decoupled from the generation pipeline (`src/modules/discovery/` imports nothing from
-  the rest of `src/`). It fails soft: with no `SERPER_API_KEY` the service boots normally and only the
-  discovery routes are disabled.
+  — or one line of natural language — into web design references via Serper. It is browse-only: it
+  never downloads or stores images, and is entirely decoupled from the generation pipeline
+  (`src/modules/discovery/` imports nothing from the rest of `src/`).
+  * **Taxonomy-driven.** 12 garments and 107 design areas (Saree → Pallu, Border, Zari…) live in
+    `src/modules/discovery/taxonomy/` and are the source of truth; the search provider knows none of
+    them. `GET /api/v1/discovery/taxonomy` returns the tree for a Manage Designs UI.
+  * **Canonical ids match the generation service** (`LEHANGA`, `KURTHI`), with `LEHENGA`/`KURTI`
+    accepted as aliases, so one id means one garment platform-wide.
+  * **Fails soft twice over.** With no `SERPER_API_KEY`, or if the taxonomy fails its integrity check,
+    the service boots normally, logs the reason, and only the discovery routes return `424`. Catalog
+    generation is never affected.
 
 For detailed API documentation, refer to the `API_DOCUMENTATION.md` file.

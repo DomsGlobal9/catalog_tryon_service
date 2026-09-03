@@ -1,45 +1,61 @@
 // =============================================================================
 // validate.js — Request validation for the discovery endpoints.
 // =============================================================================
+//
+// SHAPE ONLY. Types, lengths and ranges live here; meaning lives in
+// services/searchInputResolver.js. That split is deliberate — `category` and
+// `designType` are checked against the taxonomy (including alias resolution and
+// the garment/area relationship), which is not something a zod enum can express
+// without hardcoding 107 combinations.
+//
 const { z } = require('zod');
-const { config, CATEGORIES } = require('../discovery.config');
+const { config } = require('../discovery.config');
 const { ValidationError } = require('../lib/errors');
 
 const SHOT_TYPES = ['flatlay', 'worn', 'any'];
-
-/** Accept 'saree' / 'Saree' / 'SAREE' alike rather than punishing casing. */
-const upperCased = (schema) =>
-  z.preprocess((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value), schema);
 
 const lowerCased = (schema) =>
   z.preprocess((value) => (typeof value === 'string' ? value.trim().toLowerCase() : value), schema);
 
 const filterValue = z.string().trim().min(1).max(64);
 
-const searchSchema = z.object({
-  clientId: z.string().trim().min(1).max(128),
+const searchSchema = z
+  .object({
+    clientId: z.string().trim().min(1).max(128),
 
-  keywords: z
-    .array(z.string().trim().min(1).max(64))
-    .min(1, 'At least one keyword is required.')
-    .max(config.search.maxKeywords),
+    // Optional: a caller may instead send `instruction`, or search a whole
+    // garment with `category` alone.
+    keywords: z
+      .array(z.string().trim().min(1).max(64))
+      .max(config.search.maxKeywords)
+      .optional(),
 
-  category: upperCased(z.enum(CATEGORIES)).optional(),
+    // One line of natural language, resolved by the lexicon parser.
+    instruction: z.string().trim().min(1).max(500).optional(),
 
-  filters: z
-    .object({
-      color: filterValue.optional(),
-      fabric: filterValue.optional(),
-      occasion: filterValue.optional()
-    })
-    .default({}),
+    // Free-form strings here, not enums: "LEHENGA", "lehanga" and "Lehenga" are
+    // all valid input and the resolver canonicalises them to LEHANGA.
+    category: z.string().trim().min(1).max(64).optional(),
+    designType: z.string().trim().min(1).max(64).optional(),
 
-  shotType: lowerCased(z.enum(SHOT_TYPES)).default('any'),
+    filters: z
+      .object({
+        color: filterValue.optional(),
+        fabric: filterValue.optional(),
+        occasion: filterValue.optional()
+      })
+      .default({}),
 
-  // Coerced so "2" from a loosely-typed caller is accepted rather than rejected.
-  page: z.coerce.number().int().min(1).max(config.search.maxPage).default(1),
-  limit: z.coerce.number().int().min(1).max(config.search.maxLimit).default(config.search.defaultLimit)
-});
+    shotType: lowerCased(z.enum(SHOT_TYPES)).default('any'),
+
+    // Coerced so "2" from a loosely-typed caller is accepted rather than rejected.
+    page: z.coerce.number().int().min(1).max(config.search.maxPage).default(1),
+    limit: z.coerce.number().int().min(1).max(config.search.maxLimit).default(config.search.defaultLimit)
+  })
+  .refine(
+    (v) => (v.keywords && v.keywords.length > 0) || v.instruction || v.category,
+    { message: 'Provide at least one of `keywords`, `category` or `instruction`.', path: ['keywords'] }
+  );
 
 /**
  * Express middleware factory. On success attaches the parsed, defaulted result

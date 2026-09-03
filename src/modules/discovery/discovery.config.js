@@ -82,15 +82,6 @@ const config = {
 };
 
 /**
- * The garment vocabulary this platform understands.
- *
- * Deliberately a hardcoded copy of the keys in src/config/sys-constants.js
- * rather than an import: the discovery module must not depend on the generation
- * module, so it can be lifted into its own service without untangling anything.
- */
-const CATEGORIES = ['SAREE', 'LEHANGA', 'ANARKALI', 'SHARARA', 'KURTHI'];
-
-/**
  * serper.dev and serpapi.com are different companies with similar names, and a
  * serpapi.com key pasted here fails only at request time as an opaque 403 ->
  * 424. Observed shapes: serper.dev keys are 40 hex chars, serpapi.com keys are
@@ -102,8 +93,23 @@ function looksLikeSerpApiComKey(key) {
 
 /** Called once from src/index.js so the operator sees the state at boot. */
 function logBootStatus() {
+  // Required here rather than at module top: discovery.config is loaded very
+  // early and the taxonomy is only needed once we report status.
+  const taxonomy = require('./taxonomy');
+
+  // A taxonomy defect disables discovery but must never stop the process -
+  // generate-catalog has nothing to do with it. Same fail-soft convention as a
+  // missing SERPER_API_KEY. The hard gate for this is the test suite.
+  if (!taxonomy.integrity.ok) {
+    console.error('   - Design Discovery: DISABLED — taxonomy integrity check FAILED.');
+    for (const err of taxonomy.integrity.errors) console.error('       * ' + err);
+    console.error('     /api/v1/discovery/* will return 424. Catalog generation is unaffected.');
+    return;
+  }
+
   if (config.isConfigured) {
-    console.log(`   - Design Discovery: ENABLED (provider: ${config.providerName}, gl=${config.serper.country})`);
+    console.log(`   - Design Discovery: ENABLED (provider: ${config.providerName}, gl=${config.serper.country}, ` +
+                `${taxonomy.integrity.garmentCount} garments / ${taxonomy.integrity.designAreaCount} design areas)`);
     if (looksLikeSerpApiComKey(config.serper.apiKey)) {
       console.warn('     WARNING: SERPER_API_KEY looks like a serpapi.com key (64 hex chars).');
       console.warn('     This service talks to serper.dev, which will reject it with 403.');
@@ -115,4 +121,4 @@ function logBootStatus() {
   }
 }
 
-module.exports = { config, CATEGORIES, logBootStatus, looksLikeSerpApiComKey };
+module.exports = { config, logBootStatus, looksLikeSerpApiComKey };

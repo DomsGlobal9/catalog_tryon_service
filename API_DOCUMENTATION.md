@@ -221,14 +221,36 @@ or base64.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `clientId` | String | **Yes** | Identifier for the client/tenant. Also the rate-limit bucket. |
-| `keywords` | String[] | **Yes** | 1–12 search terms, e.g. `["red", "bridal", "saree"]`. |
-| `category` | String | No | One of `SAREE`, `LEHANGA`, `ANARKALI`, `SHARARA`, `KURTHI`. Case-insensitive. |
+| `keywords` | String[] | * | 1–12 search terms, e.g. `["red", "bridal", "saree"]`. |
+| `instruction` | String | * | One line of natural language, parsed into the fields below. Max 500 chars. |
+| `category` | String | * | A garment id or alias — see `GET /taxonomy`. Case-insensitive. |
+| `designType` | String | No | A design area **of that garment**, e.g. `PALLU`. Requires `category`. |
 | `filters.color` | String | No | e.g. `"red"`. Folded into the search query. |
 | `filters.fabric` | String | No | e.g. `"silk"`. |
 | `filters.occasion` | String | No | e.g. `"wedding"`. |
 | `shotType` | String | No | `flatlay`, `worn`, or `any` (default). See note below. |
 | `page` | Number | No | 1–20. Defaults to `1`. |
 | `limit` | Number | No | 1–50. Defaults to `20`. |
+
+\* **At least one of `keywords`, `category` or `instruction` is required.** They can be combined:
+explicit fields always win, and `instruction` only fills the gaps it left.
+
+**On `category` and `designType`:** the service exposes a two-level taxonomy of **12 garments and 107
+design areas** — fetch it from `GET /api/v1/discovery/taxonomy`. A design area is validated against its
+garment, so `SAREE` + `PALLU` is accepted while `SAREE` + `SLEEVE` returns `400` listing what is valid.
+
+Canonical ids match the catalog-generation service's spelling, so one id means one garment across the
+platform: `LEHANGA` (displayed *Lehenga*) and `KURTHI` (displayed *Kurti*). The conventional spellings
+`LEHENGA` and `KURTI` are accepted as aliases and canonicalised — the `interpreted` block in the
+response shows what you were resolved to.
+
+**On `instruction`:** send a sentence instead of structured fields and it is resolved deterministically
+against the taxonomy (no LLM, no added latency):
+
+```json
+{ "clientId": "acme", "instruction": "I want red bridal kanjivaram saree pallu designs with heavy zari" }
+```
+resolves to category `SAREE`, designType `PALLU`, keywords `["red","bridal","kanjivaram","heavy zari"]`.
 
 **On `shotType`:** a bare `"red bridal saree"` search returns mostly on-model editorial photos.
 Pass `"flatlay"` to bias toward flat product photography, which is what a downstream garment
@@ -254,6 +276,14 @@ pipeline generally wants.
   "searchId": "b1f2c3d4-...",
   "query": "red bridal saree silk wedding flat lay product photo",
   "cached": false,
+  "interpreted": {
+    "category": "SAREE", "categoryName": "Saree",
+    "designType": "PALLU", "designTypeName": "Pallu Design",
+    "keywords": ["red", "bridal", "kanjivaram"],
+    "source": "structured",
+    "confidence": "high",
+    "unresolved": []
+  },
   "results": [
     {
       "id": "result_9f2a1c7b4e10",
@@ -297,6 +327,33 @@ manufacture a full grid.
 
 ---
 
+### 🌳 Endpoint: Garment Taxonomy
+**`GET /api/v1/discovery/taxonomy`**
+
+The full garment → design-area tree, so a Manage Designs UI renders from the service rather than
+hardcoding 107 entries. No payload.
+
+```json
+{
+  "success": true,
+  "garmentCount": 12,
+  "designAreaCount": 107,
+  "garments": [
+    { "id": "SAREE", "name": "Saree",
+      "designTypes": [
+        { "id": "OVERALL", "name": "Overall Saree Design" },
+        { "id": "PALLU",   "name": "Pallu Design" },
+        { "id": "BORDER",  "name": "Border Design" }
+      ] }
+  ]
+}
+```
+
+Garments: `SAREE`, `BLOUSE`, `DUPATTA`, `KURTHI`, `ANARKALI`, `PETTICOAT`, `GOWN`, `SUIT`, `SHERWANI`,
+`BOTTOM_WEAR`, `LEHANGA`, `SHARARA`.
+
+---
+
 ### 📋 Endpoint: List Categories
 **`GET /api/v1/discovery/categories`**
 
@@ -317,7 +374,8 @@ Returns the garment vocabulary and request limits this deployment accepts. No pa
 
 | Status | `error.code` | Meaning |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Body failed validation. `error.details` lists the offending fields. |
+| `400` | `VALIDATION_ERROR` | Body failed validation — also covers an unknown `category`, a `designType` that is not an area of its garment, `designType` sent without `category`, an instruction nothing could be resolved from, and a request with no search terms at all. `error.details` names the field and lists what is valid. |
+| `424` | `TAXONOMY_INVALID` | The garment taxonomy failed its integrity check on this deployment. Discovery is disabled; catalog generation is unaffected. |
 | `400` | `INVALID_JSON` | Body was not valid JSON. |
 | `401` | — | Missing or wrong `x-api-key`. |
 | `413` | `PAYLOAD_TOO_LARGE` | Body exceeded the 32 KB discovery limit. |
