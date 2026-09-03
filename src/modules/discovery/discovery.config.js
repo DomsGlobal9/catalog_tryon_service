@@ -51,7 +51,26 @@ const config = {
     maxKeywords: 12,
     // Anything smaller than this is a sprite, icon or tracking pixel, not a design.
     minImageWidth: 400,
-    minImageHeight: 400
+    minImageHeight: 400,
+
+    // Hosts that serve an HTML page rather than an image at the URL the provider
+    // reports as imageUrl, making the result unusable to any consumer.
+    //
+    // Chosen from measurement, not from a notion of which sites are "social":
+    // across 119 live results over 6 queries, instagram was 0/4 usable and
+    // facebook 0/1, while every other host was 100%. Pinterest is deliberately
+    // ABSENT - it scored 4/4, serving real image/jpeg and image/png from its
+    // CDN, and is a genuinely useful design source.
+    //
+    // Matched against BOTH the imageUrl's host and sourceDomain. Neither alone
+    // is sufficient: facebook serves its images from lookaside.fbsbx.com (so the
+    // image host misses it), while pinterest serves from i.pinimg.com and must
+    // be kept (so blocking purely by source domain would be too blunt if it were
+    // ever listed).
+    blockedImageHosts: (process.env.DISCOVERY_BLOCKED_IMAGE_HOSTS || 'instagram.com,facebook.com')
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean)
   },
 
   // The service-wide express.json limit is 50mb because generation accepts

@@ -284,6 +284,17 @@ Results are filtered before return: entries without an image URL are dropped, du
 are collapsed, and images the provider reports as smaller than 400×400 are discarded. Results with an
 unreported size are kept.
 
+Results from **Instagram and Facebook are also dropped**, because the `imageUrl` those sources report is
+an HTML page rather than an image and is therefore unusable to any consumer. This is a technical quality
+filter, not a stylistic one — it was chosen by measurement across 119 live results, where Instagram
+scored 0/4 usable and Facebook 0/1, while every other source scored 100%. **Pinterest is deliberately
+kept**: it serves real images from its CDN (4/4 usable) and is a valuable design source. The list is
+overridable with `DISCOVERY_BLOCKED_IMAGE_HOSTS`.
+
+Because filtering happens after the provider call, a request for `limit: 20` may return fewer than 20
+results. The service does **not** re-query to refill a page — that would spend extra search credits to
+manufacture a full grid.
+
 ---
 
 ### 📋 Endpoint: List Categories

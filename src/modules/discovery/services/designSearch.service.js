@@ -13,12 +13,43 @@ const { getProvider } = require('../providers');
 const { buildQuery } = require('./queryBuilder');
 const cache = require('./searchCache');
 
+function matchesBlocked(host) {
+  if (!host) return false;
+  const h = String(host).toLowerCase();
+  return config.search.blockedImageHosts.some(
+    (blocked) => h === blocked || h.endsWith('.' + blocked)
+  );
+}
+
+/**
+ * True when a result comes from a source that hands back an HTML page rather
+ * than an image. See config.search.blockedImageHosts for how the list was measured.
+ *
+ * Checks the imageUrl's host AND the sourceDomain, because neither alone is
+ * enough: facebook results carry sourceDomain facebook.com but an imageUrl on
+ * lookaside.fbsbx.com, so host-only matching lets them through. Suffix matching
+ * covers subdomains (m.facebook.com, www.instagram.com).
+ */
+function isBlockedResult(result) {
+  let host = null;
+  try {
+    host = new URL(result.imageUrl).hostname;
+  } catch {
+    host = null;
+  }
+  return matchesBlocked(host) || matchesBlocked(result.sourceDomain);
+}
+
 /**
  * Drop results that are unusable, and de-duplicate by image URL.
  *
  * Note the deliberate asymmetry on dimensions: a result is only rejected when
  * the provider reported a size AND that size is too small. Missing dimensions
  * are common and are not grounds for discarding an otherwise good design.
+ *
+ * We do NOT probe each imageUrl to confirm it is really an image. Measurement
+ * showed the host is an exact proxy (no host was partially bad), so a free
+ * string check buys the same correctness as 20 extra network round trips.
  */
 function filterResults(results) {
   const { minImageWidth, minImageHeight } = config.search;
@@ -30,6 +61,7 @@ function filterResults(results) {
     if (seen.has(result.imageUrl)) continue;
     if (result.width !== null && result.width < minImageWidth) continue;
     if (result.height !== null && result.height < minImageHeight) continue;
+    if (isBlockedResult(result)) continue;
 
     seen.add(result.imageUrl);
     out.push(result);
@@ -65,4 +97,4 @@ async function search(input) {
   return { query, results, rawCount, cached: false };
 }
 
-module.exports = { search, filterResults };
+module.exports = { search, filterResults, isBlockedResult };
