@@ -12,15 +12,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-router.get('/debug-model', async (req, res) => {
-  try {
-    const model = await prisma.aiModel.findUnique({ where: { id: 'lehanga1' } });
-    res.json({ model });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // Explicit endpoint to kill jobs since reverse proxies sometimes mask TCP disconnects
 router.post('/cancel-job', async (req, res) => {
   const { clientId } = req.body;

@@ -23,8 +23,24 @@ DATABASE_URL="postgresql://user:password@host:port/database"
 # Gemini AI API Key for Image Generation
 GEMINI_API_KEY="your_gemini_api_key_here"
 
+# Internal key the Super Admin Gateway must send as x-api-key.
+# Required — the service refuses to boot without it.
+SERVICE_API_KEY="se_catalog_internal_key_v1_..."
+
 # Server Port
 PORT=4005
+
+# ── Design Discovery (optional) ──────────────────────────────────────────────
+# Leave SERPER_API_KEY empty to run without design discovery: the service still
+# boots and catalog generation works normally, while /api/v1/discovery/* returns
+# 424. Everything below has a sensible default and can be omitted.
+SERPER_API_KEY=""                  # from https://serper.dev
+SERPER_COUNTRY="in"                # Google country bias; 'in' suits ethnic wear
+SERPER_LANGUAGE="en"
+SERPER_TIMEOUT_MS=8000
+DISCOVERY_CACHE_TTL_SEC=3600       # repeat searches served from cache, not re-billed
+DISCOVERY_CACHE_MAX_ENTRIES=500
+DISCOVERY_RATE_LIMIT_PER_MIN=20    # searches per minute, per clientId
 ```
 
 #### Frontend `.env`
@@ -92,5 +108,10 @@ npm run dev
 * **Streaming Responses (SSE):** The backend streams AI generation events in real-time to the frontend.
 * **Zombie Process Killer:** The backend tracks active jobs per `clientId`. If a user refreshes the page and requests a new generation, the server automatically aborts the old zombie pipeline to save GPU compute.
 * **Prisma ORM:** Used for strict schema validation and database interactions.
+* **Design Discovery:** A second, independent capability at `/api/v1/discovery/*` that turns keywords
+  into web design references via Serper. It is browse-only — it never downloads or stores images, and
+  it is entirely decoupled from the generation pipeline (`src/modules/discovery/` imports nothing from
+  the rest of `src/`). It fails soft: with no `SERPER_API_KEY` the service boots normally and only the
+  discovery routes are disabled.
 
 For detailed API documentation, refer to the `API_DOCUMENTATION.md` file.
