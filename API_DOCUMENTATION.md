@@ -291,11 +291,19 @@ pipeline generally wants.
       "title": "Red Bridal Kanjivaram Saree",
       "imageUrl": "https://example.com/images/saree-123.jpg",
       "thumbnailUrl": "https://encrypted-tbn0.gstatic.com/...",
+      "thumbnailWidth": 190,
+      "thumbnailHeight": 253,
       "sourceUrl": "https://example.com/product/123",
       "sourceDomain": "example.com",
       "width": 1200,
       "height": 1600,
-      "imageUsable": true
+      "imageUsable": true,
+      "fetchable": {
+        "url": "https://example.com/images/saree-123.jpg",
+        "width": 1200,
+        "height": 1600,
+        "from": "imageUrl"
+      }
     }
   ],
   "pagination": { "page": 1, "limit": 20, "hasMore": true }
@@ -315,7 +323,57 @@ Results are filtered before return: entries without an image URL are dropped, du
 are collapsed, and images the provider reports as smaller than 400×400 are discarded. Results with an
 unreported size are kept.
 
-#### `imageUsable` — read this before rendering results
+#### `fetchable` — the only field most consumers need
+
+Two different truths live in every result:
+
+| | Meaning |
+| :--- | :--- |
+| `imageUrl`, `width`, `height` | What the **source claims the original asset is** — whether or not it can be retrieved. |
+| `fetchable.url`, `fetchable.width`, `fetchable.height` | What you can **actually retrieve**, and its true size. |
+
+**If you only read `fetchable`, you are correct in every case.** No branching, no knowledge of
+Instagram, Facebook, Threads or `imageUsable` required:
+
+```js
+const res = await fetch(result.fetchable.url);   // always an image
+store({ width: result.fetchable.width, height: result.fetchable.height });
+```
+
+`fetchable.from` is either `"imageUrl"` or `"thumbnailUrl"`, so you can see which asset you were given.
+
+Worked example — an Instagram result. Note the ~3× gap, and that `width`/`height` are **not**
+rewritten: the original post genuinely is 1440×1920, which is legitimate provenance.
+
+```jsonc
+{
+  "imageUrl": "https://lookaside.instagram.com/...",   // serves HTML, do not fetch
+  "width": 1440, "height": 1920,                       // the original post
+  "thumbnailUrl": "https://encrypted-tbn0.gstatic.com/...",
+  "thumbnailWidth": 387, "thumbnailHeight": 516,
+  "imageUsable": false,
+  "fetchable": { "url": "https://encrypted-tbn0.gstatic.com/...",
+                 "width": 387, "height": 516, "from": "thumbnailUrl" }
+}
+```
+
+> **`fetchable.url` is point-in-time, not permanent.** It is the URL Discovery selected as the
+> retrievable image asset for this result, based on its image-capability checks **at the time of the
+> search**. CDN URLs, signed URLs and social-platform thumbnails expire and rotate. If you intend to
+> keep a design, retrieve it promptly and store your own copy — do not treat our URL as durable
+> storage.
+
+**Instagram and Facebook designs are only ever available at ~400px.** Their `imageUrl` serves an HTML
+page and the thumbnail is the only retrievable asset; measured sizes are 335×597, 387×516, 447×447.
+There is no workaround — no larger asset is exposed, and `site:` targeting returns nothing from this
+provider. If you are feeding these to a generation model, treat those specific results as weak inputs.
+
+Discovery does **not** download, store, transform or return image bytes. It returns references; you
+retrieve them yourself and may convert them to base64 or anything else on your side.
+
+---
+
+#### `imageUsable` — the lower-level flag behind `fetchable`
 
 Results come from the open web **and from social platforms**: Pinterest, Instagram and Facebook all
 appear in normal searches. They are not equally usable, and `imageUsable` tells you which is which.

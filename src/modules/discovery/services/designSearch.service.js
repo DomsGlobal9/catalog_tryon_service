@@ -44,6 +44,36 @@ function hasUsableImageUrl(result) {
 }
 
 /**
+ * The URL a consumer should actually retrieve, plus the true dimensions of that
+ * asset. This is the field a caller should read instead of branching on
+ * `imageUsable` and picking a URL themselves.
+ *
+ * `width`/`height` on the result describe imageUrl - the original asset the
+ * source claims, whether or not it can be fetched. That is legitimate
+ * provenance and is deliberately left alone. Truth about *retrievability* lives
+ * here, and for Instagram/Facebook the two differ by roughly 3x: a post
+ * reported as 1440x1920 yields only a ~387x516 thumbnail.
+ *
+ * NOT a promise of permanent availability. CDN URLs, signed URLs and social
+ * thumbnails expire and rotate. This is the asset that satisfied our
+ * image-capability checks at search time.
+ */
+function buildFetchable(result, imageUsable) {
+  if (imageUsable) {
+    return { url: result.imageUrl, width: result.width, height: result.height, from: 'imageUrl' };
+  }
+  if (result.thumbnailUrl) {
+    return {
+      url: result.thumbnailUrl,
+      width: result.thumbnailWidth ?? null,
+      height: result.thumbnailHeight ?? null,
+      from: 'thumbnailUrl'
+    };
+  }
+  return null; // caller drops these - nothing viewable at all
+}
+
+/**
  * Drop results that are unusable, and de-duplicate by image URL.
  *
  * Note the deliberate asymmetry on dimensions: a result is only rejected when
@@ -71,10 +101,11 @@ function filterResults(results) {
     if (result.height !== null && result.height < minImageHeight) continue;
 
     const imageUsable = hasUsableImageUrl(result);
-    if (!imageUsable && !result.thumbnailUrl) continue;
+    const fetchable = buildFetchable(result, imageUsable);
+    if (!fetchable) continue; // no retrievable image at all - of no use to anyone
 
     seen.add(result.imageUrl);
-    out.push({ ...result, imageUsable });
+    out.push({ ...result, imageUsable, fetchable });
   }
 
   return out;
@@ -107,4 +138,4 @@ async function search(input) {
   return { query, results, rawCount, cached: false };
 }
 
-module.exports = { search, filterResults, hasUsableImageUrl };
+module.exports = { search, filterResults, hasUsableImageUrl, buildFetchable };

@@ -52,7 +52,13 @@ function normalize(item, index) {
     sourceUrl: typeof item.link === 'string' ? item.link : null,
     sourceDomain: domainOf(item.domain || item.source, item.link || item.imageUrl),
     width: positiveInt(item.imageWidth),
-    height: positiveInt(item.imageHeight)
+    height: positiveInt(item.imageHeight),
+
+    // The provider reports these on every result and they used to be dropped.
+    // They matter: for Instagram and Facebook the thumbnail is the ONLY asset a
+    // consumer can retrieve, so its real size is the size they actually get.
+    thumbnailWidth: positiveInt(item.thumbnailWidth),
+    thumbnailHeight: positiveInt(item.thumbnailHeight)
   };
 }
 

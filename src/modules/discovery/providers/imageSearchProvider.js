@@ -18,14 +18,21 @@
  * @property {string|null} title
  * @property {string}      imageUrl      Full-size image. Always present.
  * @property {string|null} thumbnailUrl
+ * @property {number|null} thumbnailWidth   Real size of the thumbnail asset.
+ * @property {number|null} thumbnailHeight
  * @property {string|null} sourceUrl     Page the image was found on.
  * @property {string|null} sourceDomain
- * @property {number|null} width
- * @property {number|null} height
+ * @property {number|null} width         Describes imageUrl - the ORIGINAL asset the
+ * @property {number|null} height        source claims, fetchable or not.
  * @property {boolean}     [imageUsable]  Added by designSearch.service, not by
  *          providers. False when imageUrl serves an HTML page rather than an
  *          image (Instagram, Facebook) - the result is still returned, and its
  *          thumbnailUrl is a real image, but imageUrl must not be hotlinked.
+ * @property {Object}      [fetchable]    Added by designSearch.service. The URL a
+ *          consumer should actually retrieve, and the true dimensions of THAT
+ *          asset: { url, width, height, from: 'imageUrl'|'thumbnailUrl' }.
+ *          Providers must not construct this - they do not know the retrieval
+ *          policy. See designSearch.service.js.
  */
 
 /**

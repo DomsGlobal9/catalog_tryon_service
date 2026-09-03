@@ -295,8 +295,8 @@ export default function DiscoveryApp() {
               Results{' '}
               <span className="disc-hint">
                 each is an individual image URL — the API never returns a composited sheet
-                {result.results.some((r) => r.imageUsable === false) &&
-                  ` · ${result.results.filter((r) => r.imageUsable === false).length} thumbnail-only (Instagram/Facebook)`}
+                {result.results.some((r) => r.fetchable.from === 'thumbnailUrl') &&
+                  ` · ${result.results.filter((r) => r.fetchable.from === 'thumbnailUrl').length} thumbnail-only (Instagram/Facebook)`}
               </span>
             </h3>
             {result.results.length === 0 ? (
@@ -305,21 +305,24 @@ export default function DiscoveryApp() {
               <div className="disc-results">
                 {result.results.map((r) => (
                   <figure key={r.id} className="disc-result">
-                    <img src={r.thumbnailUrl || r.imageUrl} alt={r.title || ''} loading="lazy" />
+                    {/* Read `fetchable` and nothing else. The UI is a consumer of
+                        the API contract, not of provider-specific behaviour, so it
+                        never inspects imageUsable or picks a URL itself. */}
+                    <img src={r.fetchable.url} alt={r.title || ''} loading="lazy" />
                     <figcaption>
                       <div className="disc-title">{r.title || '(untitled)'}</div>
-                      <div className="disc-hint">{r.sourceDomain} · {r.width || '?'}×{r.height || '?'}</div>
-                      {r.imageUsable === false && (
-                        <div className="disc-thumbonly" title="imageUrl serves an HTML page, not an image. Render thumbnailUrl and link to the source post.">
-                          thumbnail only
+                      <div className="disc-hint">
+                        {r.sourceDomain} · {r.fetchable.width || '?'}×{r.fetchable.height || '?'}
+                      </div>
+                      {r.fetchable.from === 'thumbnailUrl' && (
+                        <div className="disc-thumbonly" title={`Only the thumbnail is retrievable. The source reports the original as ${r.width}×${r.height}, but that asset cannot be fetched.`}>
+                          thumbnail only · original {r.width}×{r.height}
                         </div>
                       )}
                       <div className="disc-links">
-                        {r.imageUsable === false
-                          ? <a href={r.thumbnailUrl} target="_blank" rel="noreferrer noopener">thumbnail</a>
-                          : <a href={r.imageUrl} target="_blank" rel="noreferrer noopener">image</a>}
+                        <a href={r.fetchable.url} target="_blank" rel="noreferrer noopener">image</a>
                         {r.sourceUrl && <a href={r.sourceUrl} target="_blank" rel="noreferrer noopener">source</a>}
-                        <button onClick={() => navigator.clipboard?.writeText(r.imageUsable === false ? r.thumbnailUrl : r.imageUrl)}>copy URL</button>
+                        <button onClick={() => navigator.clipboard?.writeText(r.fetchable.url)}>copy URL</button>
                       </div>
                     </figcaption>
                   </figure>
