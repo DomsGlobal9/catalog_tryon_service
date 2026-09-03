@@ -39,6 +39,12 @@ DB_POOL_MAX=10
 DB_POOL_IDLE_MS=30000
 DB_POOL_CONNECT_MS=10000
 
+# ── Generation speed ────────────────────────────────────────────────────────
+BASE_MODEL_CACHE_MAX=24           # processed base poses cached in memory
+PARALLEL_VIEWS=true               # set false to generate the 3 dependent views serially
+INPUT_IMAGE_FORMAT=jpeg           # png restores the original (much larger) uploads
+INPUT_IMAGE_QUALITY=95
+
 # ── Design Discovery (optional) ──────────────────────────────────────────────
 # Leave SERPER_API_KEY empty to run without design discovery: the service still
 # boots and catalog generation works normally, while /api/v1/discovery/* returns

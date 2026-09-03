@@ -13,6 +13,41 @@ async function imageUrlToBase64(imageUrl) {
   return buffer.toString('base64');
 }
 
+// =============================================================================
+// BASE MODEL CACHE
+// =============================================================================
+// The four base poses are identical for every request using the same modelId,
+// yet were re-downloaded and re-processed each time - measured at 10.7s per
+// generation, of which 3.6s was download and only 159ms was sharp. Caching the
+// PROCESSED base64 removes that from the critical path entirely.
+//
+// The promise is cached rather than the value, so two concurrent requests for
+// the same model do the work once instead of racing. A rejected promise is
+// evicted so a transient download failure is never cached.
+const BASE_MODEL_CACHE_MAX = Number(process.env.BASE_MODEL_CACHE_MAX || 24);
+const baseModelCache = new Map();
+
+function prepareBaseModel(url) {
+  if (baseModelCache.has(url)) {
+    // Refresh recency for the LRU eviction below.
+    const hit = baseModelCache.get(url);
+    baseModelCache.delete(url);
+    baseModelCache.set(url, hit);
+    return hit;
+  }
+
+  const pending = (async () => augmentedResize(await imageUrlToBase64(url)))();
+  pending.catch(() => baseModelCache.delete(url));
+
+  baseModelCache.set(url, pending);
+  while (baseModelCache.size > BASE_MODEL_CACHE_MAX) {
+    const oldest = baseModelCache.keys().next().value;
+    if (oldest === undefined) break;
+    baseModelCache.delete(oldest);
+  }
+  return pending;
+}
+
 /**
  * Helper: Strip data URI prefix if present
  */
@@ -22,6 +57,19 @@ function cleanBase64(b64) {
   }
   return b64;
 }
+
+// Upload format for every image we send to Gemini.
+//
+// This used to be PNG, which is lossless but enormous: one processed 1024px
+// image is 1137 KB as PNG against 125 KB as JPEG q95 - 89% smaller. The front
+// view uploads a base model AND the garment, so it was pushing ~3 MB of base64
+// per call before generation could even start, on every view.
+//
+// q95 at 1024px is visually near-lossless and Gemini re-encodes internally
+// anyway. Set INPUT_IMAGE_FORMAT=png to restore the original behaviour.
+const INPUT_FORMAT = (process.env.INPUT_IMAGE_FORMAT || 'jpeg').toLowerCase();
+const INPUT_QUALITY = Number(process.env.INPUT_IMAGE_QUALITY || 95);
+const INPUT_MIME = INPUT_FORMAT === 'png' ? 'image/png' : 'image/jpeg';
 
 /**
  * Augmented resize: tiny 1% crop + imperceptible brightness shift breaks Gemini's
@@ -42,7 +90,7 @@ async function augmentedResize(base64Str) {
     })
     .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
     .modulate({ brightness: 1.02, saturation: 0.98 })
-    .png()
+    .toFormat(INPUT_FORMAT, INPUT_FORMAT === 'jpeg' ? { quality: INPUT_QUALITY } : {})
     .toBuffer();
   return outputBuffer.toString('base64');
 }
@@ -196,12 +244,19 @@ const {
     const randomEnv = ENVIRONMENTS[Math.floor(Math.random() * ENVIRONMENTS.length)];
     console.log(`Selected Dynamic Environment: ${randomEnv.substring(0, 60)}...`);
 
-    // Download the base model images from Supabase and bypass filters
-    console.log('Downloading and processing Base Model Images...');
-    const frontBase = await augmentedResize(await imageUrlToBase64(baseModels.front));
-    const backBase = await augmentedResize(await imageUrlToBase64(baseModels.back));
-    const sideBase = await augmentedResize(await imageUrlToBase64(baseModels.side));
-    const sittingBase = await augmentedResize(await imageUrlToBase64(baseModels.sitting));
+    // Base models: cached, and prepared concurrently on a cold cache. Was four
+    // sequential download+resize round trips on every single request.
+    const cacheWarm = [baseModels.front, baseModels.back, baseModels.side, baseModels.sitting]
+      .every((u) => baseModelCache.has(u));
+    console.log(`Preparing Base Model Images (cache ${cacheWarm ? 'HIT' : 'MISS'})...`);
+    const prepStarted = Date.now();
+    const [frontBase, backBase, sideBase, sittingBase] = await Promise.all([
+      prepareBaseModel(baseModels.front),
+      prepareBaseModel(baseModels.back),
+      prepareBaseModel(baseModels.side),
+      prepareBaseModel(baseModels.sitting)
+    ]);
+    console.log(`   Base models ready in ${Date.now() - prepStarted}ms`);
 
     // Process input garments to bypass filters (supports both Base64 and public URLs)
     const resolveInput = async (input) => {
@@ -214,9 +269,12 @@ const {
       return await augmentedResize(cleanInput);
     };
 
-    const processedFullDress = await resolveInput(fullDress);
-    const processedTopFront = await resolveInput(topFront);
-    const processedBottom = await resolveInput(bottom);
+    // Independent of each other - prepare concurrently.
+    const [processedFullDress, processedTopFront, processedBottom] = await Promise.all([
+      resolveInput(fullDress),
+      resolveInput(topFront),
+      resolveInput(bottom)
+    ]);
     let processedDupattaStyle = null;
 
 if (category === 'LEHANGA' && dupattaStyleUrl) {
@@ -241,7 +299,7 @@ const buildPayloadParts = (
       if (!referenceImage) {
         if (processedFullDress) {
           parts.push({ text: "GARMENT REFERENCE — The primary outfit to wear (Saree/Dress/Suit):" });
-          parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(processedFullDress) } });
+          parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(processedFullDress) } });
         }
         if (includeDupattaReference && processedDupattaStyle) {
   parts.push({
@@ -250,7 +308,7 @@ const buildPayloadParts = (
 
   parts.push({
     inline_data: {
-      mime_type: "image/png",
+      mime_type: INPUT_MIME,
       data: cleanBase64(processedDupattaStyle)
     }
   });
@@ -258,22 +316,22 @@ const buildPayloadParts = (
 
         if (processedTopFront) {
           parts.push({ text: "BLOUSE REFERENCE — The blouse to wear under the saree (use this exact neckline, sleeves, fabric, and embroidery):" });
-          parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(processedTopFront) } });
+          parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(processedTopFront) } });
         }
 
         if (processedBottom) {
           parts.push({ text: "BOTTOM REFERENCE — The skirt/pants to wear:" });
-          parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(processedBottom) } });
+          parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(processedBottom) } });
         }
       }
 
       if (referenceImage) {
         parts.push({ text: "CONSISTENCY LOCK — The Generated Front-View Reference (You MUST perfectly replicate the exact borders, colors, and draping style seen in this image):" });
-        parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(referenceImage) } });
+        parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(referenceImage) } });
       }
 
       parts.push({ text: "CUSTOMER — The Base Model (The person to dress - PRESERVE THEIR EXACT IDENTITY, POSE AND BACKGROUND):" });
-      parts.push({ inline_data: { mime_type: "image/png", data: cleanBase64(baseImage) } });
+      parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(baseImage) } });
 
       return parts;
     };
@@ -308,32 +366,48 @@ const buildPayloadParts = (
     inputSlots.hasTop = false;
     inputSlots.hasBottom = false;
 
-    // Run sequentially to prevent Gemini API 503 Deadline Exceeded errors
+    // The three dependent views each reference ONLY the generated front view -
+    // never each other - so there is no ordering constraint between them.
+    // They used to run in series at ~14s each; concurrently they cost roughly
+    // one view's time instead of three.
+    //
+    // They were originally serialised to avoid Gemini 503 "Deadline Exceeded".
+    // That predates the retry-with-backoff in callGeminiImageGen, which now
+    // absorbs 429/503 and connection resets. PARALLEL_VIEWS=false restores the
+    // old behaviour if the failure rate ever justifies it.
     if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
-    const generatedBack = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('BACK', category, inputSlots, randomEnv), backBase, generatedFront),
-      abortSignal
-    );
-    console.log('✅ Back View generated successfully.');
-    if (onProgress) onProgress({ view: 'back', image: generatedBack });
 
-    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
-    const generatedSide = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('SIDE', category, inputSlots, randomEnv), sideBase, generatedFront),
-      abortSignal
-    );
-    console.log('✅ Side View generated successfully.');
-    if (onProgress) onProgress({ view: 'side', image: generatedSide });
+    const runView = async (viewKey, viewName, baseImage) => {
+      const image = await callGeminiImageGen(
+        buildPayloadParts(getDynamicPrompt(viewName, category, inputSlots, randomEnv), baseImage, generatedFront),
+        abortSignal
+      );
+      console.log(`✅ ${viewName} View generated successfully.`);
+      // Fired the moment each view lands, so the client still streams results
+      // as they arrive rather than waiting for the slowest of the three.
+      if (onProgress) onProgress({ view: viewKey, image });
+      return image;
+    };
 
-    if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
-    const generatedSitting = await callGeminiImageGen(
-      buildPayloadParts(getDynamicPrompt('SITTING', category, inputSlots, randomEnv), sittingBase, generatedFront),
-      abortSignal
-    );
-    console.log('✅ Sitting View generated successfully.');
-    if (onProgress) onProgress({ view: 'sitting', image: generatedSitting });
+    const views = [
+      ['back', 'BACK', backBase],
+      ['side', 'SIDE', sideBase],
+      ['sitting', 'SITTING', sittingBase]
+    ];
 
-    console.log('✅ All Dependent Views generated successfully.');
+    const dependentStarted = Date.now();
+    let generatedBack, generatedSide, generatedSitting;
+
+    if (process.env.PARALLEL_VIEWS === 'false') {
+      const out = [];
+      for (const [k, n, b] of views) out.push(await runView(k, n, b));
+      [generatedBack, generatedSide, generatedSitting] = out;
+    } else {
+      [generatedBack, generatedSide, generatedSitting] =
+        await Promise.all(views.map(([k, n, b]) => runView(k, n, b)));
+    }
+
+    console.log(`✅ All Dependent Views generated successfully in ${Date.now() - dependentStarted}ms.`);
 
     return {
       front: generatedFront,
