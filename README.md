@@ -34,7 +34,11 @@ PORT=4005
 # Leave SERPER_API_KEY empty to run without design discovery: the service still
 # boots and catalog generation works normally, while /api/v1/discovery/* returns
 # 424. Everything below has a sensible default and can be omitted.
-SERPER_API_KEY=""                  # from https://serper.dev
+# VENDOR NOTE: this is a serper.dev key, NOT serpapi.com. Two different
+# companies, similar names. Only serper.dev works here; a serpapi.com key is
+# rejected with 403. Key shapes seen in the wild: serper.dev = 40 hex chars,
+# serpapi.com = 64 hex chars. The service warns at boot if it spots the latter.
+SERPER_API_KEY=""                  # get one at https://serper.dev/api-key
 SERPER_COUNTRY="in"                # Google country bias; 'in' suits ethnic wear
 SERPER_LANGUAGE="en"
 SERPER_TIMEOUT_MS=8000

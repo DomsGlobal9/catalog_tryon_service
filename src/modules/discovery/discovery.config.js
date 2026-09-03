@@ -71,14 +71,29 @@ const config = {
  */
 const CATEGORIES = ['SAREE', 'LEHANGA', 'ANARKALI', 'SHARARA', 'KURTHI'];
 
+/**
+ * serper.dev and serpapi.com are different companies with similar names, and a
+ * serpapi.com key pasted here fails only at request time as an opaque 403 ->
+ * 424. Observed shapes: serper.dev keys are 40 hex chars, serpapi.com keys are
+ * 64. Warn at boot rather than letting the operator debug it per-request.
+ */
+function looksLikeSerpApiComKey(key) {
+  return /^[0-9a-f]{64}$/.test(key);
+}
+
 /** Called once from src/index.js so the operator sees the state at boot. */
 function logBootStatus() {
   if (config.isConfigured) {
     console.log(`   - Design Discovery: ENABLED (provider: ${config.providerName}, gl=${config.serper.country})`);
+    if (looksLikeSerpApiComKey(config.serper.apiKey)) {
+      console.warn('     WARNING: SERPER_API_KEY looks like a serpapi.com key (64 hex chars).');
+      console.warn('     This service talks to serper.dev, which will reject it with 403.');
+      console.warn('     Get a serper.dev key at https://serper.dev/api-key');
+    }
   } else {
     console.warn('   - Design Discovery: DISABLED — SERPER_API_KEY is not set.');
     console.warn('     /api/v1/discovery/* will return 424. Catalog generation is unaffected.');
   }
 }
 
-module.exports = { config, CATEGORIES, logBootStatus };
+module.exports = { config, CATEGORIES, logBootStatus, looksLikeSerpApiComKey };
