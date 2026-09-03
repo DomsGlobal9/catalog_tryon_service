@@ -18,35 +18,42 @@ const { ValidationError } = require('../lib/errors');
  *                   response, so a caller can always see what we understood.
  */
 function resolveSearchInput(input) {
-  const parsed = input.instruction ? parseInstruction(input.instruction) : null;
-
   // Explicit fields always beat parsed ones: a caller who names a category
   // means it, and the parser only fills the gaps it left.
   const explicitCategory = input.category || null;
   const explicitDesignType = input.designType || null;
   const explicitKeywords = Array.isArray(input.keywords) && input.keywords.length ? input.keywords : null;
 
-  const rawCategory = explicitCategory || (parsed && parsed.category) || null;
-  const keywords = explicitKeywords || (parsed ? parsed.keywords : []) || [];
-
-  // --- garment ---
+  // --- 1. explicit garment resolved FIRST, so it can scope the parser --------
   let garment = null;
-  if (rawCategory) {
-    garment = taxonomy.getGarment(rawCategory);
+  if (explicitCategory) {
+    garment = taxonomy.getGarment(explicitCategory);
     if (!garment) {
-      throw new ValidationError(`Unknown category "${rawCategory}".`, [
+      throw new ValidationError(`Unknown category "${explicitCategory}".`, [
         { field: 'category', message: `Valid categories: ${taxonomy.GARMENT_IDS.join(', ')}` }
       ]);
     }
   }
 
-  // A parsed designType is only meaningful for the garment it was resolved
-  // against. If an explicit `category` overrides the one the parser found -
-  // instruction "blue blouse neck" sent with category SAREE - the parsed NECK
-  // belongs to BLOUSE and must not be transplanted onto a saree. Drop it rather
-  // than rejecting the request; the explicit category is what the caller meant.
+  // --- 2. parse, scoped to the explicit garment when there is one -----------
+  // This is what makes { category: "LEHANGA", instruction: "heavy zari border
+  // in deep red" } resolve BORDER: the sentence names no garment, but the
+  // caller already did.
+  const parsed = input.instruction
+    ? parseInstruction(input.instruction, { categoryHint: garment ? garment.id : null })
+    : null;
+
+  // --- 3. effective garment: explicit wins, parser fills the gap ------------
+  if (!garment && parsed && parsed.category) {
+    garment = taxonomy.getGarment(parsed.category);
+  }
+
+  const keywords = explicitKeywords || (parsed ? parsed.keywords : []) || [];
+
+  // A parsed designType is only usable for the garment it was resolved against.
+  // The parser records that scope, so a mismatch can never be transplanted.
   let rawDesignType = explicitDesignType;
-  if (!rawDesignType && parsed && parsed.designType && garment && parsed.category === garment.id) {
+  if (!rawDesignType && parsed && parsed.designType && garment && parsed.designTypeScope === garment.id) {
     rawDesignType = parsed.designType;
   }
 

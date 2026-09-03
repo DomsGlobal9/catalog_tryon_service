@@ -59,38 +59,67 @@ function consume(consumed, start, length) {
 
 /**
  * @param   {string} instruction
+ * @param   {Object} [options]
+ * @param   {string} [options.categoryHint]  Canonical garment id the caller
+ *          supplied explicitly. When present it is the scope for design-area
+ *          matching, so "heavy zari border in deep red" with category LEHANGA
+ *          resolves BORDER even though the sentence names no garment.
  * @returns {{
- *   category: string|null, designType: string|null,
+ *   category: string|null, designType: string|null, designTypeScope: string|null,
  *   keywords: string[], unresolved: string[], confidence: 'high'|'medium'|'low'
  * }}
  */
-function parseInstruction(instruction) {
-  const empty = { category: null, designType: null, keywords: [], unresolved: [], confidence: 'low' };
+function parseInstruction(instruction, options = {}) {
+  const categoryHint = options.categoryHint || null;
+  const empty = {
+    category: null, designType: null, designTypeScope: null,
+    keywords: [], unresolved: [], confidence: 'low'
+  };
   if (typeof instruction !== 'string' || !instruction.trim()) return empty;
 
   const tokens = tokenize(instruction);
   if (!tokens.length) return empty;
   const consumed = new Array(tokens.length).fill(false);
 
-  // 1. Garment first. Design areas are meaningless without one - "border" and
-  //    "neck" belong to many garments, and "dupatta" is both a garment and an
-  //    area of Anarkali/Lehenga/Sharara. Matching the garment first is what
-  //    disambiguates them.
   let category = null;
-  const garmentHit = findLongest(tokens, consumed, (p) => taxonomy.getGarment(p));
-  if (garmentHit) {
-    category = garmentHit.value.id;
-    consume(consumed, garmentHit.start, garmentHit.length);
-  }
-
-  // 2. Design area, scoped strictly to that garment. If no garment was
-  //    identified we leave designType unset rather than guessing.
   let designType = null;
-  if (category) {
-    const areaHit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(category, p));
+  let designTypeScope = null;
+
+  if (categoryHint) {
+    // The caller has already named the garment, so match design areas within it
+    // FIRST - the sentence need not repeat the garment at all.
+    const areaHit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(categoryHint, p));
     if (areaHit) {
       designType = areaHit.value.id;
+      designTypeScope = categoryHint;
       consume(consumed, areaHit.start, areaHit.length);
+    }
+
+    // Consume any garment word so it cannot leak into keywords, but do NOT adopt
+    // it: an explicit category always wins, so "red lehenga border" sent with
+    // category SAREE must not smuggle "lehenga" into the query.
+    const strayGarment = findLongest(tokens, consumed, (p) => taxonomy.getGarment(p));
+    if (strayGarment) consume(consumed, strayGarment.start, strayGarment.length);
+  } else {
+    // 1. Garment first. Design areas are meaningless without one - "border" and
+    //    "neck" belong to many garments, and "dupatta" is both a garment and an
+    //    area of Anarkali/Lehenga/Sharara. Matching the garment first is what
+    //    disambiguates them.
+    const garmentHit = findLongest(tokens, consumed, (p) => taxonomy.getGarment(p));
+    if (garmentHit) {
+      category = garmentHit.value.id;
+      consume(consumed, garmentHit.start, garmentHit.length);
+    }
+
+    // 2. Design area, scoped strictly to that garment. If no garment was
+    //    identified we leave designType unset rather than guessing.
+    if (category) {
+      const areaHit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(category, p));
+      if (areaHit) {
+        designType = areaHit.value.id;
+        designTypeScope = category;
+        consume(consumed, areaHit.start, areaHit.length);
+      }
     }
   }
 
@@ -127,11 +156,13 @@ function parseInstruction(instruction) {
     .map((f) => f.word)
     .filter((k) => (seen.has(k) ? false : (seen.add(k), true)));
 
+  // An explicit hint counts as knowing the garment for confidence purposes.
+  const effectiveCategory = category || categoryHint;
   let confidence = 'low';
-  if (category && (designType || uniqueKeywords.length)) confidence = 'high';
-  else if (category || uniqueKeywords.length) confidence = 'medium';
+  if (effectiveCategory && (designType || uniqueKeywords.length)) confidence = 'high';
+  else if (effectiveCategory || uniqueKeywords.length) confidence = 'medium';
 
-  return { category, designType, keywords: uniqueKeywords, unresolved, confidence };
+  return { category, designType, designTypeScope, keywords: uniqueKeywords, unresolved, confidence };
 }
 
 module.exports = { parseInstruction, tokenize };
