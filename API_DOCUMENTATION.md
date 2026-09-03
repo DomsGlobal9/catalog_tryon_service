@@ -32,9 +32,25 @@ This endpoint accepts base64-encoded garment images and streams back the generat
 | `clientId` | String | **Yes** | Identifier for the client/tenant (e.g., `"frontend-test-suite"`). |
 | `modelId` | String | **Yes** | The exact ID of the AI Model to use (see *Available Model IDs* below). |
 | `category` | String | No | Defaults to `"SAREE"`. Valid options: `"SAREE"`, `"KURTI"`, `"ANARKALI"`, `"LEHANGA"`, `"SHARARA"`. |
-| `saree` / `full` / `fullDress` | String | **Yes** | Base64 encoded image of the primary garment (flat-lay or worn). |
-| `blouse` / `top` / `topFront`| String | No | Base64 encoded image of the top/blouse. |
-| `bottom` | String | No | Base64 encoded image of the pants/skirt (if applicable). |
+| `saree` / `full` / `fullDress` | String | **Yes** | The primary garment (flat-lay or worn). **A public image URL or base64** — see below. |
+| `blouse` / `top` / `topFront`| String | No | The top/blouse. URL or base64. |
+| `bottom` | String | No | The pants/skirt, if applicable. URL or base64. |
+
+#### Garment inputs accept three forms, interchangeably
+
+Every garment field accepts any of these, and they can be mixed within one request:
+
+| Form | Example |
+| :--- | :--- |
+| **Public image URL** | `"https://cdn.shop/saree-123.jpg"` — fetched server-side |
+| **Raw base64** | `"/9j/4AAQSkZJRgABA..."` |
+| **data: URI** | `"data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."` |
+
+A URL is the lighter option: it keeps the request body small and lets the service
+fetch the bytes itself. This is what makes a Design Discovery result usable directly — pass
+`fetchable.url` straight through as the garment.
+
+All three forms were verified end-to-end against live generations and produce identical output.
 
 ### Example Request (Saree)
 For Sarees, the API expects `saree` and `blouse` keys.
