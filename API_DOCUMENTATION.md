@@ -294,7 +294,8 @@ pipeline generally wants.
       "sourceUrl": "https://example.com/product/123",
       "sourceDomain": "example.com",
       "width": 1200,
-      "height": 1600
+      "height": 1600,
+      "imageUsable": true
     }
   ],
   "pagination": { "page": 1, "limit": 20, "hasMore": true }
@@ -314,12 +315,27 @@ Results are filtered before return: entries without an image URL are dropped, du
 are collapsed, and images the provider reports as smaller than 400×400 are discarded. Results with an
 unreported size are kept.
 
-Results from **Instagram and Facebook are also dropped**, because the `imageUrl` those sources report is
-an HTML page rather than an image and is therefore unusable to any consumer. This is a technical quality
-filter, not a stylistic one — it was chosen by measurement across 119 live results, where Instagram
-scored 0/4 usable and Facebook 0/1, while every other source scored 100%. **Pinterest is deliberately
-kept**: it serves real images from its CDN (4/4 usable) and is a valuable design source. The list is
-overridable with `DISCOVERY_BLOCKED_IMAGE_HOSTS`.
+#### `imageUsable` — read this before rendering results
+
+Results come from the open web **and from social platforms**: Pinterest, Instagram and Facebook all
+appear in normal searches. They are not equally usable, and `imageUsable` tells you which is which.
+
+| Source | `imageUrl` | `thumbnailUrl` | `imageUsable` |
+| :--- | :--- | :--- | :--- |
+| Retailers, blogs, **Pinterest** (`i.pinimg.com`) | a real image | a real image | `true` |
+| **Instagram** (`lookaside.instagram.com`) | an HTML page | a real image | `false` |
+| **Facebook** (`lookaside.fbsbx.com`) | an HTML page | a real image | `false` |
+
+When `imageUsable` is `false`, **do not hotlink `imageUrl`** — it will render as a broken image.
+Display `thumbnailUrl` and link the user to `sourceUrl` instead. Every result is guaranteed to carry at
+least one viewable image: a result with neither a usable `imageUrl` nor a `thumbnailUrl` is dropped.
+
+Measured across 10 results per platform: Pinterest 10/10 usable `imageUrl`, Instagram 0/10, Facebook
+0/10 — while `thumbnailUrl` was a real image 10/10 for all three. The host list driving the flag is
+overridable with `DISCOVERY_NON_IMAGE_HOSTS`.
+
+There is no `sources` parameter and none is needed: Pinterest and Instagram surface naturally in
+untargeted searches. (`site:` operators return zero results from this provider and are not used.)
 
 Because filtering happens after the provider call, a request for `limit: 20` may return fewer than 20
 results. The service does **not** re-query to refill a page — that would spend extra search credits to

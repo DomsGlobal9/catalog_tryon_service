@@ -170,6 +170,11 @@ body { background-color: var(--bg-color); }
   background: rgba(0, 0, 0, 0.25); border-radius: 6px;
 }
 .disc-title { font-size: 0.75rem; line-height: 1.35; max-height: 2.7em; overflow: hidden; }
+.disc-thumbonly {
+  display: inline-block; font-size: 0.62rem; letter-spacing: 0.03em;
+  background: rgba(245, 158, 11, 0.18); color: #fbbf24;
+  border-radius: 999px; padding: 0.1rem 0.45rem; margin-top: 0.15rem;
+}
 .disc-links { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.15rem; }
 .disc-links a, .disc-links button {
   font-size: 0.7rem; color: var(--accent); text-decoration: none;

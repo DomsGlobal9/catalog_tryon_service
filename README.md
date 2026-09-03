@@ -121,6 +121,9 @@ npm run dev
     them. `GET /api/v1/discovery/taxonomy` returns the tree for a Manage Designs UI.
   * **Canonical ids match the generation service** (`LEHANGA`, `KURTHI`), with `LEHENGA`/`KURTI`
     accepted as aliases, so one id means one garment platform-wide.
+  * **Web plus social sources.** Pinterest, Instagram and Facebook results are all returned. Each
+    result carries `imageUsable`: Instagram and Facebook serve an HTML page at `imageUrl`, so those
+    are flagged `false` and consumers render `thumbnailUrl` and link to `sourceUrl` instead.
   * **Fails soft twice over.** With no `SERPER_API_KEY`, or if the taxonomy fails its integrity check,
     the service boots normally, logs the reason, and only the discovery routes return `424`. Catalog
     generation is never affected.

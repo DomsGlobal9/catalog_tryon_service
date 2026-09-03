@@ -54,20 +54,20 @@ const config = {
     minImageHeight: 400,
 
     // Hosts that serve an HTML page rather than an image at the URL the provider
-    // reports as imageUrl, making the result unusable to any consumer.
+    // reports as imageUrl. These results are NOT dropped - they are returned
+    // with `imageUsable: false` so a caller knows to render thumbnailUrl and
+    // link to sourceUrl instead of hotlinking imageUrl.
     //
-    // Chosen from measurement, not from a notion of which sites are "social":
-    // across 119 live results over 6 queries, instagram was 0/4 usable and
-    // facebook 0/1, while every other host was 100%. Pinterest is deliberately
-    // ABSENT - it scored 4/4, serving real image/jpeg and image/png from its
-    // CDN, and is a genuinely useful design source.
+    // Chosen from measurement, not from a notion of which sites are "social".
+    // Instagram serves imageUrl from lookaside.instagram.com and facebook from
+    // lookaside.fbsbx.com, both text/html, 0/10 usable each - but their
+    // thumbnailUrl is a real image 10/10 of the time, which is why the results
+    // are worth returning at all. Pinterest is deliberately ABSENT: it serves
+    // real images from i.pinimg.com, 10/10, and needs no flag.
     //
-    // Matched against BOTH the imageUrl's host and sourceDomain. Neither alone
-    // is sufficient: facebook serves its images from lookaside.fbsbx.com (so the
-    // image host misses it), while pinterest serves from i.pinimg.com and must
-    // be kept (so blocking purely by source domain would be too blunt if it were
-    // ever listed).
-    blockedImageHosts: (process.env.DISCOVERY_BLOCKED_IMAGE_HOSTS || 'instagram.com,facebook.com')
+    // Matched against BOTH the imageUrl's host and sourceDomain, because neither
+    // alone is sufficient - facebook's image host does not contain "facebook.com".
+    nonImageHosts: (process.env.DISCOVERY_NON_IMAGE_HOSTS || 'instagram.com,facebook.com')
       .split(',')
       .map((h) => h.trim().toLowerCase())
       .filter(Boolean)

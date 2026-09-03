@@ -291,7 +291,14 @@ export default function DiscoveryApp() {
           </section>
 
           <section className="disc-card">
-            <h3>Results <span className="disc-hint">each is an individual image URL — the API never returns a composited sheet</span></h3>
+            <h3>
+              Results{' '}
+              <span className="disc-hint">
+                each is an individual image URL — the API never returns a composited sheet
+                {result.results.some((r) => r.imageUsable === false) &&
+                  ` · ${result.results.filter((r) => r.imageUsable === false).length} thumbnail-only (Instagram/Facebook)`}
+              </span>
+            </h3>
             {result.results.length === 0 ? (
               <p className="disc-hint">No results survived filtering for this query.</p>
             ) : (
@@ -302,10 +309,17 @@ export default function DiscoveryApp() {
                     <figcaption>
                       <div className="disc-title">{r.title || '(untitled)'}</div>
                       <div className="disc-hint">{r.sourceDomain} · {r.width || '?'}×{r.height || '?'}</div>
+                      {r.imageUsable === false && (
+                        <div className="disc-thumbonly" title="imageUrl serves an HTML page, not an image. Render thumbnailUrl and link to the source post.">
+                          thumbnail only
+                        </div>
+                      )}
                       <div className="disc-links">
-                        <a href={r.imageUrl} target="_blank" rel="noreferrer noopener">image</a>
+                        {r.imageUsable === false
+                          ? <a href={r.thumbnailUrl} target="_blank" rel="noreferrer noopener">thumbnail</a>
+                          : <a href={r.imageUrl} target="_blank" rel="noreferrer noopener">image</a>}
                         {r.sourceUrl && <a href={r.sourceUrl} target="_blank" rel="noreferrer noopener">source</a>}
-                        <button onClick={() => navigator.clipboard?.writeText(r.imageUrl)}>copy URL</button>
+                        <button onClick={() => navigator.clipboard?.writeText(r.imageUsable === false ? r.thumbnailUrl : r.imageUrl)}>copy URL</button>
                       </div>
                     </figcaption>
                   </figure>

@@ -22,6 +22,10 @@
  * @property {string|null} sourceDomain
  * @property {number|null} width
  * @property {number|null} height
+ * @property {boolean}     [imageUsable]  Added by designSearch.service, not by
+ *          providers. False when imageUrl serves an HTML page rather than an
+ *          image (Instagram, Facebook) - the result is still returned, and its
+ *          thumbnailUrl is a real image, but imageUrl must not be hotlinked.
  */
 
 /**

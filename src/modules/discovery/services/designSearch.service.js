@@ -13,31 +13,34 @@ const { getProvider } = require('../providers');
 const { buildQuery } = require('./queryBuilder');
 const cache = require('./searchCache');
 
-function matchesBlocked(host) {
+function matchesNonImageHost(host) {
   if (!host) return false;
   const h = String(host).toLowerCase();
-  return config.search.blockedImageHosts.some(
+  return config.search.nonImageHosts.some(
     (blocked) => h === blocked || h.endsWith('.' + blocked)
   );
 }
 
 /**
- * True when a result comes from a source that hands back an HTML page rather
- * than an image. See config.search.blockedImageHosts for how the list was measured.
+ * Whether `imageUrl` can actually be loaded as an image.
+ *
+ * Instagram and Facebook report an imageUrl that serves an HTML page, so a
+ * consumer must not hotlink it - but their thumbnailUrl IS a real image, which
+ * is why those results are still worth returning. Callers branch on this flag
+ * rather than on the domain.
  *
  * Checks the imageUrl's host AND the sourceDomain, because neither alone is
  * enough: facebook results carry sourceDomain facebook.com but an imageUrl on
- * lookaside.fbsbx.com, so host-only matching lets them through. Suffix matching
- * covers subdomains (m.facebook.com, www.instagram.com).
+ * lookaside.fbsbx.com. Suffix matching covers subdomains.
  */
-function isBlockedResult(result) {
+function hasUsableImageUrl(result) {
   let host = null;
   try {
     host = new URL(result.imageUrl).hostname;
   } catch {
     host = null;
   }
-  return matchesBlocked(host) || matchesBlocked(result.sourceDomain);
+  return !(matchesNonImageHost(host) || matchesNonImageHost(result.sourceDomain));
 }
 
 /**
@@ -50,6 +53,11 @@ function isBlockedResult(result) {
  * We do NOT probe each imageUrl to confirm it is really an image. Measurement
  * showed the host is an exact proxy (no host was partially bad), so a free
  * string check buys the same correctness as 20 extra network round trips.
+ *
+ * Results whose imageUrl is not a real image are annotated rather than removed,
+ * so Instagram and Facebook designs still reach the caller. The only such
+ * result dropped is one that also has no thumbnail - it carries no viewable
+ * image at all and is of no use to anyone.
  */
 function filterResults(results) {
   const { minImageWidth, minImageHeight } = config.search;
@@ -61,10 +69,12 @@ function filterResults(results) {
     if (seen.has(result.imageUrl)) continue;
     if (result.width !== null && result.width < minImageWidth) continue;
     if (result.height !== null && result.height < minImageHeight) continue;
-    if (isBlockedResult(result)) continue;
+
+    const imageUsable = hasUsableImageUrl(result);
+    if (!imageUsable && !result.thumbnailUrl) continue;
 
     seen.add(result.imageUrl);
-    out.push(result);
+    out.push({ ...result, imageUsable });
   }
 
   return out;
@@ -97,4 +107,4 @@ async function search(input) {
   return { query, results, rawCount, cached: false };
 }
 
-module.exports = { search, filterResults, isBlockedResult };
+module.exports = { search, filterResults, hasUsableImageUrl };
