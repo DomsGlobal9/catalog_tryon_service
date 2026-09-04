@@ -1,0 +1,318 @@
+/* =========================================================================
+   men-index.css - styles for the men's catalog view (.ecom-* namespace).
+
+   The original version of this file set `*`, `:root` and `body` to a LIGHT palette.
+   Because MenApp imports it, those rules leaked app-wide and overrode the dark
+   theme for every other view the moment the men tab was opened. The global
+   block is gone and the palette now uses the shared theme variables from
+   index.css, so the men view matches the rest of the product.
+   ========================================================================= */
+
+button, input, select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   ECOMMERCE LAYOUT
+   ============================================================ */
+
+.ecom-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+  color: var(--text-main);
+}
+
+.ecom-container h1, .ecom-container h2, .ecom-container h3, .ecom-container label, .ecom-container p {
+  color: var(--text-main);
+}
+
+.ecom-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.ecom-header h1 {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.ecom-header p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.ecom-main {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 40px;
+  background: var(--card-bg);
+  padding: 40px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+}
+
+/* ============================================================
+   LEFT COLUMN: IMAGE
+   ============================================================ */
+
+.ecom-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.ecom-image-wrapper {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--border-color);
+}
+
+.ecom-large-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 800px;
+  object-fit: contain;
+}
+
+.ecom-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 600px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  color: var(--text-muted);
+}
+
+.ecom-loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.ecom-image-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  gap: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* ============================================================
+   RIGHT COLUMN: CONTROLS
+   ============================================================ */
+
+.ecom-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ecom-right h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 16px;
+}
+
+.ecom-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ecom-control-group label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.optional {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.ecom-select {
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  outline: none;
+  font-size: 1rem;
+}
+.ecom-select:focus {
+  border-color: var(--accent);
+}
+
+/* UPLOADS */
+.ecom-upload-box {
+  padding: 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.ecom-upload-box input[type="file"] {
+  width: 100%;
+}
+
+.ecom-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ecom-thumb {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--card-bg);
+}
+
+.ecom-btn-clear {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  border-radius: 6px;
+}
+.ecom-btn-clear:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.ecom-help-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* SIZE SELECTOR */
+.ecom-size-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ecom-size-btn {
+  padding: 12px 0;
+  min-width: 60px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.ecom-size-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ecom-size-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.ecom-btn-cancel {
+  padding: 14px;
+  border: 1px solid #f87171;
+  background: var(--card-bg);
+  color: #f87171;
+  font-weight: 700;
+  border-radius: 8px;
+}
+.ecom-btn-cancel:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.ecom-error {
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+/* ============================================================
+   SPINNER
+   ============================================================ */
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .ecom-main {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+  .ecom-placeholder {
+    min-height: 400px;
+  }
+}
+
+.ecom-btn-generate {
+  width: 100%;
+  padding: 14px;
+  background-color: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 20px;
+  transition: background-color 0.2s;
+}
+
+.ecom-btn-generate:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.ecom-btn-generate:disabled {
+  background-color: var(--accent);
+  opacity: 0.5;
+  cursor: not-allowed;
+}

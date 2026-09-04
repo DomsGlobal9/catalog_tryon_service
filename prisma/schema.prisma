@@ -15,6 +15,7 @@ model AiModel {
   name           String    // e.g., "Model 1 (Female)"
   gender         String    @default("female")
   isActive       Boolean   @default(true) @map("is_active")
+  category       String?
   
   // The crucial base images for the 4 views
   frontBaseUrl   String    @map("front_base_url")

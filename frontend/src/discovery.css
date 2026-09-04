@@ -187,3 +187,11 @@ body { background-color: var(--bg-color); }
 .disc-error strong { color: #f87171; font-size: 0.85rem; }
 .disc-error div { font-size: 0.82rem; margin-top: 0.3rem; }
 .disc-error ul { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.78rem; color: var(--text-muted); }
+
+/* Standalone women/men toggle used by App.jsx */
+.flow-switch {
+  text-align: center; padding: 1.25rem 1rem;
+  background: var(--card-bg); border-bottom: 1px solid var(--border-color);
+}
+.flow-switch h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+.flow-switch-buttons { display: flex; justify-content: center; gap: 0.6rem; }

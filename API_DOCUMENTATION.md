@@ -44,6 +44,31 @@ A missing or wrong key returns `401`:
 
 # 📡 Catalog Try-On
 
+
+### Two pipelines behind one path — women and men
+
+`/generate-catalog` dispatches to one of two pipelines. **`category` is interpreted, not demanded**,
+so existing integrations keep working unchanged:
+
+| `category` you send | Goes to | Garment type used |
+| :--- | :--- | :--- |
+| `"women"` | women pipeline | `garmentCategory`, or `SAREE` |
+| `"men"` | men pipeline | `garmentCategory`, or `FORMALS` |
+| `SAREE`, `LEHANGA`, `ANARKALI`, `SHARARA`, `KURTHI` | women pipeline | the value itself |
+| `FORMALS`, `BLAZER`, `KURTA_PAJAMA`, `SHERWANI` | men pipeline | the value itself |
+| anything else, or omitted | women pipeline | the value itself (`SAREE` if absent) |
+
+So both of these are valid and equivalent:
+
+```json
+{ "clientId": "acme", "modelId": "saree1", "category": "SAREE", "saree": "..." }
+{ "clientId": "acme", "modelId": "saree1", "category": "women", "garmentCategory": "SAREE", "saree": "..." }
+```
+
+The women pipeline is documented in full below. **The men pipeline is newer and was not verified by
+the same end-to-end testing** — treat the section at the end of this document as a description of
+its code rather than of proven behaviour.
+
 ## `POST /api/v1/draping/generate-catalog`
 
 Takes one or more garment images and streams back a 4-view catalog — front, back, side and
@@ -548,3 +573,53 @@ provider outages included — is reported as `4xx`.
 | `SHUTDOWN_GRACE_MS` | `30000` | Forced exit if in-flight work will not drain. |
 | `DISCOVERY_CACHE_TTL_SEC` | `3600` | Search cache lifetime. |
 | `DISCOVERY_RATE_LIMIT_PER_MIN` | `20` | Searches per minute per `clientId`. |
+
+
+---
+
+# 👔 Men's Catalog — `/api/v1/draping/*`
+
+Added alongside the women pipeline and reached through the same dispatcher. **Not covered by the
+end-to-end verification behind the rest of this document**; the following is derived from the code.
+
+### `POST /generate-catalog` with `category: "men"`
+
+| Field | Type | Required | Notes |
+| :--- | :--- | :--- | :--- |
+| `clientId` | String | **Yes** | |
+| `category` | String | **Yes** | `"men"`, or a men's garment type directly |
+| `garmentCategory` | String | No | `FORMALS` (default), `BLAZER`, `KURTA_PAJAMA`, `SHERWANI` |
+| `full` | String | * | The garment image |
+| `topFront` / `tops` / `bottom` | String | * | Individual pieces |
+| `userPhoto` | String | No | Used by the try-on and size flows |
+
+\* At least one garment image is required — otherwise `"Garment image is required."`
+
+### Additional men-only endpoints
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `POST /api/v1/draping/recommend-size` | Analyses a user photo and recommends a size. Requires a non-empty `sizes` array. |
+| `POST /api/v1/draping/generate-top-wear` | Generates top-wear only |
+| `POST /api/v1/draping/generate-bottom-wear` | Generates bottom-wear only |
+| `POST /api/v1/draping/generate-user-tryon` | Try-on against a supplied user photo |
+| `POST /api/v1/draping/cancel-job` with `pipeline: "men"` | Cancels a men job |
+
+### Cancelling a men job
+
+The dispatcher routes `cancel-job` by an explicit `pipeline` field first:
+
+```json
+{ "clientId": "your-id", "pipeline": "men" }
+```
+
+Without it, only the bundled men frontend's `clientId` (`men-frontend`) is recognised; everything
+else falls back to the women pipeline. **If you use an arbitrary `clientId` for men jobs, send
+`pipeline` explicitly** or your cancel will be routed to the wrong pipeline and silently do nothing.
+
+### Known gap
+
+The men generation service carries its own copy of the Gemini call logic. The reliability fixes
+applied to the women pipeline — retrying the response body read, a per-call timeout, base-pose
+caching, parallel view generation and JPEG uploads — **have not been ported to it**. It is expected
+to be slower and more failure-prone until that is done.
