@@ -45,10 +45,19 @@ A missing or wrong key returns `401`:
 # 📡 Catalog Try-On
 
 
-### Two pipelines behind one path — women and men
+### Three capabilities, three endpoints
 
-`/generate-catalog` dispatches to one of two pipelines. **`category` is interpreted, not demanded**,
-so existing integrations keep working unchanged:
+Each capability has its own endpoint:
+
+| Endpoint | Capability |
+| :--- | :--- |
+| `POST /api/v1/draping/generate-catalog/women` | Women's catalog — 4 views |
+| `POST /api/v1/draping/generate-catalog/men` | Men's catalog — one image per size |
+| `POST /api/v1/discovery/search` | Design discovery |
+
+`POST /api/v1/draping/generate-catalog` (no suffix) remains as a **backward-compatible dispatcher**
+for callers written before the split. **`category` is interpreted, not demanded**, so existing
+integrations keep working unchanged:
 
 | `category` you send | Goes to | Garment type used |
 | :--- | :--- | :--- |
@@ -577,49 +586,64 @@ provider outages included — is reported as `4xx`.
 
 ---
 
-# 👔 Men's Catalog — `/api/v1/draping/*`
+# 👔 Men's Catalog
 
-Added alongside the women pipeline and reached through the same dispatcher. **Not covered by the
-end-to-end verification behind the rest of this document**; the following is derived from the code.
+Reached at its own endpoint. **Its request and response contract differs from the women pipeline** —
+it is size-driven, not view-driven, so do not assume the two are interchangeable.
 
-### `POST /generate-catalog` with `category: "men"`
+## `POST /api/v1/draping/generate-catalog/men`
 
 | Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
 | `clientId` | String | **Yes** | |
-| `category` | String | **Yes** | `"men"`, or a men's garment type directly |
-| `garmentCategory` | String | No | `FORMALS` (default), `BLAZER`, `KURTA_PAJAMA`, `SHERWANI` |
-| `full` | String | * | The garment image |
-| `topFront` / `tops` / `bottom` | String | * | Individual pieces |
-| `userPhoto` | String | No | Used by the try-on and size flows |
+| `full` / `topFront` / `bottom` | String | **Yes** | At least one garment image. URL, raw base64 or data URI. |
+| `category` | String | No | `FORMALS` (default), `BLAZER`, `KURTA_PAJAMA`, `SHERWANI` |
+| `categoryGroup` | String | Yes* | e.g. `TOPWEAR` / `BOTTOMWEAR` |
+| `sizes` | String[] | **Yes** | Non-empty, else `"sizes array is required and cannot be empty."` |
+| `validatedSizes` | String[] | **Yes** | Must all be valid for the `sizeType` |
+| `sizeType` | String | **Yes** | `"standard"` or `"waist"` — anything else is `"Invalid sizeType."` |
+| `userPhoto` | String | No | Switches the pipeline into try-on mode |
 
-\* At least one garment image is required — otherwise `"Garment image is required."`
+### Response — SSE, but different events from the women pipeline
 
-### Additional men-only endpoints
+The men pipeline generates **one image per requested size**, not four views. Its events are:
+
+| Event | Meaning |
+| :--- | :--- |
+| `STATUS` | Step description (shared with the women pipeline) |
+| `SIZE_STATUS` | `{ size, status }` — a size has started generating |
+| `SIZE_READY` | `{ size, result }` — `result` is a `data:image/jpeg;base64,...` URI |
+| `COMPLETE` | All sizes done |
+| `ERROR` | Failed after the stream opened |
+
+A consumer written against the women pipeline's `VIEW_READY` will receive **nothing** here. Handle
+`SIZE_READY` and key by `size`.
+
+Verified live: a `FORMALS` request with `sizes: ["M"]` streamed `SIZE_STATUS` then `SIZE_READY`
+carrying a valid base64 JPEG, then `COMPLETE`.
+
+## Men-only endpoints
 
 | Endpoint | Purpose |
 | :--- | :--- |
-| `POST /api/v1/draping/recommend-size` | Analyses a user photo and recommends a size. Requires a non-empty `sizes` array. |
-| `POST /api/v1/draping/generate-top-wear` | Generates top-wear only |
-| `POST /api/v1/draping/generate-bottom-wear` | Generates bottom-wear only |
+| `POST /api/v1/draping/recommend-size` | Analyses a user photo and recommends a size |
+| `POST /api/v1/draping/generate-top-wear` | Top-wear only |
+| `POST /api/v1/draping/generate-bottom-wear` | Bottom-wear only |
 | `POST /api/v1/draping/generate-user-tryon` | Try-on against a supplied user photo |
-| `POST /api/v1/draping/cancel-job` with `pipeline: "men"` | Cancels a men job |
+| `POST /api/v1/draping/cancel-job/men` | Cancels a men job |
 
-### Cancelling a men job
+## Reliability and performance
 
-The dispatcher routes `cancel-job` by an explicit `pipeline` field first:
+The men service previously carried its own unfixed copy of the Gemini call logic. It now has the
+same treatment as the women pipeline:
 
-```json
-{ "clientId": "your-id", "pipeline": "men" }
-```
+- the response body is read **inside** the retry loop, so a mid-download connection reset retries
+  instead of killing the job
+- a wall-clock `GEMINI_TIMEOUT_MS` ceiling per call, combined with the client abort signal
+- processed base poses cached in memory rather than re-fetched per request
+- reference images prepared concurrently instead of in series
+- JPEG q95 uploads rather than PNG
 
-Without it, only the bundled men frontend's `clientId` (`men-frontend`) is recognised; everything
-else falls back to the women pipeline. **If you use an arbitrary `clientId` for men jobs, send
-`pipeline` explicitly** or your cancel will be routed to the wrong pipeline and silently do nothing.
-
-### Known gap
-
-The men generation service carries its own copy of the Gemini call logic. The reliability fixes
-applied to the women pipeline — retrying the response body read, a per-call timeout, base-pose
-caching, parallel view generation and JPEG uploads — **have not been ported to it**. It is expected
-to be slower and more failure-prone until that is done.
+It also fixes a latent defect: every outgoing image part declared the **caller's** mime type while
+sending **resized** bytes, so the declaration never matched the payload. All five now declare the
+format actually produced.

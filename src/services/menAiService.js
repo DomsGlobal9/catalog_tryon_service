@@ -10,6 +10,39 @@ const FALLBACK_FRONT_MODEL_URL =
 // DOWNLOAD IMAGE URL → BASE64
 // ============================================================
 
+// Upload format for images sent to Gemini. PNG is lossless but enormous: one
+// processed 1024px image is ~1137 KB as PNG against ~125 KB as JPEG q95, and a
+// single call uploads several. q95 is visually near-lossless at this size and
+// the model re-encodes internally anyway. INPUT_IMAGE_FORMAT=png reverts.
+const INPUT_FORMAT = (process.env.INPUT_IMAGE_FORMAT || 'jpeg').toLowerCase();
+const INPUT_QUALITY = Number(process.env.INPUT_IMAGE_QUALITY || 95);
+const INPUT_MIME = INPUT_FORMAT === 'png' ? 'image/png' : 'image/jpeg';
+
+// Base poses are identical for every request using the same model, yet were
+// re-downloaded and re-processed each time. Cache the PROCESSED base64 by URL.
+// The promise is cached rather than the value so concurrent requests do the work
+// once; a rejected promise is evicted so a transient failure is never cached.
+const BASE_MODEL_CACHE_MAX = Number(process.env.BASE_MODEL_CACHE_MAX || 24);
+const baseModelCache = new Map();
+
+function cachedBaseModel(url, produce) {
+  if (baseModelCache.has(url)) {
+    const hit = baseModelCache.get(url);
+    baseModelCache.delete(url);
+    baseModelCache.set(url, hit);
+    return hit;
+  }
+  const pending = produce();
+  pending.catch(() => baseModelCache.delete(url));
+  baseModelCache.set(url, pending);
+  while (baseModelCache.size > BASE_MODEL_CACHE_MAX) {
+    const oldest = baseModelCache.keys().next().value;
+    if (oldest === undefined) break;
+    baseModelCache.delete(oldest);
+  }
+  return pending;
+}
+
 async function imageUrlToBase64(imageUrl) {
 
   const response =
@@ -61,6 +94,11 @@ function cleanBase64(b64) {
 // GET MIME TYPE FROM DATA URL
 // ============================================================
 
+// NOTE: describes a CALLER-SUPPLIED image. It must not be used to declare the
+// mime type of an outgoing Gemini part - those always carry augmentedResize
+// output, whose format is INPUT_MIME regardless of what was uploaded. Every
+// outgoing part previously used this and so declared a type that did not match
+// the bytes being sent.
 function getMimeType(value) {
 
   if (
@@ -213,7 +251,7 @@ async function augmentedResize(base64Str) {
 
       })
 
-      .png()
+      .toFormat(INPUT_FORMAT, INPUT_FORMAT === 'jpeg' ? { quality: INPUT_QUALITY } : {})
 
       .toBuffer();
 
@@ -274,7 +312,10 @@ async function callGeminiImageGen(
   };
 
 
-  let resp;
+  // Wall-clock ceiling for one call, so a hung upstream cannot hold a worker open.
+  const CALL_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 120000);
+
+  let respJson;
 
   let retries = 3;
 
@@ -285,7 +326,7 @@ async function callGeminiImageGen(
 
     try {
 
-      resp =
+      const resp =
         await fetch(
           GEMINI_URL,
           {
@@ -310,6 +351,8 @@ async function callGeminiImageGen(
 
             signal:
               abortSignal
+                ? AbortSignal.any([abortSignal, AbortSignal.timeout(CALL_TIMEOUT_MS)])
+                : AbortSignal.timeout(CALL_TIMEOUT_MS)
 
           }
         );
@@ -375,6 +418,18 @@ async function callGeminiImageGen(
       }
 
 
+
+      // CRITICAL: read the body INSIDE the retry block.
+      //
+      // This used to sit after the loop, so the request retried three times but
+      // reading the response did not retry at all. Gemini image responses are
+      // multiple megabytes of base64, which makes the body read the single most
+      // likely point for a connection to drop - and a reset there
+      // (TypeError: terminated / ECONNRESET) killed the whole job with zero
+      // retries. Same defect that was fixed in the women pipeline.
+      respJson =
+        await resp.json();
+
       break;
 
 
@@ -434,8 +489,13 @@ async function callGeminiImageGen(
   // READ GEMINI RESPONSE
   // ==========================================================
 
-  const respJson =
-    await resp.json();
+  if (!respJson) {
+
+    throw new Error(
+      'Gemini API produced no response after retries.'
+    );
+
+  }
 
 
   const candidates =
@@ -631,24 +691,21 @@ function selectEnvironment() {
 }
 
 async function prepareReferenceImages(inputs, isUserPhotoMode) {
-  const references = {
-    fullDress: await augmentedResize(await imageInputToBase64(inputs.fullDress)),
-    topFront: await augmentedResize(await imageInputToBase64(inputs.topFront)),
-    bottom: await augmentedResize(await imageInputToBase64(inputs.bottom)),
-    userPhoto: null
-  };
+  // Independent of one another - prepare concurrently rather than in series.
+  const resolve = async (v) => (v ? augmentedResize(await imageInputToBase64(v)) : null);
 
-  if (isUserPhotoMode) {
-    references.userPhoto = await augmentedResize(
-      await imageInputToBase64(inputs.userPhoto)
-    );
+  const [fullDress, topFront, bottom, userPhoto] = await Promise.all([
+    resolve(inputs.fullDress),
+    resolve(inputs.topFront),
+    resolve(inputs.bottom),
+    isUserPhotoMode ? resolve(inputs.userPhoto) : Promise.resolve(null)
+  ]);
 
-    if (!references.userPhoto) {
-      throw new Error('Unable to process uploaded user photo.');
-    }
+  if (isUserPhotoMode && !userPhoto) {
+    throw new Error('Unable to process uploaded user photo.');
   }
 
-  return references;
+  return { fullDress, topFront, bottom, userPhoto };
 }
 
 async function resolveBaseModelReference(baseModel, category) {
@@ -657,8 +714,10 @@ async function resolveBaseModelReference(baseModel, category) {
       ? FALLBACK_FRONT_MODEL_URL
       : baseModel?.front || FALLBACK_FRONT_MODEL_URL;
 
-  return augmentedResize(
-    await imageUrlToBase64(baseModelUrl)
+  // Identical for every request using this model - cache the processed result
+  // instead of re-downloading and re-encoding it each time.
+  return cachedBaseModel(baseModelUrl, async () =>
+    augmentedResize(await imageUrlToBase64(baseModelUrl))
   );
 }
 
@@ -1143,7 +1202,7 @@ Do not return text.
 
       parts.push({
         inline_data: {
-          mime_type: getMimeType(userPhoto),
+          mime_type: INPUT_MIME,
           data: cleanBase64(processedUserPhoto)
         }
       });
@@ -1214,7 +1273,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         inline_data: {
 
           mime_type:
-            getMimeType(fullDress),
+            INPUT_MIME,
 
           data:
             cleanBase64(
@@ -1249,7 +1308,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         inline_data: {
 
           mime_type:
-            getMimeType(topFront),
+            INPUT_MIME,
 
           data:
             cleanBase64(
@@ -1284,7 +1343,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         inline_data: {
 
           mime_type:
-            getMimeType(bottom),
+            INPUT_MIME,
 
           data:
             cleanBase64(
@@ -1311,7 +1370,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
 
       parts.push({
         inline_data: {
-          mime_type: getMimeType(userPhoto),
+          mime_type: INPUT_MIME,
           data: cleanBase64(processedUserPhoto)
         }
       });
@@ -1348,7 +1407,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         });
 
         parts.push({
-          inline_data: { mime_type: 'image/png', data: cleanBase64(bodyRefImage) }
+          inline_data: { mime_type: INPUT_MIME, data: cleanBase64(bodyRefImage) }
         });
       } else if (bodyReferenceUrl) {
         // Top wear: use both base model (for identity) and body reference (for proportions)
@@ -1360,7 +1419,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         });
         
         parts.push({
-          inline_data: { mime_type: 'image/png', data: cleanBase64(resolvedBaseModel) }
+          inline_data: { mime_type: INPUT_MIME, data: cleanBase64(resolvedBaseModel) }
         });
         
         parts.push({
@@ -1368,7 +1427,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
         });
         
         parts.push({
-          inline_data: { mime_type: 'image/png', data: cleanBase64(bodyRefImage) }
+          inline_data: { mime_type: INPUT_MIME, data: cleanBase64(bodyRefImage) }
         });
       } else {
         const resolvedBaseModel = await resolveBaseModelReference(baseModel, category);
@@ -1378,7 +1437,7 @@ Preserve the exact identity of the reference person (face, hairstyle, skin tone)
 
         parts.push({
           inline_data: {
-            mime_type: 'image/png',
+            mime_type: INPUT_MIME,
             data: cleanBase64(resolvedBaseModel)
           }
         });

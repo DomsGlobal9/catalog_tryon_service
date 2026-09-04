@@ -162,6 +162,7 @@ button:disabled {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--card-bg);
+  color: var(--text-main);
   outline: none;
   font-size: 1rem;
 }
@@ -201,6 +202,7 @@ button:disabled {
   font-size: 0.85rem;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
+  color: var(--text-main);
   border-radius: 6px;
 }
 .ecom-btn-clear:hover:not(:disabled) {
@@ -225,6 +227,7 @@ button:disabled {
   min-width: 60px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
+  color: var(--text-main);
   border-radius: 8px;
   font-weight: 600;
   transition: all 0.2s ease;
@@ -316,3 +319,12 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Form controls do not inherit `color`; without this they fall back to the UA
+   default (black) and become unreadable on the dark theme. */
+.ecom-container input,
+.ecom-container select,
+.ecom-container textarea,
+.ecom-container button:not(.ecom-btn-generate):not(.ecom-btn-cancel) {
+  color: var(--text-main);
+}
+.ecom-container option { background: #1e293b; color: var(--text-main); }
