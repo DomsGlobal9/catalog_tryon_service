@@ -239,6 +239,9 @@ async function runSSEGeneration(req, res, {
           });
 
           try {
+            // Set when the streaming callback below emits SIZE_READY, so the
+            // post-await emit does not send the same image a second time.
+            let streamedThisSize = false;
             let bodyReferenceUrl = null;
 
             if (useBodyReferences) {
@@ -276,6 +279,7 @@ async function runSSEGeneration(req, res, {
               {},
               (progress) => {
                 if (progress.image) {
+                  streamedThisSize = true;
                   sendEvent({
                     type: "SIZE_READY",
                     size: progress.size || currentSize,
@@ -295,12 +299,19 @@ async function runSSEGeneration(req, res, {
               allResults[currentSize] = result;
             }
 
-            sendEvent({
-              type: "SIZE_READY",
-              size: currentSize,
-              topIndex: isMixAndMatch ? topIndex : undefined,
-              result: result
-            });
+            // Fallback only. This used to fire unconditionally *in addition* to
+            // the progress callback above, so every size was streamed twice as
+            // byte-identical duplicates (confirmed by md5 against production).
+            // The UI keys results by size so it silently overwrote itself, but a
+            // third party appending to a list received every image twice.
+            if (!streamedThisSize) {
+              sendEvent({
+                type: "SIZE_READY",
+                size: currentSize,
+                topIndex: isMixAndMatch ? topIndex : undefined,
+                result: result
+              });
+            }
           } catch (error) {
             console.error(`Error generating size ${currentSize}:`, error);
             sendEvent({
