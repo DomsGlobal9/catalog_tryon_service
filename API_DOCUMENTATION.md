@@ -1,44 +1,76 @@
-# ScaleEasy Catalog Try-On API Documentation
+# ScaleEasy Catalog Service — API Documentation
 
-This document provides comprehensive technical details for integrating with the **ScaleEasy Catalog Try-On Microservice**. This API generates high-fidelity, studio-quality 4-view catalog images (Front, Back, Side, Sitting) using Gemini 3.1 Flash Image.
+One service exposing two independent capabilities:
+
+| Capability | Path | Shape |
+| :--- | :--- | :--- |
+| **Catalog Try-On** | `/api/v1/draping/*` | Long-running, streams over SSE |
+| **Design Discovery** | `/api/v1/discovery/*` | Fast, plain JSON |
+
+They share a host, an API key and a gateway slug, but nothing else — a failure in one does not
+affect the other.
+
+> Everything in this document was verified against the running service. Where behaviour is
+> surprising (a field that is accepted but ignored, a category that is silently rewritten) it is
+> documented as it actually behaves, not as it ideally would.
 
 ---
 
 ## 🚀 Base URL
-**Production:** `https://catalog-tryon-microservice.onrender.com`  
-**Local Development:** `http://localhost:4005`
 
----
+**Production (via gateway):** `https://api-super-admin.onrender.com/api/gateway/cat`
+**Direct / local:** `http://localhost:4005`
+
+The gateway strips the `cat` segment and forwards the rest of the path unchanged, so
+`/api/gateway/cat/api/v1/discovery/search` reaches the service as `/api/v1/discovery/search`.
 
 ## 🔒 Authentication
-All requests require an API key passed in the headers.
 
-| Header Key | Value | Description |
-| :--- | :--- | :--- |
-| `x-api-key` | `se_catalog_internal_key_v1_99283` | Internal security key |
-| `Content-Type`| `application/json` | Required for the payload |
+| Header | Value |
+| :--- | :--- |
+| `x-api-key` | Your API key |
+| `Content-Type` | `application/json` |
+
+Every path under `/api/` requires the key. **`GET /health` is the only exception** — it is
+deliberately unauthenticated so load balancers and the gateway's health cron can reach it.
+
+A missing or wrong key returns `401`:
+
+```json
+{ "success": false, "error": "Unauthorized: Invalid or missing Service API Key" }
+```
 
 ---
 
-## 📡 Endpoint: Generate Catalog
-**`POST /api/v1/draping/generate-catalog`**
+# 📡 Catalog Try-On
 
-This endpoint accepts base64-encoded garment images and streams back the generated model images in real-time using Server-Sent Events (SSE).
+## `POST /api/v1/draping/generate-catalog`
 
-### Request Payload (JSON)
+Takes one or more garment images and streams back a 4-view catalog — front, back, side and
+sitting — generated onto a chosen AI model.
 
-| Field | Type | Required | Description |
+### Request payload
+
+| Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Identifier for the client/tenant (e.g., `"frontend-test-suite"`). |
-| `modelId` | String | **Yes** | The exact ID of the AI Model to use (see *Available Model IDs* below). |
-| `category` | String | No | Defaults to `"SAREE"`. Valid options: `"SAREE"`, `"KURTI"`, `"ANARKALI"`, `"LEHANGA"`, `"SHARARA"`. |
-| `saree` / `full` / `fullDress` | String | **Yes** | The primary garment (flat-lay or worn). **A public image URL or base64** — see below. |
-| `blouse` / `top` / `topFront`| String | No | The top/blouse. URL or base64. |
-| `bottom` | String | No | The pants/skirt, if applicable. URL or base64. |
+| `clientId` | String | **Yes** | Your tenant identifier. Also the zombie-job key — see below. |
+| `modelId` | String | **Yes** | One of the 22 IDs listed below. |
+| `saree` / `full` / `fullDress` | String | **Yes** | The primary garment. First non-empty of these three wins, in that order. |
+| `blouse` / `top` / `topFront` | String | No | The top or blouse. Same precedence order. |
+| `bottom` | String | No | Skirt or pants. |
+| `category` | String | No | Defaults to `SAREE`. See *Category handling*. |
+| `dupattaStyleUrl` | String | No | **LEHANGA only.** See *Dupatta style*. |
+| `topBack` | String | No | **Accepted but ignored** — see below. |
 
-#### Garment inputs accept three forms, interchangeably
+#### ⚠️ `topBack` is accepted and silently discarded
 
-Every garment field accepts any of these, and they can be mixed within one request:
+The route reads `topBack` from the body and forwards it, but the generation service never
+consumes it. Sending it causes no error and has **no effect whatsoever**. It is documented here
+only so nobody builds against it expecting it to work.
+
+#### Garment inputs accept three interchangeable forms
+
+Any garment field takes any of these, and they may be mixed within one request:
 
 | Form | Example |
 | :--- | :--- |
@@ -46,105 +78,110 @@ Every garment field accepts any of these, and they can be mixed within one reque
 | **Raw base64** | `"/9j/4AAQSkZJRgABA..."` |
 | **data: URI** | `"data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."` |
 
-A URL is the lighter option: it keeps the request body small and lets the service
-fetch the bytes itself. This is what makes a Design Discovery result usable directly — pass
-`fetchable.url` straight through as the garment.
+All three were verified end-to-end and produce identical output. A URL is the lighter option —
+it keeps the request body small and lets the service fetch the bytes itself, which is what makes a
+Design Discovery result usable directly: pass `fetchable.url` straight through as the garment.
 
-All three forms were verified end-to-end against live generations and produce identical output.
+#### Category handling
 
-### Example Request (Saree)
-For Sarees, the API expects `saree` and `blouse` keys.
+`category` is upper-cased, then resolved through an alias table before selecting the prompt:
+
+| You send | Resolves to |
+| :--- | :--- |
+| `SAREE`, `sari` | `SAREE` |
+| `KURTI`, `KURTA`, `KURTHI` | `KURTHI` |
+| `LEHENGA`, `GHAGRA`, `LEHANGA` | `LEHANGA` |
+| `SHARARA`, `GHARARA` | `SHARARA` |
+| `ANARKALI` | `ANARKALI` |
+
+Anything unrecognised is **not rejected** — the request still generates, using a generic prompt,
+and the server logs a warning. Omitting `category` entirely defaults to `SAREE`.
+
+#### Dupatta style — `LEHANGA` only
+
+`dupattaStyleUrl` is ignored unless the resolved category is `LEHANGA`. It accepts either a
+shorthand key or a full image URL:
+
+| Key | Effect |
+| :--- | :--- |
+| `lehanga_duppatta1` | Adds a dupatta-drape reference **and** swaps the model's front base pose for a single-pleated variant (only for `modelId` `lehanga1`–`lehanga4`) |
+| `lehangaduppatta2` | Adds the dupatta-drape reference only — no base-pose swap |
+| any `https://…` URL | Used directly as the drape reference |
+
+The reference controls **only how the dupatta is draped** — not its colour, fabric or embroidery,
+which come from the garment reference.
+
+### Available `modelId` values — 22 in the database
+
+* **Sarees:** `saree1` `saree2` `saree3` `saree4`
+* **Kurtis:** `kurti1` `kurti2` `kurti3` `kurti4`
+* **Anarkalis:** `anarkali1` `anarkali2` `anarkali3` `anarkali4`
+* **Lehangas:** `lehanga1` `lehanga2` `lehanga3` `lehanga4`
+* **Shararas:** `sharara1` `sharara2` `sharara3` `sharara4`
+* **Lehenga drape variants:** `lehenga_single_shoulder` `lehenga_traditional_front_pleat`
+
+Note the spelling: model IDs use `kurti` and `lehanga`. An unknown `modelId` returns `404`.
+
+### Example requests
+
+Saree, garment supplied as a URL:
+
 ```json
 {
-  "clientId": "frontend-test-suite",
+  "clientId": "acme-retail",
   "modelId": "saree1",
   "category": "SAREE",
-  "saree": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
-  "blouse": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
+  "saree": "https://cdn.shop/red-silk-saree.jpg",
+  "blouse": "https://cdn.shop/matching-blouse.jpg"
 }
 ```
 
-### Example Request (Kurti, Lehanga, Anarkali, Sharara)
-For generic 3-piece sets, the API expects `full` (or `fullDress`), `top`, and `bottom` keys.
+Lehenga with a dupatta drape style, garment as base64:
+
 ```json
 {
-  "clientId": "frontend-test-suite",
-  "modelId": "kurti1",
-  "category": "KURTI",
+  "clientId": "acme-retail",
+  "modelId": "lehanga2",
+  "category": "LEHANGA",
   "full": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
-  "top": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
-  "bottom": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
+  "dupattaStyleUrl": "lehanga_duppatta1"
 }
 ```
 
 ---
 
-## 🛑 Endpoint: Cancel Job
-**`POST /api/v1/draping/cancel-job`**
+## 📥 Response — Server-Sent Events
 
-This endpoint forcefully terminates a running AI generation pipeline on the backend. Because the `generate-catalog` endpoint is a long-running streaming request, reverse proxies (like Next.js Gateway) can sometimes hide client disconnects from the backend. **You should always call this endpoint if the user clicks "Stop" or refreshes the page mid-generation.**
+Generation takes roughly **30–70 seconds** for all four views, so this endpoint does not return a
+single JSON body. It streams `text/event-stream`.
 
-### Request Payload (JSON)
+Chunks are separated by `\n\n`. Frames carrying data are prefixed `data: ` and contain JSON.
 
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | The exact same `clientId` used to start the generation. |
+### Two things every consumer must handle
 
-### Example Request
+**1. Keepalive comment lines.** Between views the server emits SSE comments so proxies do not idle
+the connection out:
+
+```
+: keepalive 1757000000000
+```
+
+They start with `:`, not `data: `. Skip any chunk not prefixed `data: ` — which the SSE spec
+requires anyway.
+
+**2. Views arrive out of order.** `front` is always first, because the other three use it as their
+consistency reference. `back`, `side` and `sitting` are then generated **concurrently** and
+complete in whatever order the model returns them. Key your state off `event.view`, never off
+arrival position.
+
+### Event types
+
+**`STATUS`** — a step has started.
 ```json
-{
-  "clientId": "frontend-test-suite"
-}
+{ "type": "STATUS", "message": "Starting AI Generation Pipeline..." }
 ```
 
----
-
-## 🎭 Available Model IDs (`modelId`)
-
-The database contains exactly 20 perfectly standardized models. You **MUST** pass one of these exact strings.
-
-*   **Sarees:** `saree1`, `saree2`, `saree3`, `saree4`
-*   **Kurtis:** `kurti1`, `kurti2`, `kurti3`, `kurti4`
-*   **Anarkalis:** `anarkali1`, `anarkali2`, `anarkali3`, `anarkali4`
-*   **Lehangas:** `lehanga1`, `lehanga2`, `lehanga3`, `lehanga4`
-*   **Shararas:** `sharara1`, `sharara2`, `sharara3`, `sharara4`
-
----
-
-## 📥 Response Format (Server-Sent Events)
-
-Because image generation takes roughly 30-70 seconds for all 4 views, this API does **not** return a standard JSON response. It streams the response using **Server-Sent Events (SSE)** (`text/event-stream`).
-
-You will receive multiple chunks separated by `\n\n`. Each chunk contains a JSON string prefixed with `data: `.
-
-**Two things a consumer must handle:**
-
-1. **Keepalive comment lines.** During the gaps between views the server emits SSE comment
-   lines so proxies do not idle the connection out:
-
-   ```
-   : keepalive 1757000000000
-   ```
-
-   They begin with `:` rather than `data: `. Skip any chunk not prefixed `data: ` — which is
-   what the SSE spec requires regardless.
-
-2. **Views arrive out of order.** The three dependent views (back, side, sitting) are
-   generated concurrently, so they complete in whatever order the model returns them.
-   `front` is always first, because the other three use it as their reference. Key your state
-   off `event.view`, never off arrival position.
-
-### Event Types:
-
-**1. `STATUS`** - Emitted when a generation step starts.
-```json
-{
-  "type": "STATUS",
-  "message": "Generating Front View..."
-}
-```
-
-**2. `VIEW_READY`** - Emitted the millisecond a specific view is generated. Contains the Base64 output.
+**`VIEW_READY`** — emitted the moment a view finishes. Carries the image as a base64 data URI.
 ```json
 {
   "type": "VIEW_READY",
@@ -152,168 +189,175 @@ You will receive multiple chunks separated by `\n\n`. Each chunk contains a JSON
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
 }
 ```
-*(Valid `view` values: `front`, `back`, `side`, `sitting`)*
+`view` is one of `front`, `back`, `side`, `sitting`. Verified output: JPEG, roughly 830×1260 to
+895×1200, 370–540 KB per view.
 
-**3. `COMPLETE`** - Emitted when the entire 4-view generation is finished.
+**`COMPLETE`** — all four views done.
 ```json
-{
-  "type": "COMPLETE",
-  "jobId": "uuid-string..."
-}
+{ "type": "COMPLETE", "jobId": "a1b2c3d4-..." }
 ```
 
-**4. `ERROR`** - Emitted if the generation fails.
+**`ERROR`** — generation failed *after* the stream opened. The stream then closes.
 ```json
-{
-  "type": "ERROR",
-  "error": "Gemini API timeout..."
-}
+{ "type": "ERROR", "error": "Gemini API Error: HTTP 500 - ..." }
 ```
+
+### Error responses
+
+Failures **before** the stream opens are ordinary JSON. Failures **after** it opens arrive as an
+`ERROR` event, because the status code has already been sent.
+
+| Status | Body | When |
+| :--- | :--- | :--- |
+| `400` | `"clientId and modelId are required."` | Either is missing |
+| `400` | `"The primary garment image (fullDress / flat-lay) is strictly required."` | No `saree`/`full`/`fullDress` |
+| `401` | `"Unauthorized: Invalid or missing Service API Key"` | Bad or absent key |
+| `404` | `"AI Model not found"` | `modelId` is not in the database |
+| `429` | `"Service at capacity. Please retry shortly."` | Concurrency limit reached; body includes `activeGenerations` and `maxConcurrent` |
+| `500` | `"Generation failed"` + `details` | Failure before streaming began |
+| SSE `ERROR` | `error` message | Failure after streaming began |
+
+Validation runs in that order, so a request missing several things reports the first problem only.
+
+### Concurrency and the zombie killer
+
+**Admission control.** The service accepts a limited number of simultaneous generations
+(`MAX_CONCURRENT_GENERATIONS`, default 3). Beyond that it returns `429` immediately rather than
+queueing — a fast honest answer instead of a request that starves. Retry shortly.
+
+**Zombie killer.** Starting a new generation with a `clientId` that already has one running
+**aborts the old one**. This exists so a user refreshing the page does not leave orphaned work
+burning GPU time. If you run genuinely parallel jobs, give each a distinct `clientId` — otherwise
+they will cancel each other.
 
 ---
 
-## 💻 Example Implementation (JavaScript Fetch)
+## 🛑 `POST /api/v1/draping/cancel-job`
 
-Here is production-ready code to consume the SSE stream on the frontend:
+Explicitly stops a running generation. Useful because reverse proxies often mask a client
+disconnect, so the server may not notice a browser has gone away.
 
-```javascript
-async function generateDrape() {
-  const url = "https://catalog-tryon-microservice.onrender.com/api/v1/draping/generate-catalog";
-  
-  const payload = {
-    clientId: "my-app",
-    modelId: "saree1",
-    category: "SAREE",
-    saree: "base64_string_here..."
-  };
+```json
+{ "clientId": "acme-retail" }
+```
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": "se_catalog_internal_key_v1_99283"
-    },
-    body: JSON.stringify(payload)
-  });
+| Status | Body |
+| :--- | :--- |
+| `200` | `{ "success": true, "message": "Pipeline successfully aborted." }` |
+| `200` | `{ "success": false, "message": "No active job running for this client." }` |
+| `400` | `{ "success": false, "error": "clientId required" }` |
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
+Note both outcomes are `200` — `success` distinguishes them.
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+---
 
-    buffer += decoder.decode(value, { stream: true });
-    let chunks = buffer.split("\n\n");
-    buffer = chunks.pop(); // Keep incomplete chunk in buffer
+## 💻 Example implementation
 
-    for (let chunk of chunks) {
-      if (chunk.startsWith("data: ")) {
-        const data = JSON.parse(chunk.substring(6));
-        
-        if (data.type === 'STATUS') {
-          console.log("Status:", data.message);
-        } else if (data.type === 'VIEW_READY') {
-          console.log(`${data.view} view is ready!`);
-          // Example: setImage(data.image);
-        } else if (data.type === 'COMPLETE') {
-          console.log("All views generated successfully.");
-        } else if (data.type === 'ERROR') {
-          console.error("API Error:", data.error);
-        }
-      }
-    }
+```js
+const res = await fetch(`${BASE}/api/v1/draping/generate-catalog`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+  body: JSON.stringify({
+    clientId: 'acme-retail',
+    modelId: 'saree1',
+    category: 'SAREE',
+    saree: garmentUrlOrBase64
+  })
+});
+
+if (!res.ok) throw new Error((await res.json()).error);
+
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+const views = {};
+let buffer = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  buffer += decoder.decode(value, { stream: true });
+  const chunks = buffer.split('\n\n');
+  buffer = chunks.pop();                       // keep the incomplete tail
+
+  for (const chunk of chunks) {
+    if (!chunk.startsWith('data: ')) continue; // skips ": keepalive ..." comments
+    const event = JSON.parse(chunk.slice(6));
+
+    if (event.type === 'VIEW_READY') views[event.view] = event.image;  // key by view, NOT order
+    if (event.type === 'ERROR')      throw new Error(event.error);
+    if (event.type === 'COMPLETE')   console.log('done', event.jobId);
   }
 }
 ```
 
 ---
 
-## 🔎 Design Discovery API
+# 🔎 Design Discovery
 
-A **separate capability** hosted by the same service. It takes keywords, searches the web for
-matching garment designs, and returns **references** to what it found.
+A separate capability on the same service. It takes keywords — or one line of natural language —
+and returns **references** to garment designs found on the web.
 
-> **Discovery is browse-only.** It returns designs *found on the web* — it does not assert that any
-> result is licensed, approved, or cleared for use. It never downloads, stores, or transforms an
-> image, and it does not feed the catalog generation pipeline. Every result carries `sourceUrl` and
-> `sourceDomain`; **responsibility for rights in any downstream use rests with the caller.**
+> **Browse-only.** Discovery says *"here are designs found on the web"*, not *"here is a design
+> licensed and cleared for use"*. It never downloads, stores, transforms or returns image bytes.
+> Every result carries `sourceUrl` and `sourceDomain`; **responsibility for rights in any
+> downstream use rests with the caller.**
 
-If a caller's own workflow later wants to generate a catalog from a design, it does so by calling
-`/api/v1/draping/generate-catalog` itself — that endpoint already accepts either a public image URL
-or base64.
+## `POST /api/v1/discovery/search`
 
----
+### Request payload
 
-### 📡 Endpoint: Search Designs
-**`POST /api/v1/discovery/search`**
-
-#### Request Payload (JSON)
-
-| Field | Type | Required | Description |
+| Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Identifier for the client/tenant. Also the rate-limit bucket. |
-| `keywords` | String[] | * | 1–12 search terms, e.g. `["red", "bridal", "saree"]`. |
-| `instruction` | String | * | One line of natural language, parsed into the fields below. Max 500 chars. |
-| `category` | String | * | A garment id or alias — see `GET /taxonomy`. Case-insensitive. |
-| `designType` | String | No | A design area **of that garment**, e.g. `PALLU`. Requires `category`. |
-| `filters.color` | String | No | e.g. `"red"`. Folded into the search query. |
-| `filters.fabric` | String | No | e.g. `"silk"`. |
-| `filters.occasion` | String | No | e.g. `"wedding"`. |
-| `shotType` | String | No | `flatlay`, `worn`, or `any` (default). See note below. |
-| `page` | Number | No | 1–20. Defaults to `1`. |
-| `limit` | Number | No | 1–50. Defaults to `20`. |
+| `clientId` | String | **Yes** | Tenant identifier; also the rate-limit bucket. |
+| `keywords` | String[] | * | 1–12 terms. |
+| `instruction` | String | * | One line of natural language, max 500 chars. |
+| `category` | String | * | A garment id or alias — see `GET /taxonomy`. |
+| `designType` | String | No | A design area **of that garment**. Requires `category`. |
+| `filters.color` / `.fabric` / `.occasion` | String | No | Search qualifiers, not guarantees. |
+| `shotType` | String | No | `flatlay`, `worn`, or `any` (default). |
+| `page` | Number | No | 1–20, default 1. |
+| `limit` | Number | No | 1–50, default 20. |
 
-\* **At least one of `keywords`, `category` or `instruction` is required.** They can be combined:
-explicit fields always win, and `instruction` only fills the gaps it left.
+\* **At least one of `keywords`, `category` or `instruction` is required.** They combine freely:
+explicit fields always win, and `instruction` only fills the gaps they leave.
 
-**On `category` and `designType`:** the service exposes a two-level taxonomy of **12 garments and 107
-design areas** — fetch it from `GET /api/v1/discovery/taxonomy`. A design area is validated against its
-garment, so `SAREE` + `PALLU` is accepted while `SAREE` + `SLEEVE` returns `400` listing what is valid.
+**Taxonomy.** The service knows **12 garments and 107 design areas** — fetch the tree from
+`GET /api/v1/discovery/taxonomy`. A design area is validated against its garment, so `SAREE` +
+`PALLU` is accepted while `SAREE` + `SLEEVE` returns `400` listing what is valid.
 
-Canonical ids match the catalog-generation service's spelling, so one id means one garment across the
-platform: `LEHANGA` (displayed *Lehenga*) and `KURTHI` (displayed *Kurti*). The conventional spellings
-`LEHENGA` and `KURTI` are accepted as aliases and canonicalised — the `interpreted` block in the
-response shows what you were resolved to.
+Canonical ids match the generation service's spelling, so one id means one garment platform-wide:
+`LEHANGA` (displayed *Lehenga*) and `KURTHI` (displayed *Kurti*). `LEHENGA` and `KURTI` are
+accepted as aliases and canonicalised — the `interpreted` block shows what you resolved to.
 
-**On `instruction`:** send a sentence instead of structured fields and it is resolved deterministically
-against the taxonomy (no LLM, no added latency):
+**Natural language.** Send a sentence instead of structured fields and it is resolved
+deterministically against the taxonomy — no LLM, no added latency:
 
 ```json
 { "clientId": "acme", "instruction": "I want red bridal kanjivaram saree pallu designs with heavy zari" }
 ```
 resolves to category `SAREE`, designType `PALLU`, keywords `["red","bridal","kanjivaram","heavy zari"]`.
 
-**On `shotType`:** a bare `"red bridal saree"` search returns mostly on-model editorial photos.
-Pass `"flatlay"` to bias toward flat product photography, which is what a downstream garment
-pipeline generally wants.
+You may also pin a category alongside an instruction — the design area is then resolved *within*
+that garment even if the sentence never names it.
 
-#### Example Request
-```json
-{
-  "clientId": "acme-retail",
-  "keywords": ["red", "bridal", "saree"],
-  "category": "SAREE",
-  "filters": { "fabric": "silk", "occasion": "wedding" },
-  "shotType": "flatlay",
-  "page": 1,
-  "limit": 20
-}
-```
+**`shotType`.** A bare `"red bridal saree"` search returns mostly on-model editorial photos.
+`flatlay` biases toward flat product photography; measured at 92% garment-only against 10% for
+`any`.
 
-#### Response
-```json
+### Response
+
+```jsonc
 {
   "success": true,
   "searchId": "b1f2c3d4-...",
-  "query": "red bridal saree silk wedding flat lay product photo",
+  "query": "red bridal kanjivaram saree pallu closeup design",
   "cached": false,
   "interpreted": {
     "category": "SAREE", "categoryName": "Saree",
     "designType": "PALLU", "designTypeName": "Pallu Design",
     "keywords": ["red", "bridal", "kanjivaram"],
-    "source": "structured",
+    "source": "instruction",       // instruction | structured | mixed
     "confidence": "high",
     "unresolved": []
   },
@@ -333,8 +377,7 @@ pipeline generally wants.
       "imageUsable": true,
       "fetchable": {
         "url": "https://example.com/images/saree-123.jpg",
-        "width": 1200,
-        "height": 1600,
+        "width": 1200, "height": 1600,
         "from": "imageUrl"
       }
     }
@@ -343,37 +386,31 @@ pipeline generally wants.
 }
 ```
 
-Two fields that mean less than they might appear to:
+Two fields that mean less than they may appear to:
 
-- **`searchId` is a correlation id for log tracing only.** This service holds no database, so there is
-  nothing to fetch by that id later.
-- **`hasMore` is inferred, not authoritative.** The upstream provider reports no total result count, so
-  a full page is the only available signal that more may exist.
+- **`searchId` is a correlation id for logs only.** There is no database, so nothing can be fetched
+  by it later.
+- **`hasMore` is inferred, not authoritative.** The upstream provider reports no total count, so a
+  full page is the only available signal.
 
 `id` is a stable hash of `imageUrl`, so the same design keeps the same id across repeated searches.
 
-Results are filtered before return: entries without an image URL are dropped, duplicates by image URL
-are collapsed, and images the provider reports as smaller than 400×400 are discarded. Results with an
-unreported size are kept.
-
-#### `fetchable` — the only field most consumers need
+### `fetchable` — the only field most consumers need
 
 Two different truths live in every result:
 
 | | Meaning |
 | :--- | :--- |
-| `imageUrl`, `width`, `height` | What the **source claims the original asset is** — whether or not it can be retrieved. |
-| `fetchable.url`, `fetchable.width`, `fetchable.height` | What you can **actually retrieve**, and its true size. |
+| `imageUrl`, `width`, `height` | What the **source claims the original is** — whether or not it can be retrieved |
+| `fetchable.url`, `.width`, `.height` | What you can **actually retrieve**, and its true size |
 
-**If you only read `fetchable`, you are correct in every case.** No branching, no knowledge of
-Instagram, Facebook, Threads or `imageUsable` required:
+**If you only read `fetchable`, you are correct in every case** — no branching, and no knowledge of
+Instagram, Facebook or `imageUsable` required:
 
 ```js
 const res = await fetch(result.fetchable.url);   // always an image
 store({ width: result.fetchable.width, height: result.fetchable.height });
 ```
-
-`fetchable.from` is either `"imageUrl"` or `"thumbnailUrl"`, so you can see which asset you were given.
 
 Worked example — an Instagram result. Note the ~3× gap, and that `width`/`height` are **not**
 rewritten: the original post genuinely is 1440×1920, which is legitimate provenance.
@@ -391,25 +428,13 @@ rewritten: the original post genuinely is 1440×1920, which is legitimate proven
 ```
 
 > **`fetchable.url` is point-in-time, not permanent.** It is the URL Discovery selected as the
-> retrievable image asset for this result, based on its image-capability checks **at the time of the
-> search**. CDN URLs, signed URLs and social-platform thumbnails expire and rotate. If you intend to
-> keep a design, retrieve it promptly and store your own copy — do not treat our URL as durable
-> storage.
+> retrievable image asset, based on its image-capability checks **at the time of the search**. CDN
+> URLs, signed URLs and social thumbnails expire and rotate. If you intend to keep a design,
+> retrieve it promptly and store your own copy — do not treat our URL as durable storage.
 
-**Instagram and Facebook designs are only ever available at ~400px.** Their `imageUrl` serves an HTML
-page and the thumbnail is the only retrievable asset; measured sizes are 335×597, 387×516, 447×447.
-There is no workaround — no larger asset is exposed, and `site:` targeting returns nothing from this
-provider. If you are feeding these to a generation model, treat those specific results as weak inputs.
+### Sources, and what each can give you
 
-Discovery does **not** download, store, transform or return image bytes. It returns references; you
-retrieve them yourself and may convert them to base64 or anything else on your side.
-
----
-
-#### `imageUsable` — the lower-level flag behind `fetchable`
-
-Results come from the open web **and from social platforms**: Pinterest, Instagram and Facebook all
-appear in normal searches. They are not equally usable, and `imageUsable` tells you which is which.
+Results come from the open web **and** from social platforms. They are not equally usable:
 
 | Source | `imageUrl` | `thumbnailUrl` | `imageUsable` |
 | :--- | :--- | :--- | :--- |
@@ -417,103 +442,109 @@ appear in normal searches. They are not equally usable, and `imageUsable` tells 
 | **Instagram** (`lookaside.instagram.com`) | an HTML page | a real image | `false` |
 | **Facebook** (`lookaside.fbsbx.com`) | an HTML page | a real image | `false` |
 
-When `imageUsable` is `false`, **do not hotlink `imageUrl`** — it will render as a broken image.
-Display `thumbnailUrl` and link the user to `sourceUrl` instead. Every result is guaranteed to carry at
-least one viewable image: a result with neither a usable `imageUrl` nor a `thumbnailUrl` is dropped.
-
-Measured across 10 results per platform: Pinterest 10/10 usable `imageUrl`, Instagram 0/10, Facebook
-0/10 — while `thumbnailUrl` was a real image 10/10 for all three. The host list driving the flag is
-overridable with `DISCOVERY_NON_IMAGE_HOSTS`.
+**Instagram and Facebook designs are only ever available at ~400px** — measured sizes 335×597,
+387×516, 447×447. Their `imageUrl` serves HTML and the thumbnail is all that can be retrieved.
+There is no workaround. If you are feeding these to a generation model, treat them as weak inputs.
 
 There is no `sources` parameter and none is needed: Pinterest and Instagram surface naturally in
-untargeted searches. (`site:` operators return zero results from this provider and are not used.)
+untargeted searches, and including a platform name as an ordinary keyword biases heavily toward it.
+(`site:` operators return zero results from this provider and are not used.)
 
-Because filtering happens after the provider call, a request for `limit: 20` may return fewer than 20
-results. The service does **not** re-query to refill a page — that would spend extra search credits to
-manufacture a full grid.
+Results are filtered before return: entries without an image URL are dropped, duplicates by image
+URL are collapsed, images the provider reports as smaller than 400×400 are discarded, and anything
+with neither a usable `imageUrl` nor a thumbnail is removed. Results with an unreported size are kept.
 
----
-
-### 🌳 Endpoint: Garment Taxonomy
-**`GET /api/v1/discovery/taxonomy`**
+## `GET /api/v1/discovery/taxonomy`
 
 The full garment → design-area tree, so a Manage Designs UI renders from the service rather than
 hardcoding 107 entries. No payload.
 
-```json
+```jsonc
 {
   "success": true,
   "garmentCount": 12,
   "designAreaCount": 107,
   "garments": [
     { "id": "SAREE", "name": "Saree",
-      "designTypes": [
-        { "id": "OVERALL", "name": "Overall Saree Design" },
-        { "id": "PALLU",   "name": "Pallu Design" },
-        { "id": "BORDER",  "name": "Border Design" }
-      ] }
+      "designTypes": [ { "id": "PALLU", "name": "Pallu Design" } ] }
   ]
 }
 ```
 
-Garments: `SAREE`, `BLOUSE`, `DUPATTA`, `KURTHI`, `ANARKALI`, `PETTICOAT`, `GOWN`, `SUIT`, `SHERWANI`,
-`BOTTOM_WEAR`, `LEHANGA`, `SHARARA`.
+Garments: `SAREE` `BLOUSE` `DUPATTA` `KURTHI` `ANARKALI` `PETTICOAT` `GOWN` `SUIT` `SHERWANI`
+`BOTTOM_WEAR` `LEHANGA` `SHARARA`.
 
----
+## `GET /api/v1/discovery/categories`
 
-### 📋 Endpoint: List Categories
-**`GET /api/v1/discovery/categories`**
-
-Returns the garment vocabulary and request limits this deployment accepts. No payload.
+Garment ids, shot types and request limits. No payload.
 
 ```json
 {
   "success": true,
-  "categories": ["SAREE", "LEHANGA", "ANARKALI", "SHARARA", "KURTHI"],
+  "categories": ["SAREE", "BLOUSE", "DUPATTA", "KURTHI", "ANARKALI", "PETTICOAT",
+                 "GOWN", "SUIT", "SHERWANI", "BOTTOM_WEAR", "LEHANGA", "SHARARA"],
   "shotTypes": ["flatlay", "worn", "any"],
   "limits": { "maxLimit": 50, "maxPage": 20 }
 }
 ```
 
----
-
-### ⚠️ Discovery Error Codes
+## ⚠️ Discovery error codes
 
 | Status | `error.code` | Meaning |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Body failed validation — also covers an unknown `category`, a `designType` that is not an area of its garment, `designType` sent without `category`, an instruction nothing could be resolved from, and a request with no search terms at all. `error.details` names the field and lists what is valid. |
-| `424` | `TAXONOMY_INVALID` | The garment taxonomy failed its integrity check on this deployment. Discovery is disabled; catalog generation is unaffected. |
+| `400` | `VALIDATION_ERROR` | Bad body — also covers unknown `category`, a `designType` that is not an area of its garment, `designType` without `category`, an unresolvable instruction, and no search terms at all. `error.details` names the field and lists what is valid. |
 | `400` | `INVALID_JSON` | Body was not valid JSON. |
 | `401` | — | Missing or wrong `x-api-key`. |
 | `413` | `PAYLOAD_TOO_LARGE` | Body exceeded the 32 KB discovery limit. |
-| `429` | `RATE_LIMIT_EXCEEDED` | Per-client search budget exhausted. Honour the `Retry-After` header. |
-| `424` | `PROVIDER_UNAVAILABLE` | The upstream search provider failed, timed out, or rejected us. |
-| `424` | `DISCOVERY_NOT_CONFIGURED` | Discovery is switched off on this deployment (no `SERPER_API_KEY`). |
+| `429` | `RATE_LIMIT_EXCEEDED` | Per-client search budget exhausted. Honour `Retry-After`. |
+| `424` | `PROVIDER_UNAVAILABLE` | Upstream search provider failed, timed out or rejected us. |
+| `424` | `DISCOVERY_NOT_CONFIGURED` | Discovery is switched off on this deployment. |
+| `424` | `TAXONOMY_INVALID` | Taxonomy failed its integrity check; discovery disabled, generation unaffected. |
 
-**Why 424 and not 503.** This service shares a gateway slug with catalog generation, and the gateway
-runs a per-slug circuit breaker that trips on repeated `5xx` responses. Reporting an upstream search
-outage as `5xx` would take `generate-catalog` offline as collateral damage. Discovery therefore
-reports every anticipated failure — including provider outages — as a `4xx`.
+Errors are shaped `{ "success": false, "error": { "code", "message", "details"? } }`.
 
-Error responses are shaped `{ "success": false, "error": { "code", "message", "details"? } }`.
+**Why `424` and not `503`.** Discovery shares a gateway slug with catalog generation, and the
+gateway runs a per-slug circuit breaker that trips on repeated `5xx`. Reporting an upstream outage
+as `5xx` would take `generate-catalog` offline as collateral damage, so every anticipated failure —
+provider outages included — is reported as `4xx`.
 
----
+## 🔧 Discovery operational notes
 
-### 🔧 Operational Notes
-
-- **Caching.** Identical queries are served from an in-process cache (default TTL 1 hour) so repeat
-  searches do not re-bill the provider. Cached responses set `"cached": true`. The cache is
-  per-process: it empties on restart and does not coordinate across instances.
+- **Caching.** Identical queries are served from an in-process cache (default TTL 1 hour), so
+  repeats do not re-bill the provider. Cached responses set `"cached": true`. Per-process: it
+  empties on restart and does not coordinate across instances.
 - **Rate limiting.** Default 20 searches/minute per `clientId`, counted whether or not the response
   came from cache. This protects the search-provider budget; the gateway separately enforces its own
-  500 requests / 5 minutes per client.
-- **Discovery can be switched off.** If `SERPER_API_KEY` is absent the service still boots, logs a
-  warning, and serves catalog generation normally; only `/api/v1/discovery/*` returns `424`.
+  limits.
+- **Fails soft.** If the provider key is absent or the taxonomy fails its integrity check, the
+  service still boots, logs the reason, and only `/api/v1/discovery/*` returns `424`. **Catalog
+  generation is never affected.**
 
 ---
 
-## 🛠 Architecture & Data Policies
+## 🛠 Architecture and data policies
 
-*   **Zero-Retention Policy:** This API operates strictly on a Base64-in, Base64-out model. We do **NOT** save or host the uploaded user garments or the generated AI output images on our servers.
-*   **Studio Consistency:** The AI uses an advanced spatial constraint (`sys-constants.js`) to guarantee the exact same background studio wall and floor across all 4 generated views.
-*   **Database (Supabase):** The API connects to a PostgreSQL database exclusively to fetch the Base Model image URLs and log job latency metadata. It does not store user data.
+* **Zero retention for generation.** Input and output images are never written to the database.
+  The API is base64/URL-in, base64-out; only job metadata is stored for billing and auditing.
+* **Discovery stores nothing at all** — no images, no results, no search history.
+* **Independent failure.** Discovery reports every anticipated failure as `4xx` specifically so it
+  cannot trip the shared circuit breaker and take generation down, and vice versa.
+* **Generation is capped, not queued.** Excess concurrent load is rejected with `429`.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | — | Required. Postgres, `se_catalog` schema. |
+| `GEMINI_API_KEY` | — | Required. |
+| `SERVICE_API_KEY` | — | Required. Must match the gateway's stored secret. |
+| `SERPER_API_KEY` | — | Optional. Absent disables discovery only. **serper.dev, not serpapi.com.** |
+| `GEMINI_TIMEOUT_MS` | `120000` | Ceiling for one Gemini call. |
+| `MAX_CONCURRENT_GENERATIONS` | `3` | Excess returns `429`. |
+| `SSE_HEARTBEAT_MS` | `15000` | Keepalive interval. |
+| `PARALLEL_VIEWS` | `true` | `false` generates the dependent views serially. |
+| `INPUT_IMAGE_FORMAT` / `_QUALITY` | `jpeg` / `95` | Upload format for images sent to Gemini. |
+| `BASE_MODEL_CACHE_MAX` | `24` | Processed base poses held in memory. |
+| `SHUTDOWN_GRACE_MS` | `30000` | Forced exit if in-flight work will not drain. |
+| `DISCOVERY_CACHE_TTL_SEC` | `3600` | Search cache lifetime. |
+| `DISCOVERY_RATE_LIMIT_PER_MIN` | `20` | Searches per minute per `clientId`. |
