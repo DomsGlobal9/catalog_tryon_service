@@ -15,7 +15,8 @@ All requests require an API key passed in the headers.
 
 | Header Key | Value | Description |
 | :--- | :--- | :--- |
-| `x-api-key` | `se_catalog_internal_key_v1_99283` | Internal security key |
+| `x-api-key` | `se_catalog_internal_key_v1_99283` | Int 
+ernal security key |
 | `Content-Type`| `application/json` | Required for the payload |
 
 ---
@@ -35,6 +36,7 @@ This endpoint accepts base64-encoded garment images and streams back the generat
 | `saree` / `full` / `fullDress` | String | **Yes** | Base64 encoded image of the primary garment (flat-lay or worn). |
 | `blouse` / `top` / `topFront`| String | No | Base64 encoded image of the top/blouse. |
 | `bottom` | String | No | Base64 encoded image of the pants/skirt (if applicable). |
+| `dupattaStyleUrl` | String | No | **(Lehenga Only)** The name of the dupatta draping style (e.g. `"lehanga_duppatta1"`, `"lehangaduppatta2"`). |
 
 ### Example Request (Saree)
 For Sarees, the API expects `saree` and `blouse` keys.
@@ -55,6 +57,20 @@ For generic 3-piece sets, the API expects `full` (or `fullDress`), `top`, and `b
   "clientId": "frontend-test-suite",
   "modelId": "kurti1",
   "category": "KURTI",
+  "full": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
+  "top": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
+  "bottom": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
+}
+```
+
+### Example Request (Lehenga with Dupatta Style)
+When `category` is set to `"LEHANGA"`, you can optionally pass `dupattaStyleUrl` with a supported style name to override the default drape.
+```json
+{
+  "clientId": "frontend-test-suite",
+  "modelId": "lehanga1",
+  "category": "LEHANGA",
+  "dupattaStyleUrl": "lehanga_duppatta1",
   "full": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
   "top": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",
   "bottom": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."

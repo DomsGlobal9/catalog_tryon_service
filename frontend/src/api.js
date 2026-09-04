@@ -10,7 +10,8 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category, d
   let payload = {
     clientId: "frontend-test-suite",
     modelId: modelId,
-    category: category,
+    category: "women",
+    garmentCategory: category,
   };
   if (category === 'LEHANGA' && dupattaStyleUrl) {
   payload.dupattaStyleUrl = dupattaStyleUrl;

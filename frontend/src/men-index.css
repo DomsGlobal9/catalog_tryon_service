@@ -1,0 +1,326 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #111827;
+  background: #f5f5f5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+button, input, select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   ECOMMERCE LAYOUT
+   ============================================================ */
+
+.ecom-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+  color: #111827;
+}
+
+.ecom-container h1, .ecom-container h2, .ecom-container h3, .ecom-container label, .ecom-container p {
+  color: #111827;
+}
+
+.ecom-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.ecom-header h1 {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.ecom-header p {
+  margin: 10px 0 0;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.ecom-main {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 40px;
+  background: #ffffff;
+  padding: 40px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+}
+
+/* ============================================================
+   LEFT COLUMN: IMAGE
+   ============================================================ */
+
+.ecom-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.ecom-image-wrapper {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.ecom-large-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 800px;
+  object-fit: contain;
+}
+
+.ecom-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 600px;
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  color: #6b7280;
+}
+
+.ecom-loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.ecom-image-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  gap: 12px;
+  font-weight: 600;
+  color: #111827;
+}
+
+/* ============================================================
+   RIGHT COLUMN: CONTROLS
+   ============================================================ */
+
+.ecom-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ecom-right h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 16px;
+}
+
+.ecom-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ecom-control-group label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.optional {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.ecom-select {
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  outline: none;
+  font-size: 1rem;
+}
+.ecom-select:focus {
+  border-color: #111827;
+}
+
+/* UPLOADS */
+.ecom-upload-box {
+  padding: 16px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.ecom-upload-box input[type="file"] {
+  width: 100%;
+}
+
+.ecom-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ecom-thumb {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ecom-btn-clear {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+}
+.ecom-btn-clear:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.ecom-help-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+/* SIZE SELECTOR */
+.ecom-size-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ecom-size-btn {
+  padding: 12px 0;
+  min-width: 60px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.ecom-size-btn:hover:not(:disabled) {
+  border-color: #111827;
+}
+
+.ecom-size-btn.active {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+.ecom-btn-cancel {
+  padding: 14px;
+  border: 1px solid #dc2626;
+  background: #ffffff;
+  color: #dc2626;
+  font-weight: 700;
+  border-radius: 8px;
+}
+.ecom-btn-cancel:hover {
+  background: #fef2f2;
+}
+
+.ecom-error {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+/* ============================================================
+   SPINNER
+   ============================================================ */
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(17, 24, 39, 0.2);
+  border-top-color: #111827;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .ecom-main {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+  .ecom-placeholder {
+    min-height: 400px;
+  }
+}
+
+.ecom-btn-generate {
+  width: 100%;
+  padding: 14px;
+  background-color: #000;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 20px;
+  transition: background-color 0.2s;
+}
+
+.ecom-btn-generate:hover:not(:disabled) {
+  background-color: #333;
+}
+
+.ecom-btn-generate:disabled {
+  background-color: #999;
+  cursor: not-allowed;
+}

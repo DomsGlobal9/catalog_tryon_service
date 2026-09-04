@@ -1,5 +1,5 @@
-const { getDynamicPrompt } = require('../config/sys-constants');
-const { ENVIRONMENTS } = require('../config/environments');
+const { getDynamicPrompt } = require('../config/sys-constants-catalog');
+const { ENVIRONMENTS } = require('../config/environments-catalog');
 const sharp = require('sharp');
 
 /**
