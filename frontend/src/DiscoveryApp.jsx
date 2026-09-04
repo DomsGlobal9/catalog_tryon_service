@@ -322,7 +322,7 @@ export default function DiscoveryApp() {
                       <div className="disc-links">
                         <a href={r.fetchable.url} target="_blank" rel="noreferrer noopener">image</a>
                         {r.sourceUrl && <a href={r.sourceUrl} target="_blank" rel="noreferrer noopener">source</a>}
-                        <button onClick={() => navigator.clipboard?.writeText(r.fetchable.url)}>copy URL</button>
+                        <CopyUrlButton url={r.fetchable.url} />
                       </div>
                     </figcaption>
                   </figure>
@@ -338,6 +338,42 @@ export default function DiscoveryApp() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Copy-to-clipboard that actually tells the user what happened.
+ *
+ * `navigator.clipboard.writeText` returns a promise that REJECTS when the
+ * document is not focused or the permission is denied. The previous inline
+ * handler ignored that promise, so a denied copy was an uncaught rejection in
+ * the console and, to the user, a button that did nothing at all. Both
+ * outcomes are now reported, and on failure the URL is offered in the tooltip
+ * so it can still be copied by hand.
+ */
+function CopyUrlButton({ url }) {
+  const [state, setState] = useState('idle'); // idle | copied | failed
+
+  async function copy() {
+    let next = 'copied';
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(url);
+    } catch {
+      next = 'failed';
+    }
+    setState(next);
+    setTimeout(() => setState('idle'), 2000);
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className={state === 'failed' ? 'disc-copy-failed' : undefined}
+      title={state === 'failed' ? `Clipboard blocked by the browser. URL: ${url}` : url}
+    >
+      {state === 'copied' ? 'copied ✓' : state === 'failed' ? 'copy blocked' : 'copy URL'}
+    </button>
   );
 }
 

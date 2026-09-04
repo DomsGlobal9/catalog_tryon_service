@@ -53,6 +53,15 @@ body { background-color: var(--bg-color); }
 }
 .disc-back:hover { border-color: var(--accent); }
 
+/* On narrow screens the fixed Back button lands on top of the page heading
+   (measured at 375px: it covered the first ~30px of "Design Discovery").
+   Below 640px put it back in normal flow, where it stacks above the content
+   instead of over it. Shared by all three views, so this fixes them all. */
+@media (max-width: 640px) {
+  .disc-back { position: static; display: inline-block; margin: 1rem 0 0 1rem; }
+  .disc-wrap { padding-top: 1.25rem; }
+}
+
 /* ── Discovery harness ────────────────────────────────────────────────── */
 .disc-wrap { max-width: 1150px; margin: 0 auto; padding: 3.5rem 1.5rem 4rem; }
 .disc-header h1 { margin: 0 0 0.35rem; font-size: 1.6rem; }
@@ -181,6 +190,8 @@ body { background-color: var(--bg-color); }
   background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
 }
 .disc-links a:hover, .disc-links button:hover { text-decoration: underline; }
+/* Copy failed (clipboard permission denied) - do not read as a success. */
+.disc-links button.disc-copy-failed { color: #f87171; }
 
 /* ── Errors ───────────────────────────────────────────────────────────── */
 .disc-error { border-color: rgba(239, 68, 68, 0.5); }
