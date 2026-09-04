@@ -1,3 +1,6 @@
+const sharp = require('sharp');
+const { imageInputToBase64 } = require('./menAiService');
+
 const ALL_SIZES = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
 
 function cleanBase64(value) {
@@ -65,7 +68,13 @@ async function requestSizeRecommendation(imageBase64, mimeType) {
   );
 
   if (!response.ok) {
-    throw new Error(`Gemini size recommendation failed: HTTP ${response.status}`);
+    // Include what Gemini actually said. Reporting only the status code made a
+    // malformed-input bug look like an outage for far longer than it should have.
+    let detail = '';
+    try { detail = (await response.text()).replace(/\s+/g, ' ').slice(0, 200); } catch { /* ignore */ }
+    const err = new Error(`Gemini size recommendation failed: HTTP ${response.status}${detail ? ' - ' + detail : ''}`);
+    err.upstreamStatus = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -90,10 +99,28 @@ function parseRecommendedSize(responseData) {
 async function recommendSizeFromPhoto(userPhoto) {
   if (!userPhoto) throw new Error('User photo is required for size recommendation.');
 
-  const responseData = await requestSizeRecommendation(
-    cleanBase64(userPhoto),
-    getMimeType(userPhoto)
-  );
+  // Every other endpoint accepts a URL, a data: URI or raw base64. This one used
+  // cleanBase64(), which only strips a data: prefix - so a URL was passed through
+  // unchanged and sent to Gemini as if it were image bytes, producing an opaque
+  // HTTP 400. Use the same URL-aware converter the rest of the men pipeline uses.
+  const base64 = await imageInputToBase64(userPhoto);
+  if (!base64) throw new Error('Unable to read the supplied user photo.');
+
+  const data = cleanBase64(base64);
+
+  // Read the format from the bytes rather than guessing from the input string.
+  // Guessing meant a URL to a JPEG was declared as PNG, so the declared type did
+  // not match what was sent.
+  let mimeType = 'image/jpeg';
+  try {
+    const meta = await sharp(Buffer.from(data, 'base64')).metadata();
+    if (meta.format) mimeType = 'image/' + (meta.format === 'jpg' ? 'jpeg' : meta.format);
+  } catch {
+    const guessed = getMimeType(userPhoto);
+    if (guessed) mimeType = guessed;
+  }
+
+  const responseData = await requestSizeRecommendation(data, mimeType);
   const recommendedSize = parseRecommendedSize(responseData);
 
   return {

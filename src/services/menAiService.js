@@ -1545,6 +1545,9 @@ module.exports = {
   normalizeTryOnInputs,
   prepareReferenceImages,
   resolveBaseModelReference,
-  callGeminiImageGen
+  callGeminiImageGen,
+  // Accepts a URL, a data: URI or raw base64. Exported so other services do not
+  // reimplement it and end up accepting fewer input forms than the rest of the API.
+  imageInputToBase64
 
 };

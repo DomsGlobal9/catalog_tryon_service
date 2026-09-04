@@ -2,6 +2,19 @@ const express = require("express");
 
 const router = express.Router();
 
+// A bad user photo is the caller's problem (400) and an upstream refusal is a
+// dependency problem (424). Neither is a 5xx: the gateway's circuit breaker
+// counts 5xx per slug, so returning 500 here could take the whole service
+// offline for everyone including the women pipeline and discovery.
+function statusFor(error) {
+  const msg = (error && error.message) || '';
+  if (/user photo is required|unable to read/i.test(msg)) return 400;
+  if (/gemini|http 4\d\d|http 5\d\d/i.test(msg)) return 424;
+  return 500;
+}
+
+
+
 
 const {
   generateFrontCatalog
@@ -403,7 +416,7 @@ router.post(
       );
 
 
-      return res.status(500).json({
+      return res.status(statusFor(error)).json({
 
         error:
           error.message ||
