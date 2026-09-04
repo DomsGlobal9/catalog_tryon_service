@@ -3,9 +3,8 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category, d
   const url = isDev 
     ? "http://localhost:4005/api/v1/draping/generate-catalog"
     : (import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog");
-  const apiKey = isDev
-    ? "se_catalog_internal_key_v1_99283"
-    : import.meta.env.VITE_API_KEY;
+  // The key is never committed - it comes from frontend/.env, which is gitignored.
+const apiKey = import.meta.env.VITE_API_KEY;
 
   let payload = {
     clientId: "frontend-test-suite",

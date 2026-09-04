@@ -1,9 +1,4 @@
-const { Pool } = require('pg');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
+const { pool } = require('../lib/db');
 /**
  * Fetches the body reference image URLs from the public.body_references table.
  * Assumes the table has columns: size, image_url, gender, wear_type.

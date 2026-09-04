@@ -12,9 +12,7 @@
 //
 const express = require('express');
 const router = express.Router();
-const { Pool } = require('pg');
-const { PrismaPg } = require('@prisma/adapter-pg');
-const { PrismaClient } = require('@prisma/client');
+const { prisma, close: closeDb } = require('../lib/db');
 const aiGenerationService = require('../services/catalogAiService');
 
 // Global registry to track active jobs per client to kill zombies on page refresh
@@ -33,17 +31,6 @@ let activeGenerations = 0;
 // wire; a heartbeat keeps the connection demonstrably alive.
 const SSE_HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS || 15000);
 
-// Explicit pool limits. The default (max 10, no timeouts) lets a slow database
-// hold connections open indefinitely and gives no signal when the pool is
-// exhausted - the request simply hangs.
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: Number(process.env.DB_POOL_MAX || 10),
-  idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_MS || 30000),
-  connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECT_MS || 10000)
-});
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
 
 // Explicit endpoint to kill jobs since reverse proxies sometimes mask TCP disconnects
 router.post('/cancel-job/women', async (req, res) => {
@@ -271,8 +258,7 @@ console.log('==========================');
 
 /** Called from src/index.js on SIGTERM/SIGINT so connections are released. */
 async function shutdown() {
-  try { await prisma.$disconnect(); } catch (e) { console.warn('prisma disconnect:', e.message); }
-  try { await pool.end(); } catch (e) { console.warn('pool end:', e.message); }
+  await closeDb();
 }
 
 module.exports = router;

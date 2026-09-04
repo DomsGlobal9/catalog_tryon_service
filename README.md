@@ -123,6 +123,27 @@ npm run dev
 
 ---
 
+## ✅ Tests
+
+```bash
+npm test          # offline: no network, no server, no API credits. Safe for CI.
+npm run test:live # additionally drives a running service on :4005
+```
+
+The offline suite covers taxonomy integrity, garment canonicalisation, prompt
+resolution, the instruction parser, query building, result filtering and the
+`fetchable` contract. It also pins two things that were real defects:
+
+- **a dropped download is retried, not fatal** — the response body read must stay
+  inside the retry loop in both pipelines
+- **no service key may be committed** — the suite fails if one reappears in source
+
+The live suite adds auth, discovery, pipeline routing, and asserts that **no
+failure path returns 5xx**, since the gateway's circuit breaker counts those per
+slug and would take the whole service down.
+
+---
+
 ## 🛠 Architecture & Features
 * **Streaming Responses (SSE):** The backend streams AI generation events in real-time to the frontend.
 * **Zombie Process Killer:** The backend tracks active jobs per `clientId`. If a user refreshes the page and requests a new generation, the server automatically aborts the old zombie pipeline to save GPU compute.

@@ -13,9 +13,8 @@ const BASE = isDev
   : (import.meta.env.VITE_DISCOVERY_URL ||
      'https://api-super-admin.onrender.com/api/gateway/cat/api/v1/discovery');
 
-const API_KEY = isDev
-  ? 'se_catalog_internal_key_v1_99283'
-  : import.meta.env.VITE_API_KEY;
+// The key is never committed - it comes from frontend/.env, which is gitignored.
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 /**
  * Throws a shaped error so the UI can display the service's own contract -

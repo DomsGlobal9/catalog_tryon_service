@@ -49,9 +49,15 @@ const BOTTOM_WEAR_BODY_REFERENCE_URLS = {
 // CONFIG
 // ============================================================
 
-const INTERNAL_API_KEY =
-  process.env.INTERNAL_API_KEY ||
-  "se_catalog_internal_key_v1_99283";
+// Authentication is handled once, app-wide, by requireServiceKey in
+// src/index.js (`app.use('/api/', ...)`), which checks SERVICE_API_KEY.
+//
+// This file used to re-check a DIFFERENT variable (INTERNAL_API_KEY) with a
+// hardcoded fallback committed to the repo. Two problems: the fallback key was
+// public, and because it read a different variable, rotating SERVICE_API_KEY
+// would have silently broken every men endpoint while the rest of the service
+// kept working. The duplicate gate is removed rather than fixed - one place to
+// get authentication right is better than two.
 
 
 // ============================================================
@@ -70,34 +76,7 @@ let previousJobs =
 // API KEY MIDDLEWARE
 // ============================================================
 
-const verifyApiKey = (
-  req,
-  res,
-  next
-) => {
 
-  const apiKey =
-    req.headers["x-api-key"];
-
-
-  if (
-    !apiKey ||
-    apiKey !== INTERNAL_API_KEY
-  ) {
-
-    return res.status(401).json({
-
-      error:
-        "Unauthorized request."
-
-    });
-
-  }
-
-
-  next();
-
-};
 
 
 // ============================================================
@@ -374,8 +353,6 @@ router.post(
 
   "/recommend-size",
 
-  verifyApiKey,
-
   async (
     req,
     res
@@ -446,8 +423,6 @@ router.post(
 
   "/generate-top-wear",
 
-  verifyApiKey,
-
   async (req, res) => {
 
     const {
@@ -517,8 +492,6 @@ router.post(
 router.post(
 
   "/generate-bottom-wear",
-
-  verifyApiKey,
 
   async (req, res) => {
 
@@ -597,8 +570,6 @@ router.post(
 router.post(
 
   "/generate-user-tryon",
-
-  verifyApiKey,
 
   async (req, res) => {
 
@@ -700,8 +671,6 @@ router.post(
 
   "/generate-catalog/men",
 
-  verifyApiKey,
-
   async (req, res) => {
 
     const {
@@ -794,8 +763,6 @@ router.post(
 router.post(
 
   "/cancel-job/men",
-
-  verifyApiKey,
 
   (
     req,

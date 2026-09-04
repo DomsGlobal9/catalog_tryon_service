@@ -423,5 +423,9 @@ const buildPayloadParts = (
 }
 
 module.exports = {
-  generate4ViewCatalog
+  generate4ViewCatalog,
+  // Exported so the retry behaviour can be pinned by a test. The response body
+  // read sits inside the retry loop; a dropped download must be retried, not
+  // fatal, and that is worth regression coverage rather than trust.
+  callGeminiImageGen
 };

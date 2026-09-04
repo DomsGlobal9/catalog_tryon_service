@@ -3,9 +3,8 @@ const API_URL = isDev
   ? "http://localhost:4005/api/v1/draping"
   : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/generate-catalog$/, '') : "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping");
 
-const API_KEY = isDev
-  ? "se_catalog_internal_key_v1_99283"
-  : import.meta.env.VITE_API_KEY;
+// The key is never committed - it comes from frontend/.env, which is gitignored.
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 export const generateCatalog = async (
   {
