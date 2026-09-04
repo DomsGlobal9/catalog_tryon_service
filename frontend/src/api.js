@@ -3,8 +3,13 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category, d
   const url = isDev 
     ? "http://localhost:4005/api/v1/draping/generate-catalog"
     : (import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog");
-  // The key is never committed - it comes from frontend/.env, which is gitignored.
-const apiKey = import.meta.env.VITE_API_KEY;
+  // No key is committed. In dev the frontend talks straight to the local
+// service, which wants its own SERVICE_API_KEY (VITE_DEV_API_KEY here);
+// in production it goes through the gateway, which wants the client key.
+// Both live in frontend/.env, which is gitignored.
+const apiKey = import.meta.env.DEV
+  ? import.meta.env.VITE_DEV_API_KEY
+  : import.meta.env.VITE_API_KEY;
 
   let payload = {
     clientId: "frontend-test-suite",
@@ -101,7 +106,13 @@ const apiKey = import.meta.env.VITE_API_KEY;
 export const cancelGeneration = async (clientId = "frontend-test-suite") => {
   const url = import.meta.env.VITE_API_URL || "https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog";
   const cancelUrl = url.replace('/generate-catalog', '/cancel-job');
-  const apiKey = import.meta.env.VITE_API_KEY;
+  // No key is committed. In dev the frontend talks straight to the local
+// service, which wants its own SERVICE_API_KEY (VITE_DEV_API_KEY here);
+// in production it goes through the gateway, which wants the client key.
+// Both live in frontend/.env, which is gitignored.
+const apiKey = import.meta.env.DEV
+  ? import.meta.env.VITE_DEV_API_KEY
+  : import.meta.env.VITE_API_KEY;
 
   try {
     await fetch(cancelUrl, {

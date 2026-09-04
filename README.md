@@ -65,8 +65,16 @@ DISCOVERY_RATE_LIMIT_PER_MIN=20    # searches per minute, per clientId
 #### Frontend `.env`
 Create a `.env` file in the `/frontend` directory and add the following keys to connect to the Super Admin Gateway:
 ```env
+# Production: requests go through the Super Admin gateway.
 VITE_API_URL="https://api-super-admin.onrender.com/api/gateway/cat/api/v1/draping/generate-catalog"
-VITE_API_KEY="sk_live_..." # (Ask the team lead for the Super Admin API Key)
+VITE_API_KEY="sk_live_..." # the gateway/client key
+
+# Development: `npm run dev` talks DIRECTLY to http://localhost:4005, which
+# authenticates with the service's own SERVICE_API_KEY - the gateway key above
+# is rejected there. Without this the UI loads but every request returns 401.
+VITE_DEV_API_KEY="<the same value as SERVICE_API_KEY in the root .env>"
+
+# No key is committed to source; both live only in this gitignored file.
 ```
 
 ---

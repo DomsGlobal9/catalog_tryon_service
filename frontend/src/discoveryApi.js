@@ -13,8 +13,13 @@ const BASE = isDev
   : (import.meta.env.VITE_DISCOVERY_URL ||
      'https://api-super-admin.onrender.com/api/gateway/cat/api/v1/discovery');
 
-// The key is never committed - it comes from frontend/.env, which is gitignored.
-const API_KEY = import.meta.env.VITE_API_KEY;
+// No key is committed. In dev the frontend talks straight to the local
+// service, which wants its own SERVICE_API_KEY (VITE_DEV_API_KEY here);
+// in production it goes through the gateway, which wants the client key.
+// Both live in frontend/.env, which is gitignored.
+const API_KEY = import.meta.env.DEV
+  ? import.meta.env.VITE_DEV_API_KEY
+  : import.meta.env.VITE_API_KEY;
 
 /**
  * Throws a shaped error so the UI can display the service's own contract -
