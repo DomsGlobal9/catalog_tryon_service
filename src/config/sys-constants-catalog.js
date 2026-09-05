@@ -148,7 +148,7 @@ CRITICAL: Analyze the Saree Reference image carefully.
     }
   }
 
-  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, altered colour, colour shift, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
+  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, border stopping partway, border fading out, unfinished pallu edge, pallu ending in plain fabric, border missing at pallu end, interrupted border, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, altered colour, colour shift, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
 
 You are a professional fashion photographer conducting a catalog shoot for e-commerce.
   
@@ -181,6 +181,14 @@ inspiration. Reproduce THAT EXACT PIECE — not a similar one, not an improved o
   in the reference. A small motif stays small; a narrow border stays narrow.
 - EXACT PLACEMENT. Patterns must sit where they sit in the reference, and
   continue logically around the body rather than being redrawn.
+- CONTINUOUS BORDERS — DO NOT LET A BORDER STOP PARTWAY. A woven border belongs
+  to the full length of the cloth. It must run unbroken from end to end and must
+  not fade out, thin away, or be cut short by a fold, a pleat or a drape.
+  For a SAREE specifically: the border runs down the entire drape AND continues
+  all the way to the very end of the pallu. The pallu must NOT finish in a plain
+  band of fabric when the reference has a bordered edge — carry the border to the
+  final edge, and reproduce whatever finishes that edge in the reference
+  (zari band, tassels, fringe or a plain selvedge) exactly as shown.
 - FABRIC BEHAVIOUR. Match the weight and sheen of the reference fabric. A stiff
   fabric must not drape like chiffon, and a matte fabric must not turn glossy.
 
