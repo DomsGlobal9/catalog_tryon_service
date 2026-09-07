@@ -24,6 +24,17 @@ affect the other.
 The gateway strips the `cat` segment and forwards the rest of the path unchanged, so
 `/api/gateway/cat/api/v1/discovery/search` reaches the service as `/api/v1/discovery/search`.
 
+### Gateway limits that apply to every call
+
+| Limit | Value | Why it matters |
+| :--- | :--- | :--- |
+| Request timeout | **90 s** | Generation takes 30–70 s. At the previous 30 s setting, slower generations were cut off mid-stream. |
+| Max payload | **50 MB** | Matches the service's own body limit, so a base64 image accepted by one is accepted by the other. |
+
+These are gateway-side settings, not service settings — a direct call to the service is not subject
+to them. Verified against production: a generation completing in **31.7 s** streamed to completion
+through the gateway, which the old 30 s limit would have killed.
+
 ## 🔒 Authentication
 
 | Header | Value |
@@ -74,9 +85,9 @@ So both of these are valid and equivalent:
 { "clientId": "acme", "modelId": "saree1", "category": "women", "garmentCategory": "SAREE", "saree": "..." }
 ```
 
-The women pipeline is documented in full below. **The men pipeline is newer and was not verified by
-the same end-to-end testing** — treat the section at the end of this document as a description of
-its code rather than of proven behaviour.
+The women pipeline is documented in full below; the men pipeline has its own section at the end.
+Both have now been exercised end-to-end against production — see the verification note at the
+bottom of this document for exactly what was run.
 
 ## `POST /api/v1/draping/generate-catalog`
 
@@ -343,10 +354,10 @@ and returns **references** to garment designs found on the web.
 
 | Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Tenant identifier; also the rate-limit bucket. |
-| `keywords` | String[] | * | 1–12 terms. |
+| `clientId` | String | **Yes** | Tenant identifier; also the rate-limit bucket. Max 128 chars. |
+| `keywords` | String[] | * | 1–12 terms, each 1–64 chars. |
 | `instruction` | String | * | One line of natural language, max 500 chars. |
-| `category` | String | * | A garment id or alias — see `GET /taxonomy`. |
+| `category` | String | * | A garment id or alias — see `GET /taxonomy`. Max 64 chars. |
 | `designType` | String | No | A design area **of that garment**. Requires `category`. |
 | `filters.color` / `.fabric` / `.occasion` | String | No | Search qualifiers, not guarantees. |
 | `shotType` | String | No | `flatlay`, `worn`, or `any` (default). |
@@ -581,7 +592,15 @@ provider outages included — is reported as `4xx`.
 | `BASE_MODEL_CACHE_MAX` | `24` | Processed base poses held in memory. |
 | `SHUTDOWN_GRACE_MS` | `30000` | Forced exit if in-flight work will not drain. |
 | `DISCOVERY_CACHE_TTL_SEC` | `3600` | Search cache lifetime. |
+| `DISCOVERY_CACHE_MAX_ENTRIES` | `500` | Cache size before eviction. |
 | `DISCOVERY_RATE_LIMIT_PER_MIN` | `20` | Searches per minute per `clientId`. |
+| `SERPER_TIMEOUT_MS` | `8000` | Ceiling for one upstream search call. |
+| `SERPER_COUNTRY` / `SERPER_LANGUAGE` | `in` / `en` | Search locale. |
+| `DISCOVERY_NON_IMAGE_HOSTS` | Instagram, Facebook hosts | Hosts whose `imageUrl` serves HTML, so `fetchable` falls back to the thumbnail. |
+
+Body size limits differ by capability: discovery parses at **32 KB** (it only ever receives
+keywords), while the catalog endpoints parse at **50 MB** (they receive base64 images). Discovery is
+mounted before the larger parser so its own limit applies.
 
 
 ---
@@ -595,14 +614,36 @@ it is size-driven, not view-driven, so do not assume the two are interchangeable
 
 | Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | |
 | `full` / `topFront` / `bottom` | String | **Yes** | At least one garment image. URL, raw base64 or data URI. |
-| `category` | String | No | `FORMALS` (default), `BLAZER`, `KURTA_PAJAMA`, `SHERWANI` |
-| `categoryGroup` | String | Yes* | e.g. `TOPWEAR` / `BOTTOMWEAR` |
-| `sizes` | String[] | **Yes** | Non-empty, else `"sizes array is required and cannot be empty."` |
-| `validatedSizes` | String[] | **Yes** | Must all be valid for the `sizeType` |
-| `sizeType` | String | **Yes** | `"standard"` or `"waist"` — anything else is `"Invalid sizeType."` |
-| `userPhoto` | String | No | Switches the pipeline into try-on mode |
+| `sizes` | String[] | **Yes** | Non-empty. Values are upper-cased and trimmed, then checked against `sizeType`. |
+| `clientId` | String | No | Defaults to `"men-frontend"`. Also the cancel/zombie key — give each parallel job its own. |
+| `category` | String | No | `FORMALS`, `BLAZER`, `KURTA_PAJAMA`, `SHERWANI`. No default is applied here. |
+| `categoryGroup` | String | No | `TOP_WEAR` (default) or `BOTTOM_WEAR`. **Note the underscore.** |
+| `sizeType` | String | No | `"standard"` (default) or `"waist"`. Anything else is rejected. |
+| `tops` | String[] | No | Mix-and-match: several tops against one bottom. |
+| `userPhoto` | String | No | Switches the pipeline into try-on mode. |
+
+> **There is no `validatedSizes` request field.** An earlier version of this document listed one.
+> It is an internal variable the route derives from `sizes`; sending it does nothing.
+
+**Allowed size values**
+
+| `sizeType` | Accepted `sizes` |
+| :--- | :--- |
+| `standard` | `S` `M` `L` `XL` `XXL` `XXXL` |
+| `waist` | `28` `30` `32` `34` `36` `38` `40` |
+
+A verified minimal request — this is exactly what was run against production:
+
+```json
+{
+  "clientId": "acme-retail",
+  "category": "SHERWANI",
+  "categoryGroup": "TOP_WEAR",
+  "full": "https://cdn.shop/sherwani-flatlay.jpg",
+  "sizes": ["M"]
+}
+```
 
 ### Response — SSE, but different events from the women pipeline
 
@@ -619,8 +660,40 @@ The men pipeline generates **one image per requested size**, not four views. Its
 A consumer written against the women pipeline's `VIEW_READY` will receive **nothing** here. Handle
 `SIZE_READY` and key by `size`.
 
-Verified live: a `FORMALS` request with `sizes: ["M"]` streamed `SIZE_STATUS` then `SIZE_READY`
-carrying a valid base64 JPEG, then `COMPLETE`.
+#### The two pipelines use different field names
+
+This trips people up, so it is worth stating plainly:
+
+| | Garment field in | Image field out |
+| :--- | :--- | :--- |
+| **Women** | `saree` / `full` / `fullDress` | `image` |
+| **Men** | `full` / `topFront` / `bottom` | `result` |
+
+Reading only `image` will silently miss every men result, and vice versa. If you consume both,
+read `event.result || event.image`.
+
+**Exactly one `SIZE_READY` per size.** Until September 2026 this event was emitted **twice** for
+every size — once from the streaming callback and once again afterwards, carrying byte-identical
+payloads. Consumers that keyed by `size` never noticed; consumers that appended to a list received
+every image twice. Fixed: the second emit is now a fallback that fires only if the first did not.
+
+### Men-specific validation errors
+
+| Status | Body | When |
+| :--- | :--- | :--- |
+| `400` | `"Garment image is required."` | None of `full`, `topFront`, `bottom` supplied |
+| `400` | `"sizes array is required and cannot be empty."` | `sizes` missing or `[]` |
+| `400` | `"Invalid size. Allowed sizes are S, M, L, XL, XXL and XXXL."` | `sizeType: "standard"` with an unlisted size |
+| `400` | `"Invalid waist size. Allowed sizes are 28, 30, 32, 34, 36, 38, 40."` | `sizeType: "waist"` with an unlisted size |
+| `400` | `"Invalid sizeType."` | `sizeType` is neither `standard` nor `waist` |
+| `400` | `"User photo is required for size recommendation."` | `recommend-size` without `userPhoto` |
+
+Verified: a `SHERWANI` request with `sizes: ["M"]` and a flat-lay URL streamed `STATUS` →
+`SIZE_STATUS` → `SIZE_READY` carrying a 476 KB base64 JPEG → `COMPLETE`, in 12.2 s.
+
+To be precise about what was tested where: the **production** run was made before the duplicate fix
+and returned two identical `SIZE_READY` events. The single-event behaviour was verified against a
+local build carrying the fix. Production picks it up on its next deploy of that commit.
 
 ## Men-only endpoints
 
@@ -647,3 +720,59 @@ same treatment as the women pipeline:
 It also fixes a latent defect: every outgoing image part declared the **caller's** mime type while
 sending **resized** bytes, so the declaration never matched the payload. All five now declare the
 format actually produced.
+
+---
+
+# ✅ What was verified, and how
+
+This document is written from observed behaviour. Everything below was run against **production
+through the gateway** (`https://api-super-admin.onrender.com/api/gateway/cat`) on 4 September 2026,
+using a normal client API key — not against a local build.
+
+### Design Discovery
+
+| Call | Result |
+| :--- | :--- |
+| `GET /discovery/taxonomy` | `200` — 12 garments, 107 design areas |
+| `GET /discovery/categories` | `200` — 12 ids, 3 shot types, limits |
+| `POST /discovery/search` structured | `200` |
+| `POST /discovery/search` natural language | `200` |
+| `POST /discovery/search` keywords only | `200` |
+| `designType` not valid for its garment | `400 VALIDATION_ERROR` |
+| Unknown `category` | `400 VALIDATION_ERROR` |
+| Empty body | `400 VALIDATION_ERROR` |
+| `limit` above max | `400 VALIDATION_ERROR` |
+| Wrong API key | `401 UNAUTHORIZED_API_KEY` |
+
+**Every anticipated failure returned 4xx. No 5xx was produced by any input**, which is the property
+that keeps discovery from tripping the shared circuit breaker.
+
+Result quality was checked too: for a 20-result search, all 20 `fetchable.url` values retrieved a
+real image, and all 20 `fetchable.width`/`.height` pairs matched the decoded bytes exactly —
+including the Instagram results, which correctly reported their true ~400 px size rather than the
+original post's dimensions.
+
+### Catalog generation
+
+| Call | Result |
+| :--- | :--- |
+| Women, 4 views, garment supplied as a URL | `200`, 4 × `VIEW_READY` at 895×1200, then `COMPLETE` |
+| Men, `SHERWANI`, `sizes: ["M"]` | `200`, `SIZE_READY` (476 KB JPEG), then `COMPLETE` — two events at the time, see the duplicate-event note |
+| Missing `clientId`/`modelId` | `400` |
+| Men without a garment image | `400` |
+| `cancel-job` with no job running | `200`, `success: false` |
+| `recommend-size` without a photo | `400` |
+
+Measured end-to-end times through the gateway: **27.2 s, 27.4 s, 31.7 s** for a full four-view
+women's catalog, and **12.2 s** for a single men's size.
+
+One run was fed a flat-lay that Discovery itself had returned, so the full chain — **discovery →
+generation → delivery** — is proven in a single pass, not just each part in isolation.
+
+### Known limits of this verification
+
+- Timings are from a warm service. A cold Render instance adds start-up time to the first call.
+- Generation output is produced by an image model and is **not deterministic**; the same input can
+  return a visibly different photograph each time.
+- The mix-and-match (`tops`) path and `generate-user-tryon` were not exercised end-to-end; they are
+  documented from their code, like everything marked as such above.
