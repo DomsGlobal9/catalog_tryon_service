@@ -386,9 +386,25 @@ resolves to category `SAREE`, designType `PALLU`, keywords `["red","bridal","kan
 You may also pin a category alongside an instruction — the design area is then resolved *within*
 that garment even if the sentence never names it.
 
-**`shotType`.** A bare `"red bridal saree"` search returns mostly on-model editorial photos.
-`flatlay` biases toward flat product photography; measured at 92% garment-only against 10% for
-`any`.
+**`shotType` is a search hint, not a filter — and it is unreliable.** Setting `flatlay` appends
+the words `flat lay product photo` to the query. Nothing inspects the images that come back, so
+on-model photographs still appear.
+
+Re-measured by inspecting every returned image across three searches (46 results):
+
+| Search (`shotType: "flatlay"`) | Results | Garment only | Worn by a person |
+| :--- | ---: | ---: | ---: |
+| `red bridal saree` | 11 | 9 | **2 (18%)** |
+| `gold kanjivaram saree` | 15 | 7 | **8 (53%)** |
+| `blue anarkali` | 20 | 5 | **15 (75%)** |
+| **Total** | **46** | **21** | **25 (54%)** |
+
+> An earlier version of this document claimed 92% garment-only for `flatlay`. **That figure was
+> wrong** and has been replaced with the counts above. Treat `flatlay` as a mild preference that
+> often fails, not as a guarantee — and expect it to fail worst for stitched garments such as
+> anarkalis and kurtis, which are overwhelmingly photographed on models.
+
+If your pipeline needs genuine flat-lays, you must check the images yourself; the service does not.
 
 ### Response
 

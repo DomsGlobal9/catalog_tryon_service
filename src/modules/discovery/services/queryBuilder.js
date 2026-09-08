@@ -12,10 +12,15 @@ const taxonomy = require('../taxonomy');
 /**
  * Extra terms appended to bias what kind of photograph comes back.
  *
- * This matters more than it looks. A bare "red bridal saree" search returns
- * overwhelmingly on-model editorial shots; measured live, `flatlay` produced 92%
- * garment-only results against 10% for `any`. Callers who want product imagery
- * ask for it explicitly.
+ * These bias the search only. Nothing downstream inspects the returned images,
+ * so this is a preference, not a filter.
+ *
+ * Measured by eye over 46 results (three searches, Sept 2026): `flatlay` still
+ * returned a person wearing the garment 54% of the time - 18% for "red bridal
+ * saree", 53% for "gold kanjivaram saree", 75% for "blue anarkali". Stitched
+ * garments are the worst case; they are almost always shot on a model.
+ *
+ * An earlier comment here claimed 92% garment-only. That was wrong.
  */
 const SHOT_TYPE_TERMS = {
   flatlay: ['flat', 'lay', 'product', 'photo'],
