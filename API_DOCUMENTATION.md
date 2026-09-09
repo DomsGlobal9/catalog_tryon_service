@@ -350,6 +350,9 @@ and returns **references** to garment designs found on the web.
 
 ## `POST /api/v1/discovery/search`
 
+> A standalone reference covering just this endpoint - payload, response and errors - is in
+> [`DISCOVERY_SEARCH_API.md`](./DISCOVERY_SEARCH_API.md), for handing to a caller who only needs search.
+
 ### Request payload
 
 | Field | Type | Required | Notes |
