@@ -365,7 +365,7 @@ and returns **references** to garment designs found on the web.
 | `filters.color` / `.fabric` / `.occasion` | String | No | Search qualifiers, not guarantees. |
 | `shotType` | String | No | `flatlay`, `worn`, or `any` (default). |
 | `page` | Number | No | 1–20, default 1. |
-| `limit` | Number | No | 1–50, default 20. |
+| `limit` | Number | No | 1–100, default 20. Asking for more costs no extra — see below. |
 
 \* **At least one of `keywords`, `category` or `instruction` is required.** They combine freely:
 explicit fields always win, and `instruction` only fills the gaps they leave.
@@ -548,7 +548,7 @@ Garment ids, shot types and request limits. No payload.
   "categories": ["SAREE", "BLOUSE", "DUPATTA", "KURTHI", "ANARKALI", "PETTICOAT",
                  "GOWN", "SUIT", "SHERWANI", "BOTTOM_WEAR", "LEHANGA", "SHARARA"],
   "shotTypes": ["flatlay", "worn", "any"],
-  "limits": { "maxLimit": 50, "maxPage": 20 }
+  "limits": { "maxLimit": 100, "maxPage": 20 }
 }
 ```
 

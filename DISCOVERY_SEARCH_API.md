@@ -37,9 +37,31 @@ design images found on the web**.
 | `filters.fabric` | String | No | e.g. `"organza"`. Max 64 chars. |
 | `filters.occasion` | String | No | e.g. `"reception"`. Max 64 chars. |
 | `page` | Number | No | 1–20, default 1. |
-| `limit` | Number | No | 1–50, default 20. |
+| `limit` | Number | No | 1–100, default 20. **A bigger page costs no more — see below.** |
 
 \* **You must send at least one of `keywords`, `category` or `instruction`.** Sending none is a `400`.
+
+They combine freely. **Explicit fields always win**, and `instruction` only fills the gaps they leave.
+
+### Ask for a big page — it is free
+
+The default is 20, but the maximum is **100 in a single call**, and this is the important part:
+
+| You ask for | Results back | Search-provider credits |
+| ---: | ---: | ---: |
+| 20 | 20 | **2** |
+| 50 | 49 | **2** |
+| 100 | 97 | **2** |
+
+**The cost is the same whatever you ask for** (measured directly against the provider). So five
+pages of 20 costs 10 credits and five round trips; one call for 100 costs 2 credits and one round
+trip, for the same designs. If you want a lot of results, ask once with `limit: 100`.
+
+A 100-result response is roughly **75 KB** and still returns in 2–4 seconds.
+
+**There is no "give me everything".** The search engine never reports a total, so nothing can know
+how many exist. 100 per call is the provider's own ceiling; past that you must page, and **each page
+is a fresh 2 credits**. `hasMore` is only a guess based on the page coming back full.
 
 They combine freely. **Explicit fields always win**, and `instruction` only fills the gaps they leave.
 

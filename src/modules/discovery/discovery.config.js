@@ -46,7 +46,12 @@ const config = {
 
   search: {
     defaultLimit: 20,
-    maxLimit: 50,
+    // The upstream provider returns up to 100 images in a single call, and
+    // charges the SAME 2 credits whether asked for 20, 50 or 100 (measured
+    // directly against the provider). So a caller who wants 100 designs should
+    // ask once rather than page five times - identical result, one fifth the
+    // credits and one fifth the latency. 100 is the provider ceiling, not ours.
+    maxLimit: 100,
     maxPage: 20,
     maxKeywords: 12,
     // Anything smaller than this is a sprite, icon or tracking pixel, not a design.
