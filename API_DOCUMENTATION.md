@@ -267,7 +267,7 @@ Validation runs in that order, so a request missing several things reports the f
 ### Concurrency and the zombie killer
 
 **Admission control.** The service accepts a limited number of simultaneous generations
-(`MAX_CONCURRENT_GENERATIONS`, default 3). Beyond that it returns `429` immediately rather than
+(currently **3**). Beyond that it returns `429` immediately rather than
 queueing — a fast honest answer instead of a request that starves. Retry shortly.
 
 **Zombie killer.** Starting a new generation with a `clientId` that already has one running
@@ -592,27 +592,7 @@ provider outages included — is reported as `4xx`.
   cannot trip the shared circuit breaker and take generation down, and vice versa.
 * **Generation is capped, not queued.** Excess concurrent load is rejected with `429`.
 
-### Environment variables
-
-| Variable | Default | Purpose |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | — | Required. Postgres, `se_catalog` schema. |
-| `GEMINI_API_KEY` | — | Required. |
-| `SERVICE_API_KEY` | — | Required. Must match the gateway's stored secret. |
-| `SERPER_API_KEY` | — | Optional. Absent disables discovery only. **serper.dev, not serpapi.com.** |
-| `GEMINI_TIMEOUT_MS` | `120000` | Ceiling for one Gemini call. |
-| `MAX_CONCURRENT_GENERATIONS` | `3` | Excess returns `429`. |
-| `SSE_HEARTBEAT_MS` | `15000` | Keepalive interval. |
-| `PARALLEL_VIEWS` | `true` | `false` generates the dependent views serially. |
-| `INPUT_IMAGE_FORMAT` / `_QUALITY` | `jpeg` / `95` | Upload format for images sent to Gemini. |
-| `BASE_MODEL_CACHE_MAX` | `24` | Processed base poses held in memory. |
-| `SHUTDOWN_GRACE_MS` | `30000` | Forced exit if in-flight work will not drain. |
-| `DISCOVERY_CACHE_TTL_SEC` | `3600` | Search cache lifetime. |
-| `DISCOVERY_CACHE_MAX_ENTRIES` | `500` | Cache size before eviction. |
-| `DISCOVERY_RATE_LIMIT_PER_MIN` | `20` | Searches per minute per `clientId`. |
-| `SERPER_TIMEOUT_MS` | `8000` | Ceiling for one upstream search call. |
-| `SERPER_COUNTRY` / `SERPER_LANGUAGE` | `in` / `en` | Search locale. |
-| `DISCOVERY_NON_IMAGE_HOSTS` | Instagram, Facebook hosts | Hosts whose `imageUrl` serves HTML, so `fetchable` falls back to the thumbnail. |
+### Request size limits
 
 Body size limits differ by capability: discovery parses at **32 KB** (it only ever receives
 keywords), while the catalog endpoints parse at **50 MB** (they receive base64 images). Discovery is
@@ -728,7 +708,7 @@ same treatment as the women pipeline:
 
 - the response body is read **inside** the retry loop, so a mid-download connection reset retries
   instead of killing the job
-- a wall-clock `GEMINI_TIMEOUT_MS` ceiling per call, combined with the client abort signal
+- a wall-clock ceiling on every upstream call, combined with the client abort signal
 - processed base poses cached in memory rather than re-fetched per request
 - reference images prepared concurrently instead of in series
 - JPEG q95 uploads rather than PNG

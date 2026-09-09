@@ -60,6 +60,10 @@ SERPER_TIMEOUT_MS=8000
 DISCOVERY_CACHE_TTL_SEC=3600       # repeat searches served from cache, not re-billed
 DISCOVERY_CACHE_MAX_ENTRIES=500
 DISCOVERY_RATE_LIMIT_PER_MIN=20    # searches per minute, per clientId
+# Hosts whose imageUrl serves an HTML page rather than an image (Instagram,
+# Facebook). Results from these fall back to the thumbnail, which is all that
+# can actually be retrieved. Comma-separated; defaults cover the known ones.
+# DISCOVERY_NON_IMAGE_HOSTS="lookaside.instagram.com,lookaside.fbsbx.com"
 ```
 
 #### Frontend `.env`
