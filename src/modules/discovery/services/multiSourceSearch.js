@@ -83,12 +83,14 @@ async function runSource(plan, resolved) {
 /**
  * @param {Object}   resolved            Output of searchInputResolver.
  * @param {Object}   [hooks]
+ * @param {Object[]} [hooks.plans]       Plans already built by the caller (the
+ *                                       controller builds them to price the search).
  * @param {Function} [hooks.onPlan]      (plans) - before any provider call.
  * @param {Function} [hooks.onOutcome]   (outcome) - as each source finishes.
  * @returns {Promise<{ plans: Object[], outcomes: Object[] }>}  outcomes in plan order.
  */
 async function searchSources(resolved, hooks = {}) {
-  const plans = planSources(resolved);
+  const plans = hooks.plans || planSources(resolved);
   if (hooks.onPlan) hooks.onPlan(plans);
 
   const outcomes = await Promise.all(

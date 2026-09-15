@@ -12,10 +12,24 @@ const crypto = require('crypto');
 const { config } = require('./discovery.config');
 const taxonomy = require('./taxonomy');
 const { resolveSearchInput } = require('./services/searchInputResolver');
-const { searchSources, dedupe, summarise } = require('./services/multiSourceSearch');
+const { searchSources, planSources, dedupe, summarise } = require('./services/multiSourceSearch');
 const { SOURCES } = require('./services/platforms');
+const cache = require('./services/searchCache');
+const rateLimit = require('./middleware/rateLimit');
 const { ORIENTATIONS, SHOT_TYPES } = require('./middleware/validate');
 const { NotConfiguredError } = require('./lib/errors');
+
+/**
+ * Build the per-source plans and charge the client for the provider calls they
+ * will really make - sources already in the cache are free. Throws RateLimitError.
+ */
+function planAndCharge(resolved, clientId) {
+  const plans = planSources(resolved);
+  const uncached = plans.filter((p) => !cache.has(p.cacheKey)).length;
+  const refused = rateLimit.charge(clientId, uncached);
+  if (refused) throw refused;
+  return plans;
+}
 
 function logLine(searchId, clientId, resolved, sources, startedAt, extra = '') {
   const perSource = sources
@@ -45,7 +59,8 @@ async function search(req, res, next) {
     // Throws ValidationError (400) for an unknown category, a design area that
     // does not belong to its garment, or an instruction nothing was found in.
     const resolved = resolveSearchInput(req.validated);
-    const { outcomes } = await searchSources(resolved);
+    const plans = planAndCharge(resolved, clientId);
+    const { outcomes } = await searchSources(resolved, { plans });
 
     const succeeded = outcomes.filter((o) => o.status === 'ok');
     if (!succeeded.length) {
@@ -108,11 +123,14 @@ async function searchStream(req, res, next) {
   const clientId = (req.validated && req.validated.clientId) || 'unknown';
 
   let resolved;
+  let plans;
   try {
     resolved = resolveSearchInput(req.validated);
     // Checked here rather than per source: a switched-off deployment should answer
     // 424 like the JSON endpoint, not open a stream of four identical failures.
     if (!config.isConfigured) throw new NotConfiguredError();
+    // Charged before the stream opens, so running out of budget is a normal 429.
+    plans = planAndCharge(resolved, clientId);
   } catch (err) {
     return next(err);
   }
@@ -154,7 +172,8 @@ async function searchStream(req, res, next) {
   let total = 0;
 
   try {
-    const { plans, outcomes } = await searchSources(resolved, {
+    const { outcomes } = await searchSources(resolved, {
+      plans,
       onPlan: (planned) =>
         send({
           type: 'start',

@@ -319,18 +319,21 @@ async function discoveryPlatformsAndStreaming() {
   eq('orientation of an unknown size is unknown', orientationOf(null, 10), null);
   eq('domain normalised', normaliseDomain(' HTTPS://WWW.Meesho.com:443/x?y '), 'meesho.com');
 
-  section('RATE LIMIT  (budget counted in provider calls)');
+  section('RATE LIMIT  (budget counted in real provider calls)');
   rateLimit.reset();
-  const spend = (sources) => new Promise((resolve) =>
-    rateLimit.searchRateLimit({ validated: { clientId: 'budget', sources } }, {}, (err) => resolve(err ? err.statusCode : 200)));
+  const spend = (cost) => { const err = rateLimit.charge('budget', cost); return err ? err.statusCode : 200; };
   const four = ['web', 'pinterest', 'instagram', 'facebook'];
   const seq = [];
-  for (let i = 0; i < 4; i++) seq.push(await spend(four)); // 16 of 20 used
-  seq.push(await spend(['web', 'pinterest']));            // 18
-  seq.push(await spend(four));                            // would be 22: refused, NOT charged
-  seq.push(await spend(['web', 'pinterest']));            // 20: still allowed
-  seq.push(await spend(['web']));                         // 21: refused
-  eq('a four-source search costs four; a refused request costs nothing', seq, [200, 200, 200, 200, 200, 429, 200, 429]);
+  for (let i = 0; i < 4; i++) seq.push(spend(4)); // 16 of 20 used
+  seq.push(spend(2));                             // 18
+  seq.push(spend(4));                             // would be 22: refused, NOT charged
+  seq.push(spend(2));                             // 20: still allowed
+  seq.push(spend(1));                             // 21: refused
+  seq.push(spend(0));                             // fully cached search: free even with no budget left
+  eq('four calls cost four; a refused request costs nothing; a cached one is free', seq,
+    [200, 200, 200, 200, 200, 429, 200, 429, 200]);
+  const refusal = rateLimit.charge('budget', 1);
+  check('refusal says how long to wait', refusal && refusal.retryAfterSec >= 1 && refusal.retryAfterSec <= 60, refusal && 'retry in ' + refusal.retryAfterSec + 's');
   rateLimit.reset();
 
   // Fake provider. What it returns is decided by the words in the query.
@@ -427,6 +430,28 @@ async function discoveryPlatformsAndStreaming() {
     body = await res.json();
     eq('a request without sources is still one web search', body.sources.map((s) => s.source), ['web']);
 
+    section('BUDGET OVER HTTP  (only uncached provider calls are charged)');
+    cache.clear();
+    rateLimit.reset();
+    const budget = [];
+    budget.push((await post('/search', { clientId: 'clicker', keywords: ['budget', 'probe'], sources: ['web', 'pinterest', 'instagram'] })).status); // 3 calls
+    for (let i = 0; i < 12; i++) {
+      // Same search, different result filters each time - exactly what clicking
+      // through filters in the UI does. All cached, so all free.
+      budget.push((await post('/search', { clientId: 'clicker', keywords: ['budget', 'probe'], sources: ['web', 'pinterest', 'instagram'],
+        resultFilters: { minWidth: 100 + i } })).status);
+    }
+    check('twelve filter changes on a cached search are never rate limited', budget.every((s) => s === 200), budget.join(','));
+    for (let i = 0; i < 5; i++) await post('/search', { clientId: 'clicker', keywords: ['fresh', String(i)], sources: ['web', 'pinterest', 'instagram'] }); // 3 + 15 = 18
+    let over = await post('/search', { clientId: 'clicker', keywords: ['fresh', 'more'], sources: ['web', 'pinterest', 'instagram'] }); // 21
+    eq('new searches are still limited', over.status, 429);
+    check('limited response carries Retry-After', !!over.headers.get('retry-after'), 'Retry-After: ' + over.headers.get('retry-after'));
+    over = await post('/search/stream', { clientId: 'clicker', keywords: ['fresh', 'stream'], sources: ['web', 'pinterest', 'instagram'] });
+    eq('stream refused as JSON 429 before opening', [over.status, /json/.test(over.headers.get('content-type') || '')], [429, true]);
+    const stillFree = await post('/search', { clientId: 'clicker', keywords: ['budget', 'probe'], sources: ['web', 'pinterest', 'instagram'] });
+    eq('a cached search still works while out of budget', stillFree.status, 200);
+    rateLimit.reset();
+
     section('SINGLE-FLIGHT  (identical searches at the same moment share one call)');
     cache.clear();
     calls.length = 0;
@@ -521,11 +546,34 @@ async function live() {
   let r = await call('/api/v1/discovery/taxonomy', null, 'GET');
   check('taxonomy served', r.status === 200 && r.body.designAreaCount === 107, r.body && (r.body.garmentCount + '/' + r.body.designAreaCount));
   r = await call('/api/v1/discovery/search', { clientId: 'test', keywords: ['red', 'bridal', 'saree'] });
-  check('search returns results', r.status === 200 && r.body.results.length > 0, r.body && (r.body.results.length + ' results'));
+  check('search returns results', r.status === 200 && r.body.results.length > 0,
+    r.status === 200 ? r.body.results.length + ' results' : 'HTTP ' + r.status + ' ' + (r.body && r.body.error && r.body.error.message));
   check('every result carries a usable fetchable url',
     r.status === 200 && r.body.results.every((x) => x.fetchable && x.fetchable.url));
   r = await call('/api/v1/discovery/search', { clientId: 'test', category: 'SAREE', designType: 'SLEEVE', keywords: ['x'] });
   check('invalid garment/area pair rejected', r.status === 400 && r.body.error.code === 'VALIDATION_ERROR');
+
+  section('LIVE: platforms and streaming  (real provider - spends credits)');
+  const plat = ['web', 'pinterest', 'instagram', 'facebook'];
+  r = await call('/api/v1/discovery/search', { clientId: 'live-platforms', keywords: ['red', 'bridal', 'saree'], sources: plat });
+  check('four-platform search answers', r.status === 200, r.body && r.body.sources && r.body.sources.map((s) => s.source + ':' + (s.status === 'ok' ? s.returned : s.error.code)).join(' '));
+  for (const p of ['pinterest', 'instagram', 'facebook']) {
+    const found = r.status === 200 ? r.body.results.filter((x) => x.foundBy === p) : [];
+    check(`${p} search returns only ${p}`, found.every((x) => x.platform === p), found.length + ' results');
+  }
+  check('no design returned twice', r.status === 200 && new Set(r.body.results.map((x) => x.id)).size === r.body.results.length);
+  const upgraded = r.status === 200 ? r.body.results.filter((x) => x.fetchable.sizeExact === false) : [];
+  check('upgraded Pinterest images point at the 736x file', upgraded.every((x) => /\/736x\//.test(x.fetchable.url) && x.fetchable.fallbackUrl), upgraded.length + ' upgraded');
+
+  const streamRes = await fetch(B + '/api/v1/discovery/search/stream', { method: 'POST', headers: H,
+    body: JSON.stringify({ clientId: 'live-stream', keywords: ['red', 'bridal', 'saree'], sources: plat }) });
+  const text = await streamRes.text();
+  const types = text.split('\n\n').filter((f) => f.startsWith('data: ')).map((f) => JSON.parse(f.slice(6)).type);
+  check('stream opens as text/event-stream', /text\/event-stream/.test(streamRes.headers.get('content-type') || ''));
+  eq('stream events: start, four sources, done', types, ['start', 'source', 'source', 'source', 'source', 'done']);
+  const badStream = await fetch(B + '/api/v1/discovery/search/stream', { method: 'POST', headers: H,
+    body: JSON.stringify({ clientId: 'live-stream', keywords: ['x'], sources: ['tiktok'] }) });
+  check('stream refuses a bad body as JSON 400', badStream.status === 400 && /json/.test(badStream.headers.get('content-type') || ''));
 
   section('LIVE: routing to the right pipeline');
   r = await call('/api/v1/draping/generate-catalog/women', { clientId: 'test', modelId: 'saree1' });

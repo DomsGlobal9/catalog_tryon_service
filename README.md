@@ -56,10 +56,11 @@ INPUT_IMAGE_QUALITY=95
 SERPER_API_KEY=""                  # get one at https://serper.dev/api-key
 SERPER_COUNTRY="in"                # Google country bias; 'in' suits ethnic wear
 SERPER_LANGUAGE="en"
-SERPER_TIMEOUT_MS=8000
+SERPER_TIMEOUT_MS=15000            # was 8000: real calls of 9-10.5s were measured and failed
 DISCOVERY_CACHE_TTL_SEC=3600       # repeat searches served from cache, not re-billed
 DISCOVERY_CACHE_MAX_ENTRIES=500
-DISCOVERY_RATE_LIMIT_PER_MIN=20    # searches per minute, per clientId
+DISCOVERY_RATE_LIMIT_PER_MIN=20    # provider calls per minute per clientId; cached ones are free
+DISCOVERY_STREAM_HEARTBEAT_MS=10000 # keep-alive interval on the /search/stream endpoint
 # Hosts whose imageUrl serves an HTML page rather than an image (Instagram,
 # Facebook). Results from these fall back to the thumbnail, which is all that
 # can actually be retrieved. Comma-separated; defaults cover the known ones.

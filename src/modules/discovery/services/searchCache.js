@@ -36,6 +36,16 @@ function get(key) {
   return entry.value;
 }
 
+/**
+ * Whether a live entry exists, WITHOUT refreshing its recency. Used to work out
+ * what a search will cost before running it, so asking must not count as using.
+ */
+function has(key) {
+  if (!enabled()) return false;
+  const entry = store.get(key);
+  return !!entry && Date.now() <= entry.expiresAt;
+}
+
 function set(key, value) {
   if (!enabled()) return;
 
@@ -57,4 +67,4 @@ function stats() {
   return { enabled: enabled(), size: store.size, maxEntries: config.cache.maxEntries, ttlSec: config.cache.ttlSec };
 }
 
-module.exports = { get, set, clear, stats };
+module.exports = { get, has, set, clear, stats };

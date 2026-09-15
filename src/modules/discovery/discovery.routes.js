@@ -5,7 +5,6 @@ const express = require('express');
 const { config } = require('./discovery.config');
 const taxonomy = require('./taxonomy');
 const { validateBody, searchSchema } = require('./middleware/validate');
-const { searchRateLimit } = require('./middleware/rateLimit');
 const { discoveryErrorHandler, AppError } = require('./lib/errors');
 const controller = require('./discovery.controller');
 
@@ -32,9 +31,12 @@ router.use((_req, _res, next) => {
 
 router.get('/categories', controller.categories);
 router.get('/taxonomy', controller.taxonomy);
-router.post('/search', validateBody(searchSchema), searchRateLimit, controller.search);
+
+// The per-client budget is charged inside the controller, not as middleware here:
+// only there is it known which sources are already cached and therefore free.
+router.post('/search', validateBody(searchSchema), controller.search);
 // Same request body, same validation and budget - answered as Server-Sent Events.
-router.post('/search/stream', validateBody(searchSchema), searchRateLimit, controller.searchStream);
+router.post('/search/stream', validateBody(searchSchema), controller.searchStream);
 
 // Module-local error handler: keeps discovery's 4xx-first status policy from
 // ever touching the draping routes.
