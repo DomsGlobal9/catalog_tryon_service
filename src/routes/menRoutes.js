@@ -64,8 +64,9 @@ const BOTTOM_WEAR_BODY_REFERENCE_URLS = {
 // SIMPLE JOB STORE
 // ============================================================
 
-const activeJobs =
-  new Map();
+// Running jobs are tracked in middleware/generationGuard.js, shared with the
+// women pipeline and visible to every server.
+const { admitGeneration, cancelGeneration } = require("../middleware/generationGuard");
 
 
 let previousJobs =
@@ -122,24 +123,16 @@ async function runSSEGeneration(req, res, {
 }) {
 
   // --------------------------------------------------------
-  // CANCEL PREVIOUS JOB FOR SAME CLIENT
+  // BUDGET, CANCEL PREVIOUS JOB, CAPACITY, CREATE JOB
   // --------------------------------------------------------
+  // Shared with the women pipeline (middleware/generationGuard.js): the previous
+  // job for this client is stopped on whichever server runs it, and a refusal is
+  // a JSON 429 sent before the stream opens.
 
-  const existingJob = activeJobs.get(clientId);
+  const admitted = await admitGeneration(req, res, { clientId, pipeline: 'men' });
+  if (!admitted) return;
 
-  if (existingJob) {
-    console.log(`Cancelling previous job for ${clientId}`);
-    existingJob.abort();
-    activeJobs.delete(clientId);
-  }
-
-
-  // --------------------------------------------------------
-  // CREATE JOB
-  // --------------------------------------------------------
-
-  const controller = new AbortController();
-  activeJobs.set(clientId, controller);
+  const controller = admitted.job;
   previousJobs += 1;
 
 
@@ -350,7 +343,9 @@ async function runSSEGeneration(req, res, {
     }
 
   } finally {
-    activeJobs.delete(clientId);
+    // Releases only this job. The old code deleted by clientId, so a replaced
+    // job finishing late removed the NEW job's entry and made it uncancellable.
+    await admitted.release();
     res.end();
   }
 }
@@ -775,7 +770,7 @@ router.post(
 
   "/cancel-job/men",
 
-  (
+  async (
     req,
     res
   ) => {
@@ -788,21 +783,7 @@ router.post(
     } = req.body;
 
 
-    const job =
-      activeJobs.get(
-        clientId
-      );
-
-
-    if (job) {
-
-      job.abort();
-
-
-      activeJobs.delete(
-        clientId
-      );
-
+    if (await cancelGeneration(req, { clientId, pipeline: "men" })) {
 
       console.log(
         `Generation cancelled for ${clientId}`

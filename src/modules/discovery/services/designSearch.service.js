@@ -169,12 +169,16 @@ async function fetchSource({ query, cacheKey, page, limit, recency = 'any' }) {
 
   if (!inflight.has(cacheKey)) {
     const call = (async () => {
+      // Another server may already have paid for this exact search.
+      const shared = await cache.getShared(cacheKey);
+      if (shared) return { value: shared, cached: true };
+
       const { results: providerResults, rawCount } = await providerLimiter.run(
         () => getProvider().search({ query, page, limit, recency })
       );
       const value = { results: filterResults(providerResults), rawCount };
       cache.set(cacheKey, value);
-      return value;
+      return { value, cached: false };
     })();
     inflight.set(cacheKey, call);
     // Clear the slot however the call ends. `catch` stops this bookkeeping promise
@@ -182,8 +186,8 @@ async function fetchSource({ query, cacheKey, page, limit, recency = 'any' }) {
     call.finally(() => inflight.delete(cacheKey)).catch(() => {});
   }
 
-  const value = await inflight.get(cacheKey);
-  return { results: value.results, rawCount: value.rawCount, cached: false };
+  const { value, cached } = await inflight.get(cacheKey);
+  return { results: value.results, rawCount: value.rawCount, cached };
 }
 
 /**

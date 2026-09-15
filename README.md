@@ -32,7 +32,19 @@ PORT=4005
 
 # ── Reliability / capacity (all optional, sensible defaults shown) ───────────
 GEMINI_TIMEOUT_MS=120000          # wall-clock ceiling for one Gemini call
-MAX_CONCURRENT_GENERATIONS=3      # excess requests get 429, not a queue
+MAX_CONCURRENT_GENERATIONS=3      # per server, both pipelines together; excess gets 429, not a queue
+GENERATION_RATE_LIMIT_PER_HOUR=60 # generations per customer per hour, across all servers; 0 = off
+KEEP_ALIVE_TIMEOUT_MS=65000       # longer than the load balancer's idle timeout, avoids stray 502s
+
+# ── Running more than one server (all optional) ─────────────────────────────
+# Limits, the discovery cache and the list of running jobs are kept in three
+# small tables in the same database (created automatically at boot), so every
+# server sees the same counts and a cancel reaches a job on any server. If the
+# database is slow or down, each server carries on using its own memory.
+SHARED_STATE=on                   # off = per-server memory only
+SHARED_STATE_SCHEMA=se_catalog
+SHARED_STATE_TIMEOUT_MS=1500      # longest a shared-state query may take
+JOB_CANCEL_POLL_MS=1500           # how quickly a cancel reaches another server
 SSE_HEARTBEAT_MS=15000            # keepalive during the gaps between views
 SHUTDOWN_GRACE_MS=30000           # forced exit if in-flight work will not drain
 DB_POOL_MAX=10
@@ -59,7 +71,7 @@ SERPER_LANGUAGE="en"
 SERPER_TIMEOUT_MS=15000            # was 8000: real calls of 9-10.5s were measured and failed
 DISCOVERY_CACHE_TTL_SEC=3600       # repeat searches served from cache, not re-billed
 DISCOVERY_CACHE_MAX_ENTRIES=500
-DISCOVERY_RATE_LIMIT_PER_MIN=20    # provider calls per minute per clientId; cached ones are free
+DISCOVERY_RATE_LIMIT_PER_MIN=20    # provider calls per minute per customer (gateway account); cached ones are free
 DISCOVERY_STREAM_HEARTBEAT_MS=10000 # keep-alive interval on the /search/stream endpoint
 # Provider calls in flight at once; extra calls queue. 32 simultaneous calls on one
 # key had 7 refused as "rate limit exhausted"; with a cap of 10, 48 all succeeded.
@@ -145,8 +157,11 @@ npm run dev
 ## ✅ Tests
 
 ```bash
-npm test          # offline: no network, no server, no API credits. Safe for CI.
-npm run test:live # additionally drives a running service on :4005
+npm test            # offline: no network, no server, no API credits. Safe for CI.
+npm run test:live   # additionally drives a running service on :4005
+npm run test:shared # shared state against the real database (in a throwaway schema it
+                    # drops afterwards) and two real service processes side by side.
+                    # Set TEST_SERPER_API_KEY to a TEST key to include discovery.
 ```
 
 The offline suite covers taxonomy integrity, garment canonicalisation, prompt

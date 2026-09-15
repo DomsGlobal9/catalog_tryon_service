@@ -14,17 +14,13 @@ const express = require('express');
 const router = express.Router();
 const { prisma, close: closeDb } = require('../lib/db');
 const aiGenerationService = require('../services/catalogAiService');
+const capacity = require('../lib/capacity');
+const shared = require('../lib/shared');
+const { admitGeneration, cancelGeneration } = require('../middleware/generationGuard');
 
-// Global registry to track active jobs per client to kill zombies on page refresh
-const activeClientJobs = new Map();
-
-// A single generation holds four base models plus the garment images through
-// sharp, and four ~740KB base64 outputs simultaneously. Unbounded concurrency
-// exhausts memory on a small instance long before it saturates the CPU, so
-// admission is capped and excess load is rejected rather than queued - a caller
-// gets a fast, honest 429 instead of a request that silently starves.
-const MAX_CONCURRENT_GENERATIONS = Number(process.env.MAX_CONCURRENT_GENERATIONS || 3);
-let activeGenerations = 0;
+// Running jobs, the zombie killer and admission control live in
+// middleware/generationGuard.js, shared with the men pipeline and visible to
+// every server - a cancel reaches the job wherever it runs.
 
 // How often to emit an SSE comment while a view is generating. Views take
 // 14-25s each, and proxies commonly idle-timeout at 30-60s with nothing on the
@@ -37,23 +33,19 @@ router.post('/cancel-job/women', async (req, res) => {
   const { clientId } = req.body;
   if (!clientId) return res.status(400).json({ success: false, error: 'clientId required' });
 
-  if (activeClientJobs.has(clientId)) {
-    console.log(`[Zombie Killer] Explicit cancellation received from frontend for client ${clientId}. Assasinating pipeline...`);
-    const oldController = activeClientJobs.get(clientId);
-    oldController.abort();
-    activeClientJobs.delete(clientId);
+  if (await cancelGeneration(req, { clientId, pipeline: 'women' })) {
+    console.log(`[Zombie Killer] Explicit cancellation received for client ${clientId}.`);
     return res.json({ success: true, message: 'Pipeline successfully aborted.' });
   }
-  
+
   res.json({ success: false, message: 'No active job running for this client.' });
 });
 
 router.post('/generate-catalog/women', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;
-  let abortController = null;
   let heartbeat = null;
-  let slotTaken = false;
+  let admitted = null;
 
   try {
   const { clientId, modelId, bottom } = req.body;
@@ -119,31 +111,12 @@ console.log('==========================');
       }
     }
 
-    // --- ZOMBIE PROCESS KILLER ---
-    // If this client already has a generation running (e.g. they hit refresh and clicked generate again),
-    // instantly kill their old running pipeline to save GPU compute and prevent 503 pileups.
-    if (activeClientJobs.has(clientId)) {
-      console.log(`[Zombie Killer] Client ${clientId} started a new job. Killing previous zombie job...`);
-      const oldController = activeClientJobs.get(clientId);
-      oldController.abort();
-      activeClientJobs.delete(clientId);
-    }
-
-    // --- ADMISSION CONTROL ---
-    // Rejected, not queued: a caller learns immediately rather than waiting on a
-    // request that will starve. 429 is deliberate - it is 4xx, so a busy service
-    // cannot trip the gateway's per-slug circuit breaker and take discovery down.
-    if (activeGenerations >= MAX_CONCURRENT_GENERATIONS) {
-      console.warn(`[Capacity] Rejecting generation for ${clientId}: ${activeGenerations}/${MAX_CONCURRENT_GENERATIONS} slots in use.`);
-      return res.status(429).json({
-        success: false,
-        error: 'Service at capacity. Please retry shortly.',
-        activeGenerations,
-        maxConcurrent: MAX_CONCURRENT_GENERATIONS
-      });
-    }
-    activeGenerations += 1;
-    slotTaken = true;
+    // --- BUDGET, ZOMBIE KILLER, ADMISSION CONTROL ---
+    // Replaces this client's previous job wherever it runs, and refuses with a
+    // JSON 429 (never 5xx, never queued) when over budget or at capacity.
+    admitted = await admitGeneration(req, res, { clientId, pipeline: 'women' });
+    if (!admitted) return;
+    const abortController = admitted.job;
 
     // 2. Log the Job Start in Prisma (Zero-Retention: We don't save the Base64 images)
     const job = await prisma.drapeJob.create({
@@ -154,9 +127,6 @@ console.log('==========================');
       }
     });
     jobId = job.id;
-
-    abortController = new AbortController();
-    activeClientJobs.set(clientId, abortController);
 
     req.on('close', () => {
       console.log(`Client connection closed for job ${jobId}. Aborting pipeline...`);
@@ -225,7 +195,10 @@ console.log('==========================');
           data: { status: 'CANCELLED', latencyMs: Date.now() - startTime }
         });
       }
-      return; // Connection is already closed or superseded, do not write to res
+      // Superseded or cancelled. If the caller is somehow still listening (a
+      // cancel sent from elsewhere), close the stream rather than leave it hanging.
+      if (!res.writableEnded && !res.destroyed) res.end();
+      return;
     }
 
     if (jobId) {
@@ -247,20 +220,18 @@ console.log('==========================');
     }
   } finally {
     if (heartbeat) clearInterval(heartbeat);
-    if (slotTaken) activeGenerations -= 1;
-
-    // Cleanup the global registry
-    if (activeClientJobs.get(req.body.clientId) === abortController) {
-      activeClientJobs.delete(req.body.clientId);
-    }
+    // Frees the slot and removes the job from the shared list. Only this job's
+    // own entry is touched, so a newer job for the same client is unaffected.
+    if (admitted) await admitted.release();
   }
 });
 
 /** Called from src/index.js on SIGTERM/SIGINT so connections are released. */
 async function shutdown() {
+  await shared.stop();
   await closeDb();
 }
 
 module.exports = router;
 module.exports.shutdown = shutdown;
-module.exports.stats = () => ({ activeGenerations, maxConcurrent: MAX_CONCURRENT_GENERATIONS, trackedClients: activeClientJobs.size });
+module.exports.stats = () => ({ ...capacity.stats(), ...shared.jobs.stats() });

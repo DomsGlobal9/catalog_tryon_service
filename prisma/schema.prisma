@@ -61,3 +61,47 @@ model DrapeJob {
   @@map("draping_jobs")
   @@schema("se_catalog")
 }
+
+// ─── 3. SHARED STATE (lets several servers run behind a load balancer) ───
+// Written with plain SQL by src/lib/shared, which also creates these tables at
+// boot if they are missing. They are declared here so `prisma db push` keeps
+// them instead of dropping them. Every row is short-lived and safe to lose.
+
+// Rate limit counters: units used per bucket per time window.
+model SharedRateLimit {
+  bucket      String
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  used        Int
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@id([bucket, windowStart])
+  @@index([expiresAt])
+  @@map("shared_rate_limits")
+  @@schema("se_catalog")
+}
+
+// Cache entries shared between servers (e.g. design discovery search results).
+model SharedCache {
+  cacheKey  String   @id @map("cache_key")
+  value     Json     @db.Json
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("shared_cache")
+  @@schema("se_catalog")
+}
+
+// Generation jobs currently running, on any server, so a cancel reaches them.
+model ActiveJob {
+  jobId           String   @id @map("job_id")
+  jobKey          String   @map("job_key")
+  pipeline        String
+  instanceId      String   @map("instance_id")
+  cancelRequested Boolean  @default(false) @map("cancel_requested")
+  startedAt       DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+  heartbeatAt     DateTime @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
+
+  @@index([jobKey])
+  @@map("active_jobs")
+  @@schema("se_catalog")
+}

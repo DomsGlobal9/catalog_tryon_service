@@ -98,7 +98,7 @@ sitting — generated onto a chosen AI model.
 
 | Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Your tenant identifier. Also the zombie-job key — see below. |
+| `clientId` | String | **Yes** | Your identifier for the user or session. Also the zombie-job key — see below. |
 | `modelId` | String | **Yes** | One of the 22 IDs listed below. |
 | `saree` / `full` / `fullDress` | String | **Yes** | The primary garment. First non-empty of these three wins, in that order. |
 | `blouse` / `top` / `topFront` | String | No | The top or blouse. Same precedence order. |
@@ -258,7 +258,8 @@ Failures **before** the stream opens are ordinary JSON. Failures **after** it op
 | `400` | `"The primary garment image (fullDress / flat-lay) is strictly required."` | No `saree`/`full`/`fullDress` |
 | `401` | `"Unauthorized: Invalid or missing Service API Key"` | Bad or absent key |
 | `404` | `"AI Model not found"` | `modelId` is not in the database |
-| `429` | `"Service at capacity. Please retry shortly."` | Concurrency limit reached; body includes `activeGenerations` and `maxConcurrent` |
+| `429` | `"Service at capacity. Please retry shortly."` | Too many generations running right now; body includes `retryAfterSec`, `activeGenerations` and `maxConcurrent` |
+| `429` | `"Generation limit reached: N per hour. Retry in Ns."` | Your account's hourly generation allowance is used up; body includes `retryAfterSec` |
 | `500` | `"Generation failed"` + `details` | Failure before streaming began |
 | SSE `ERROR` | `error` message | Failure after streaming began |
 
@@ -266,14 +267,19 @@ Validation runs in that order, so a request missing several things reports the f
 
 ### Concurrency and the zombie killer
 
-**Admission control.** The service accepts a limited number of simultaneous generations
-(currently **3**). Beyond that it returns `429` immediately rather than
-queueing — a fast honest answer instead of a request that starves. Retry shortly.
+**Admission control.** When the service is busy, or your account has used its hourly generation
+allowance, it returns `429` immediately rather than queueing — a fast honest answer instead of a
+request that starves. Every `429` carries a `Retry-After` header (seconds) and the same value as
+`retryAfterSec` in the body; wait that long before retrying. A request refused because the service
+was busy does not count against your allowance.
 
 **Zombie killer.** Starting a new generation with a `clientId` that already has one running
 **aborts the old one**. This exists so a user refreshing the page does not leave orphaned work
 burning GPU time. If you run genuinely parallel jobs, give each a distinct `clientId` — otherwise
 they will cancel each other.
+
+**Your jobs are yours.** Jobs are kept apart per API key account. Another customer who happens to use
+the same `clientId` can never replace or cancel your job, and you cannot touch theirs.
 
 ---
 
@@ -292,7 +298,9 @@ disconnect, so the server may not notice a browser has gone away.
 | `200` | `{ "success": false, "message": "No active job running for this client." }` |
 | `400` | `{ "success": false, "error": "clientId required" }` |
 
-Note both outcomes are `200` — `success` distinguishes them.
+Note both outcomes are `200` — `success` distinguishes them. A cancel only reaches jobs started with
+the same API key account and `clientId`, and takes effect within about two seconds; the generation's
+stream then ends without a `COMPLETE` event.
 
 ---
 
@@ -365,7 +373,7 @@ Both search endpoints take the **same body**:
 
 | Field | Required | Summary |
 | :--- | :--- | :--- |
-| `clientId` | **Yes** | Your account id and rate-limit bucket. Keep it stable. |
+| `clientId` | **Yes** | Your identifier for the user or session, 1–128 chars. Shown in logs. |
 | `keywords` / `instruction` / `category` | at least one | What to search for. Explicit fields beat what is parsed from `instruction`. |
 | `designType` | No | A design area of `category`, e.g. `SAREE` + `PALLU`. |
 | `sources` | No | `web` (default), `pinterest`, `instagram`, `facebook` — up to 4, searched in parallel. |
@@ -401,7 +409,8 @@ how many results were returned, were duplicates, came from other sites, or were 
   switched off are normal JSON `400/401/413/424/429`. Only `200 text/event-stream` is a stream.
 - **Cost:** each platform is one search-provider call (1 credit for 10 results, 2 credits for 20, 50 or
   100).
-- **Rate limit:** 20 provider calls per minute per `clientId`. A four-platform search counts 4; a search
+- **Rate limit:** 20 provider calls per minute per API key account — changing `clientId` does not reset
+  it. A four-platform search counts 4; a search
   answered from cache — including the same search with different `resultFilters` — counts 0. A refused
   request uses none of the budget and carries `Retry-After`.
 - **Caching:** identical searches are cached for 1 hour in-process, and identical searches arriving at
@@ -426,7 +435,7 @@ how many results were returned, were duplicates, came from other sites, or were 
 * **Discovery stores nothing at all** — no images, no results, no search history.
 * **Independent failure.** Discovery reports every anticipated failure as `4xx` specifically so it
   cannot trip the shared circuit breaker and take generation down, and vice versa.
-* **Generation is capped, not queued.** Excess concurrent load is rejected with `429`.
+* **Generation is capped, not queued.** Excess load is rejected with `429` and a `Retry-After` header.
 
 ### Request size limits
 
@@ -448,7 +457,7 @@ it is size-driven, not view-driven, so do not assume the two are interchangeable
 | :--- | :--- | :--- | :--- |
 | `full` / `topFront` / `bottom` | String | **Yes** | At least one garment image. URL, raw base64 or data URI. |
 | `sizes` | String[] | **Yes** | Non-empty. Values are upper-cased and trimmed, then checked against `sizeType`. |
-| `clientId` | String | No | Defaults to `"men-frontend"`. Also the cancel/zombie key — give each parallel job its own. |
+| `clientId` | String | No | Defaults to `"men-frontend"`. Also the cancel/zombie key — give each parallel job its own. The same `429` responses as the women pipeline apply (busy, or hourly allowance used), each with `Retry-After`. |
 | `category` | String | No | `FORMALS`, `BLAZER`, `KURTA_PAJAMA`, `SHERWANI`. No default is applied here. |
 | `categoryGroup` | String | No | `TOP_WEAR` (default) or `BOTTOM_WEAR`. **Note the underscore.** |
 | `sizeType` | String | No | `"standard"` (default) or `"waist"`. Anything else is rejected. |

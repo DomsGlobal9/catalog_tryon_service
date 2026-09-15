@@ -52,6 +52,8 @@ async function offline() {
   // by a fake below, so no request ever leaves this process - this only lets the
   // configured code paths run.
   if (!process.env.SERPER_API_KEY) process.env.SERPER_API_KEY = 'offline-test-key-never-sent';
+  // Offline means no database either: shared state runs in its in-memory mode.
+  process.env.SHARED_STATE = 'off';
 
   const taxonomy = require(path.join(SRC, 'modules/discovery/taxonomy'));
   const { parseInstruction } = require(path.join(SRC, 'modules/discovery/services/instructionParser'));
@@ -156,6 +158,7 @@ async function offline() {
   eq('original width/height never rewritten', filtered.map((f) => [f.width, f.height]), [[1429, 2000], [1440, 1920]]);
 
   await discoveryPlatformsAndStreaming();
+  await sharedStateWithoutDatabase();
 
   section('RETRY BEHAVIOUR  (the fix must actually rescue a dropped download)');
   // The bug this proves: the response BODY read used to sit outside the retry
@@ -439,18 +442,18 @@ async function discoveryPlatformsAndStreaming() {
 
   section('RATE LIMIT  (budget counted in real provider calls)');
   rateLimit.reset();
-  const spend = (cost) => { const err = rateLimit.charge('budget', cost); return err ? err.statusCode : 200; };
+  const spend = async (cost) => { const err = await rateLimit.charge('budget', cost); return err ? err.statusCode : 200; };
   const four = ['web', 'pinterest', 'instagram', 'facebook'];
   const seq = [];
-  for (let i = 0; i < 4; i++) seq.push(spend(4)); // 16 of 20 used
-  seq.push(spend(2));                             // 18
-  seq.push(spend(4));                             // would be 22: refused, NOT charged
-  seq.push(spend(2));                             // 20: still allowed
-  seq.push(spend(1));                             // 21: refused
-  seq.push(spend(0));                             // fully cached search: free even with no budget left
+  for (let i = 0; i < 4; i++) seq.push(await spend(4)); // 16 of 20 used
+  seq.push(await spend(2));                             // 18
+  seq.push(await spend(4));                             // would be 22: refused, NOT charged
+  seq.push(await spend(2));                             // 20: still allowed
+  seq.push(await spend(1));                             // 21: refused
+  seq.push(await spend(0));                             // fully cached search: free even with no budget left
   eq('four calls cost four; a refused request costs nothing; a cached one is free', seq,
     [200, 200, 200, 200, 200, 429, 200, 429, 200]);
-  const refusal = rateLimit.charge('budget', 1);
+  const refusal = await rateLimit.charge('budget', 1);
   check('refusal says how long to wait', refusal && refusal.retryAfterSec >= 1 && refusal.retryAfterSec <= 60, refusal && 'retry in ' + refusal.retryAfterSec + 's');
   rateLimit.reset();
 
@@ -478,7 +481,10 @@ async function discoveryPlatformsAndStreaming() {
     return { results: [R('ig1', { sourceDomain: 'www.instagram.com', imageUrl: 'https://lookaside.instagram.com/ig1' })], rawCount: 1 };
   };
 
+  const { identify } = require(path.join(SRC, 'middleware/identity'));
+  const { useSharedState } = D('sharedState');
   const app = express();
+  app.use(identify); // as in src/index.js: sets req.account from the gateway header
   app.use('/d', routes);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = 'http://127.0.0.1:' + server.address().port + '/d';
@@ -624,6 +630,71 @@ async function discoveryPlatformsAndStreaming() {
     check('the abandoned calls finished and filled the cache', body.sources && body.sources.every((s) => s.cached),
       body.sources && body.sources.map((s) => s.source + ':' + s.cached).join(' '));
     eq('nothing left in flight', _inflight.size, 0);
+
+    section('BUDGET FOLLOWS THE GATEWAY CUSTOMER  (a new clientId does not reset it)');
+    cache.clear();
+    rateLimit.reset();
+    const asAccount = (account, clientId, words) => post('/search', { clientId, keywords: words, sources: ['web', 'pinterest', 'instagram', 'facebook'] },
+      { headers: { 'Content-Type': 'application/json', ...(account ? { 'x-gateway-client-id': account } : {}) } });
+    const acct = [];
+    for (let i = 0; i < 5; i++) acct.push((await asAccount('cust-A', 'user-' + i, ['acct', 'probe', String(i)])).status); // 4 calls each
+    eq('same customer, five different clientIds: five four-platform searches use the 20 calls', acct, [200, 200, 200, 200, 200]);
+    const sixth = await asAccount('cust-A', 'user-new', ['acct', 'probe', 'six']);
+    eq('...and a sixth with yet another clientId is still refused (20/20 used)', sixth.status, 429);
+    eq('a different customer has their own budget', (await asAccount('cust-B', 'user-new', ['acct', 'probe', 'six'])).status, 200);
+    eq('a malformed customer header is ignored, not trusted', (await asAccount('bad id with spaces', 'solo', ['acct', 'probe', 'seven'])).status, 200);
+    rateLimit.reset();
+
+    section('SHARED CACHE AND BUDGET ACROSS SERVERS  (fake shared store)');
+    // A stand-in for the Postgres adapter: one Map plays the database both
+    // "servers" see. Clearing this process's memory cache plays the second server.
+    const sharedRows = new Map();
+    const sharedBudget = new Map();
+    let sharedDown = false;
+    const guard = () => { if (sharedDown) throw new Error('database down'); };
+    useSharedState({
+      consume: async (bucket, cost, { limit }) => {
+        const used = sharedBudget.get(bucket) || 0;
+        if (used + cost > limit) return { allowed: false, used, limit, retryAfterSec: 30 };
+        sharedBudget.set(bucket, used + cost);
+        return { allowed: true, used: used + cost, limit, retryAfterSec: 30 };
+      },
+      cacheGet: async (key) => { guard(); const row = sharedRows.get(key); return row ? { value: row.value, expiresAt: row.expiresAt } : null; },
+      cacheHasMany: async (keys) => { guard(); return new Set(keys.filter((k) => sharedRows.has(k))); },
+      cacheSet: async (key, value, ttlSec) => { guard(); sharedRows.set(key, { value, expiresAt: Date.now() + ttlSec * 1000 }); }
+    });
+    try {
+      cache.clear();
+      calls.length = 0;
+      res = await post('/search', { clientId: 'srv', keywords: ['shared', 'probe'], sources: ['web', 'pinterest'] });
+      body = await res.json();
+      await new Promise((r) => setTimeout(r, 20)); // shared writes are fire-and-forget
+      eq('server 1 pays for two provider calls and stores them in the shared cache', [res.status, calls.length, sharedRows.size], [200, 2, 2]);
+
+      cache.clear(); // "server 2": nothing in its own memory
+      calls.length = 0;
+      res = await post('/search', { clientId: 'srv', keywords: ['shared', 'probe'], sources: ['web', 'pinterest'] });
+      const second = await res.json();
+      eq('server 2 answers the same search with no provider call, marked cached', [res.status, calls.length, second.cached], [200, 0, true]);
+      eq('...with the same results', second.results.map((r) => r.id), body.results.map((r) => r.id));
+
+      cache.clear();
+      sharedBudget.clear();
+      for (let i = 0; i < 5; i++) await post('/search', { clientId: 'srv', keywords: ['budget', 'shared', String(i)], sources: ['web', 'pinterest', 'instagram', 'facebook'] });
+      const out = await post('/search', { clientId: 'srv', keywords: ['budget', 'shared', 'x'], sources: ['web'] });
+      eq('the budget is spent from the shared counter', [out.status, sharedBudget.get('client:srv')], [429, 20]);
+      const cachedOnly = await post('/search', { clientId: 'srv', keywords: ['shared', 'probe'], sources: ['web', 'pinterest'] });
+      eq('a search found in the shared cache is free even with no budget', cachedOnly.status, 200);
+
+      sharedDown = true;
+      cache.clear();
+      sharedBudget.clear();
+      calls.length = 0;
+      res = await post('/search', { clientId: 'srv-down', keywords: ['database', 'down'], sources: ['web'] });
+      eq('shared cache down: the search still works, straight from the provider', [res.status, calls.length], [200, 1]);
+    } finally {
+      useSharedState(null);
+    }
   } finally {
     serper.search = realSearch;
     config.isConfigured = !!config.serper.apiKey;
@@ -631,6 +702,114 @@ async function discoveryPlatformsAndStreaming() {
     rateLimit.reset();
     if (server.closeAllConnections) server.closeAllConnections();
     await new Promise((r) => server.close(r));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED STATE, NO DATABASE  (fallbacks, generation admission, job ownership)
+// The same code against a real Postgres, across real processes: tests/shared-state.js
+// ─────────────────────────────────────────────────────────────────────────────
+async function sharedStateWithoutDatabase() {
+  const { createStore } = require(path.join(SRC, 'lib/shared/store'));
+  const { createRateLimiter } = require(path.join(SRC, 'lib/shared/rateLimiter'));
+  const { createJobRegistry } = require(path.join(SRC, 'lib/shared/jobRegistry'));
+  const quiet = { log() {}, warn() {} };
+
+  section('SHARED STATE FALLBACK  (no database: same rules, in this server\'s memory)');
+  const off = createStore({ pool: null, schema: 'se_catalog', enabled: false, log: quiet });
+  const limiter = createRateLimiter({ store: off });
+  const got = [];
+  for (let i = 0; i < 4; i++) got.push((await limiter.consume('b', 1, { limit: 3, windowSec: 60 })).allowed);
+  eq('limit 3: three allowed, the fourth refused', got, [true, true, true, false]);
+  await limiter.refund('b', 1, { windowSec: 60 });
+  eq('a refunded unit can be spent again', (await limiter.consume('b', 1, { limit: 3, windowSec: 60 })).allowed, true);
+  eq('a cost larger than the whole limit is refused', (await limiter.consume('big', 5, { limit: 3, windowSec: 60 })).allowed, false);
+  eq('cost 0 is always allowed', (await limiter.consume('b', 0, { limit: 3, windowSec: 60 })).allowed, true);
+
+  let poolCalls = 0;
+  const broken = createStore({ pool: { query: async () => { poolCalls++; throw new Error('connection refused'); } }, schema: 'se_catalog', log: quiet });
+  broken._setReady(true);
+  const brokenLimiter = createRateLimiter({ store: broken });
+  const r1 = await brokenLimiter.consume('x', 1, { limit: 5, windowSec: 60 });
+  const r2 = await brokenLimiter.consume('x', 1, { limit: 5, windowSec: 60 });
+  for (let i = 0; i < 5; i++) await brokenLimiter.consume('x', 0.5, { limit: 50, windowSec: 60 });
+  eq('database failing: requests still answered from memory', [r1.allowed, r1.shared, r2.allowed, r2.used], [true, false, true, 2]);
+  eq('two failures in a row, then the database is left alone for a cooldown (not one attempt per request)', poolCalls, 2);
+  let flakyCalls = 0;
+  const flaky = createStore({ pool: { query: async () => { flakyCalls++; if (flakyCalls === 1) throw new Error('slow cold connection'); return { rows: [{ used_after: 1, used_before: null, retry_after: 30 }] }; } }, schema: 'se_catalog', log: quiet });
+  flaky._setReady(true);
+  const flakyLimiter = createRateLimiter({ store: flaky });
+  const f1 = await flakyLimiter.consume('z', 1, { limit: 5, windowSec: 60 });
+  const f2 = await flakyLimiter.consume('z', 1, { limit: 5, windowSec: 60 });
+  eq('ONE failed query does not switch sharing off: the next request is shared again', [f1.shared, f2.shared, flaky.status().healthy], [false, true, true]);
+  eq('status reports it unhealthy', broken.status().healthy, false);
+  let slowCalls = 0;
+  const slow = createStore({ pool: { query: () => { slowCalls++; return new Promise(() => {}); } }, schema: 'se_catalog', timeoutMs: 50, log: quiet });
+  slow._setReady(true);
+  const t0 = Date.now();
+  const slowResult = await createRateLimiter({ store: slow }).consume('y', 1, { limit: 5, windowSec: 60 });
+  check('a hung database costs at most the query timeout', slowResult.allowed && Date.now() - t0 < 500, (Date.now() - t0) + 'ms');
+
+  const registry = createJobRegistry({ store: off, instanceId: 'test', log: quiet });
+  const job = await registry.register('women:acct:u1', 'women');
+  eq('cancel finds a job on this server', await registry.cancel('women:acct:u1'), true);
+  eq('...and stops it', job.signal.aborted, true);
+  eq('cancelling again finds nothing', await registry.cancel('women:acct:u1'), false);
+  await job.finish();
+  await job.finish();
+  eq('finishing twice is harmless', registry.stats().runningHere, 0);
+
+  section('GENERATION ADMISSION  (budget, capacity, replacing the previous job)');
+  process.env.SHARED_STATE = 'off';
+  process.env.GENERATION_RATE_LIMIT_PER_HOUR = '2';
+  process.env.MAX_CONCURRENT_GENERATIONS = '1';
+  const { admitGeneration, cancelGeneration } = require(path.join(SRC, 'middleware/generationGuard'));
+  const capacity = require(path.join(SRC, 'lib/capacity'));
+  const fakeReq = (account) => ({ account });
+  const fakeRes = () => ({
+    headers: {}, statusCode: 200, body: null,
+    set(k, v) { this.headers[k.toLowerCase()] = v; return this; },
+    status(c) { this.statusCode = c; return this; },
+    json(b) { this.body = b; return this; }
+  });
+  const silence = console.log; const silenceWarn = console.warn;
+  console.log = () => {}; console.warn = () => {};
+  try {
+    const res1 = fakeRes();
+    const first = await admitGeneration(fakeReq('A'), res1, { clientId: 'u1', pipeline: 'women' });
+    const res2 = fakeRes();
+    const second = await admitGeneration(fakeReq('A'), res2, { clientId: 'u1', pipeline: 'women' });
+    const capacityRefusal = [second, res2.statusCode, res2.headers['retry-after'], first.job.signal.aborted];
+    await first.release();
+    const res3 = fakeRes();
+    const third = await admitGeneration(fakeReq('A'), res3, { clientId: 'u1', pipeline: 'women' });
+    await third.release();
+    const res4 = fakeRes();
+    const fourth = await admitGeneration(fakeReq('A'), res4, { clientId: 'u2', pipeline: 'men' });
+    console.log = silence; console.warn = silenceWarn;
+
+    eq('a second job for the same client stops the first', capacityRefusal[3], true);
+    eq('with one slot still busy it is refused: 429, Retry-After 10', capacityRefusal.slice(0, 3), [null, 429, '10']);
+    check('a capacity refusal does not use the customer\'s budget', third !== null, 'third request ' + (third ? 'admitted' : 'refused: ' + JSON.stringify(res3.body)));
+    eq('the budget is per customer across clientIds and pipelines: third generation this hour refused', [fourth, res4.statusCode], [null, 429]);
+    check('budget refusal says when to retry', Number(res4.headers['retry-after']) >= 1 && Number(res4.headers['retry-after']) <= 3600 && /per hour/.test(res4.body.error),
+      'Retry-After ' + res4.headers['retry-after'] + ': ' + res4.body.error);
+    eq('every slot released', capacity.stats().activeGenerations, 0);
+
+    console.log = () => {}; console.warn = () => {};
+    const cJob = await admitGeneration(fakeReq('C'), fakeRes(), { clientId: 'shared-name', pipeline: 'women' });
+    const otherCustomer = await cancelGeneration(fakeReq('D'), { clientId: 'shared-name', pipeline: 'women' });
+    const directCall = await cancelGeneration(fakeReq(null), { clientId: 'shared-name', pipeline: 'women' });
+    const abortedByOthers = cJob.job.signal.aborted;
+    const wrongPipeline = await cancelGeneration(fakeReq('C'), { clientId: 'shared-name', pipeline: 'men' });
+    const owner = await cancelGeneration(fakeReq('C'), { clientId: 'shared-name', pipeline: 'women' });
+    await cJob.release();
+    console.log = silence; console.warn = silenceWarn;
+    eq('another customer using the same clientId cannot cancel the job', [otherCustomer, directCall, abortedByOthers], [false, false, false]);
+    eq('cancel on the other pipeline does not touch it', wrongPipeline, false);
+    eq('the owner can', [owner, cJob.job.signal.aborted], [true, true]);
+  } finally {
+    console.log = silence; console.warn = silenceWarn;
   }
 }
 

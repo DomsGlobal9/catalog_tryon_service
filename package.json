@@ -6,7 +6,8 @@
     "start": "node src/index.js",
     "dev": "node src/index.js",
     "test": "node tests/run.js",
-    "test:live": "node tests/run.js --live"
+    "test:live": "node tests/run.js --live",
+    "test:shared": "node tests/shared-state.js --servers"
   },
   "keywords": [],
   "author": "",

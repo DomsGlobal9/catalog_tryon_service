@@ -32,7 +32,7 @@ differ only in how the answer is delivered.
 
 | Field | Type | Required | Notes |
 | :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Your account identifier, 1–128 chars. Also your rate-limit bucket — keep it **stable**. |
+| `clientId` | String | **Yes** | Your identifier for the user or session, 1–128 chars. Shown in logs. |
 | `keywords` | String[] | * | 1–12 terms, each 1–64 chars. |
 | `instruction` | String | * | One line of plain English, max 500 chars. |
 | `category` | String | * | Garment id, max 64 chars. See the list below. |
@@ -418,7 +418,8 @@ one page rather than paging through small ones — each page is a fresh set of c
 
 ### Rate limit
 
-**20 provider calls per minute per `clientId`.** Only calls actually made to the provider count:
+**20 provider calls per minute per API key account.** Using a different `clientId` does not give you a
+new budget. Only calls actually made to the provider count:
 
 | Request | Counts as |
 | :--- | :--- |
