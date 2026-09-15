@@ -33,6 +33,8 @@ router.use((_req, _res, next) => {
 router.get('/categories', controller.categories);
 router.get('/taxonomy', controller.taxonomy);
 router.post('/search', validateBody(searchSchema), searchRateLimit, controller.search);
+// Same request body, same validation and budget - answered as Server-Sent Events.
+router.post('/search/stream', validateBody(searchSchema), searchRateLimit, controller.searchStream);
 
 // Module-local error handler: keeps discovery's 4xx-first status policy from
 // ever touching the draping routes.

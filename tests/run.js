@@ -48,6 +48,11 @@ function section(title) {
 // OFFLINE
 // ─────────────────────────────────────────────────────────────────────────────
 async function offline() {
+  // Discovery refuses to stream without a provider key. The provider is replaced
+  // by a fake below, so no request ever leaves this process - this only lets the
+  // configured code paths run.
+  if (!process.env.SERPER_API_KEY) process.env.SERPER_API_KEY = 'offline-test-key-never-sent';
+
   const taxonomy = require(path.join(SRC, 'modules/discovery/taxonomy'));
   const { parseInstruction } = require(path.join(SRC, 'modules/discovery/services/instructionParser'));
   const { resolveSearchInput } = require(path.join(SRC, 'modules/discovery/services/searchInputResolver'));
@@ -130,12 +135,14 @@ async function offline() {
   check('instagram image is not usable', !hasUsableImageUrl(insta));
   check('facebook detected via sourceDomain, not host', !hasUsableImageUrl(fbNoThumb));
   eq('fetchable falls back to the thumbnail with its REAL size',
-    buildFetchable(insta, false), { url: 'https://t/2', width: 387, height: 516, from: 'thumbnailUrl' });
+    buildFetchable(insta, false), { url: 'https://t/2', width: 387, height: 516, from: 'thumbnailUrl', sizeExact: true });
   const filtered = filterResults([retailer, insta, fbNoThumb]);
   eq('unviewable result dropped, others kept and flagged',
     filtered.map((f) => [f.sourceDomain, f.imageUsable, f.fetchable.from]),
     [['shop.com', true, 'imageUrl'], ['www.instagram.com', false, 'thumbnailUrl']]);
   eq('original width/height never rewritten', filtered.map((f) => [f.width, f.height]), [[1429, 2000], [1440, 1920]]);
+
+  await discoveryPlatformsAndStreaming();
 
   section('RETRY BEHAVIOUR  (the fix must actually rescue a dropped download)');
   // The bug this proves: the response BODY read used to sit outside the retry
@@ -203,6 +210,285 @@ async function offline() {
   const leaked = files.filter((f) => /se_catalog_internal_key_v1_\d/.test(fs.readFileSync(f, 'utf8')));
   check('no hardcoded service key in tracked source', leaked.length === 0,
     leaked.length ? leaked.map((f) => path.relative(path.join(__dirname, '..'), f)).join(', ') : '');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DISCOVERY: platforms, result filters, multi-source search and SSE streaming.
+// Offline: the search provider is replaced by a fake, but the HTTP is real - an
+// Express server on a random local port - so the stream is read exactly the way a
+// caller reads it.
+// ─────────────────────────────────────────────────────────────────────────────
+async function discoveryPlatformsAndStreaming() {
+  const express = require('express');
+  const D = (p) => require(path.join(SRC, 'modules/discovery', p));
+  const { platformOf, upgradePinterestImage } = D('services/platforms');
+  const { filterResults, _inflight } = D('services/designSearch.service');
+  const { buildQuery } = D('services/queryBuilder');
+  const { resolveSearchInput } = D('services/searchInputResolver');
+  const { applyResultFilters, orientationOf, normaliseDomain } = D('services/resultFilters');
+  const { searchSchema } = D('middleware/validate');
+  const rateLimit = D('middleware/rateLimit');
+  const cache = D('services/searchCache');
+  const serper = D('providers/serper.provider');
+  const { config } = D('discovery.config');
+  const { ProviderError } = D('lib/errors');
+  const routes = D('discovery.routes');
+
+  section('PLATFORMS  (which site a result came from)');
+  eq('pinterest.com', platformOf({ sourceDomain: 'in.pinterest.com' }), 'pinterest');
+  eq('pinterest country domain', platformOf({ sourceDomain: 'www.pinterest.co.uk' }), 'pinterest');
+  eq('pinimg image host', platformOf({ imageUrl: 'https://i.pinimg.com/236x/a/b.jpg', sourceDomain: 'x.com' }), 'pinterest');
+  eq('instagram', platformOf({ sourceDomain: 'www.instagram.com' }), 'instagram');
+  eq('facebook recognised by its image host alone', platformOf({ imageUrl: 'https://lookaside.fbsbx.com/x', sourceDomain: 'unknown' }), 'facebook');
+  eq('a shop NAMED pinterest is not pinterest', platformOf({ sourceDomain: 'pinterestsarees.com', imageUrl: 'https://pinterestsarees.com/a.jpg' }), 'web');
+  eq('pinterest.shopname.com is not pinterest', platformOf({ sourceDomain: 'pinterest.shopname.com' }), 'web');
+  eq('ordinary retailer is web', platformOf({ sourceDomain: 'www.amazon.in', imageUrl: 'https://m.media-amazon.com/a.jpg' }), 'web');
+  eq('nothing known is web', platformOf({}), 'web');
+
+  section('PINTEREST IMAGE UPGRADE  (236px previews become 736px images)');
+  const pin = { imageUrl: 'https://i.pinimg.com/236x/c2/8a/68/abc.jpg', width: 236, height: 354, sourceDomain: 'in.pinterest.com', thumbnailUrl: 'https://t/p' };
+  eq('236x rewritten to 736x with an estimated size', upgradePinterestImage(pin),
+    { url: 'https://i.pinimg.com/736x/c2/8a/68/abc.jpg', width: 736, height: 1104 });
+  eq('474x also upgraded', upgradePinterestImage({ ...pin, imageUrl: 'https://i.pinimg.com/474x/c2/abc.jpg', width: 474, height: 474 }).url,
+    'https://i.pinimg.com/736x/c2/abc.jpg');
+  eq('736x left alone', upgradePinterestImage({ ...pin, imageUrl: 'https://i.pinimg.com/736x/c2/abc.jpg' }), null);
+  eq('originals left alone', upgradePinterestImage({ ...pin, imageUrl: 'https://i.pinimg.com/originals/c2/abc.jpg' }), null);
+  eq('other sites left alone', upgradePinterestImage({ imageUrl: 'https://cdn.shop/236x/a.jpg', width: 236, height: 300 }), null);
+  eq('unknown size: url upgraded, size stays unknown', upgradePinterestImage({ imageUrl: pin.imageUrl, width: null, height: null }),
+    { url: 'https://i.pinimg.com/736x/c2/8a/68/abc.jpg', width: null, height: null });
+  const [pinOut] = filterResults([pin]);
+  check('236px pin is KEPT (the old 400px floor dropped it)', !!pinOut);
+  eq('pin: estimate flagged, original kept as fallback, platform set',
+    pinOut && [pinOut.fetchable.url, pinOut.fetchable.sizeExact, pinOut.fetchable.fallbackUrl, pinOut.platform],
+    ['https://i.pinimg.com/736x/c2/8a/68/abc.jpg', false, pin.imageUrl, 'pinterest']);
+  eq('pin keeps its original reported size as provenance', pinOut && [pinOut.width, pinOut.height], [236, 354]);
+
+  section('SIZE FLOOR  (junk dropped, small real designs kept)');
+  const small = filterResults([
+    { imageUrl: 'https://shop/a.jpg', width: 320, height: 480, sourceDomain: 'shop.in' },
+    { imageUrl: 'https://shop/icon.png', width: 64, height: 64, sourceDomain: 'shop.in' },
+    { imageUrl: 'https://shop/nosize.jpg', width: null, height: null, sourceDomain: 'shop.in' }
+  ]);
+  eq('320x480 kept, 64x64 icon dropped, unknown size kept', small.map((r) => r.imageUrl),
+    ['https://shop/a.jpg', 'https://shop/nosize.jpg']);
+
+  section('QUERY PER SOURCE  (web must stay byte-identical)');
+  const rs = (i) => resolveSearchInput(Object.assign({ clientId: 't', filters: {}, shotType: 'any', page: 1, limit: 20 }, i));
+  const qs = (i, source) => buildQuery({ ...rs(i), source }).query;
+  eq('web unchanged', qs({ keywords: ['red', 'bridal', 'saree'] }, 'web'), 'red bridal saree');
+  eq('no source given means web', buildQuery(rs({ keywords: ['red', 'bridal', 'saree'] })).query, 'red bridal saree');
+  eq('pinterest appends its word', qs({ keywords: ['red', 'saree'] }, 'pinterest'), 'red saree pinterest');
+  eq('instagram appends its word', qs({ keywords: ['red', 'saree'] }, 'instagram'), 'red saree instagram');
+  eq('facebook uses the measured best wording', qs({ keywords: ['red', 'saree'] }, 'facebook'), 'red saree facebook page');
+  eq('a word already typed is not repeated', qs({ keywords: ['red', 'saree', 'pinterest'] }, 'pinterest'), 'red saree pinterest');
+  check('each source has its own cache entry',
+    new Set(['web', 'pinterest', 'instagram', 'facebook'].map((s) => buildQuery({ ...rs({ keywords: ['x'] }), source: s }).cacheKey)).size === 4);
+
+  section('REQUEST VALIDATION  (sources and resultFilters)');
+  const parse = (b) => searchSchema.safeParse(Object.assign({ clientId: 'a', keywords: ['x'] }, b));
+  eq('sources default to web', parse({}).data.sources, ['web']);
+  eq('repeats and capitals collapsed', parse({ sources: ['Pinterest', 'pinterest', 'WEB'] }).data.sources, ['pinterest', 'web']);
+  eq('a single string is a list of one', parse({ sources: 'instagram' }).data.sources, ['instagram']);
+  eq('four platforms with one repeated is accepted', parse({ sources: ['web', 'pinterest', 'instagram', 'facebook', 'web'] }).data.sources.length, 4);
+  check('unknown source rejected', !parse({ sources: ['tiktok'] }).success);
+  check('empty sources rejected', !parse({ sources: [] }).success);
+  check('misspelt resultFilter rejected, not silently ignored', !parse({ resultFilters: { minWidht: 500 } }).success);
+  eq('resultFilters normalised', parse({ resultFilters: { minWidth: '600', orientation: 'Portrait' } }).data.resultFilters,
+    { minWidth: 600, orientation: 'portrait' });
+
+  section('RESULT FILTERS  (checked against real data, so guaranteed)');
+  const mk = (o) => Object.assign({ imageUrl: 'https://x/a.jpg', sourceDomain: 'x.com', fetchable: { from: 'imageUrl', width: 800, height: 1200 } }, o);
+  const pool = [
+    mk({ id: 'portrait' }),
+    mk({ id: 'landscape', fetchable: { from: 'imageUrl', width: 1200, height: 800 } }),
+    mk({ id: 'square', fetchable: { from: 'imageUrl', width: 1000, height: 1010 } }),
+    mk({ id: 'thumb', fetchable: { from: 'thumbnailUrl', width: 380, height: 500 } }),
+    mk({ id: 'nosize', fetchable: { from: 'imageUrl', width: null, height: null } }),
+    mk({ id: 'amazon', sourceDomain: 'www.amazon.in', imageUrl: 'https://m.media-amazon.com/a.jpg' })
+  ];
+  const ids = (f) => applyResultFilters(pool, f).kept.map((r) => r.id);
+  eq('no filters keeps everything', ids({}), ['portrait', 'landscape', 'square', 'thumb', 'nosize', 'amazon']);
+  eq('fullSizeOnly drops preview-only results', ids({ fullSizeOnly: true }), ['portrait', 'landscape', 'square', 'nosize', 'amazon']);
+  eq('minWidth is strict about unknown sizes', ids({ minWidth: 900 }), ['landscape', 'square']);
+  eq('orientation portrait', ids({ orientation: 'portrait' }), ['portrait', 'thumb', 'amazon']);
+  eq('square allows a small tolerance', ids({ orientation: 'square' }), ['square']);
+  eq('excludeDomains matches subdomains, and accepts a pasted URL', ids({ excludeDomains: ['https://www.Amazon.in/shop'] }),
+    ['portrait', 'landscape', 'square', 'thumb', 'nosize']);
+  eq('removedBy counts each reason', applyResultFilters(pool, { fullSizeOnly: true, excludeDomains: ['amazon.in'] }).removedBy,
+    { fullSizeOnly: 1, minWidth: 0, orientation: 0, excludeDomains: 1 });
+  eq('orientation of an unknown size is unknown', orientationOf(null, 10), null);
+  eq('domain normalised', normaliseDomain(' HTTPS://WWW.Meesho.com:443/x?y '), 'meesho.com');
+
+  section('RATE LIMIT  (budget counted in provider calls)');
+  rateLimit.reset();
+  const spend = (sources) => new Promise((resolve) =>
+    rateLimit.searchRateLimit({ validated: { clientId: 'budget', sources } }, {}, (err) => resolve(err ? err.statusCode : 200)));
+  const four = ['web', 'pinterest', 'instagram', 'facebook'];
+  const seq = [];
+  for (let i = 0; i < 4; i++) seq.push(await spend(four)); // 16 of 20 used
+  seq.push(await spend(['web', 'pinterest']));            // 18
+  seq.push(await spend(four));                            // would be 22: refused, NOT charged
+  seq.push(await spend(['web', 'pinterest']));            // 20: still allowed
+  seq.push(await spend(['web']));                         // 21: refused
+  eq('a four-source search costs four; a refused request costs nothing', seq, [200, 200, 200, 200, 200, 429, 200, 429]);
+  rateLimit.reset();
+
+  // Fake provider. What it returns is decided by the words in the query.
+  // Delays are far apart so arrival order is stable even on coarse OS timers.
+  const realSearch = serper.search;
+  const calls = [];
+  const R = (id, o) => Object.assign({
+    id: 'result_' + id, position: 1, title: id, imageUrl: 'https://img/' + id + '.jpg', thumbnailUrl: 'https://t/' + id,
+    thumbnailWidth: 300, thumbnailHeight: 400, sourceUrl: 'https://src/' + id, sourceDomain: 'shop.in', width: 1000, height: 1400
+  }, o);
+  const PIN = R('pin', { imageUrl: 'https://i.pinimg.com/236x/aa/pin.jpg', width: 236, height: 354, sourceDomain: 'in.pinterest.com' });
+  const DELAY = { instagram: 10, pinterest: 90, facebook: 180, web: 270 };
+  serper.search = async ({ query, limit }) => {
+    calls.push(query);
+    const src = /facebook/.test(query) ? 'facebook' : /instagram/.test(query) ? 'instagram' : /pinterest/.test(query) ? 'pinterest' : 'web';
+    await new Promise((r) => setTimeout(r, DELAY[src] + (/slow/.test(query) ? 400 : 0)));
+    if (src === 'facebook') throw new ProviderError('Serper did not respond within 15000ms.');
+    if (src === 'web') {
+      return { results: [R('shop1'), PIN, R('insta', { sourceDomain: 'www.instagram.com', imageUrl: 'https://lookaside.instagram.com/x' })], rawCount: limit };
+    }
+    if (src === 'pinterest') {
+      return { results: [PIN, R('pin2', { imageUrl: 'https://i.pinimg.com/736x/bb/pin2.jpg', sourceDomain: 'in.pinterest.com' }), R('retailer-in-pin-search')], rawCount: 3 };
+    }
+    return { results: [R('ig1', { sourceDomain: 'www.instagram.com', imageUrl: 'https://lookaside.instagram.com/ig1' })], rawCount: 1 };
+  };
+
+  const app = express();
+  app.use('/d', routes);
+  const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const base = 'http://127.0.0.1:' + server.address().port + '/d';
+  const post = (p, body, opts = {}) =>
+    fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), ...opts });
+
+  // Reads an SSE response exactly as a client would: split on blank lines, keep
+  // only `data:` frames. `onFirst` lets a test walk away after the first event.
+  async function readStream(res, onFirst) {
+    const events = [];
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          if (!frame.startsWith('data: ')) continue;
+          events.push(JSON.parse(frame.slice(6)));
+          if (onFirst && events.length === 1) onFirst();
+        }
+      }
+    } catch (err) {
+      if (!onFirst) throw err; // an abort we asked for is expected
+    }
+    return events;
+  }
+
+  try {
+    cache.clear();
+    section('JSON SEARCH ACROSS SOURCES  (fake provider, real HTTP)');
+    let res = await post('/search', { clientId: 'j1', keywords: ['red', 'saree'], sources: four });
+    let body = await res.json();
+    check('one failing source still answers 200', res.status === 200, 'HTTP ' + res.status);
+    eq('sources reported in the order asked', body.sources.map((s) => [s.source, s.status]),
+      [['web', 'ok'], ['pinterest', 'ok'], ['instagram', 'ok'], ['facebook', 'error']]);
+    eq('failed source carries its reason', body.sources[3].error,
+      { code: 'PROVIDER_UNAVAILABLE', message: 'Serper did not respond within 15000ms.' });
+    eq('a design found by two sources appears once', body.results.filter((r) => r.id === 'result_pin').length, 1);
+    eq('pinterest search drops the retailer image it also found', body.sources[1].offPlatform, 1);
+    check('every result says its platform and which search found it', body.results.every((r) => r.platform && r.foundBy));
+    eq('JSON order follows the request, not arrival', body.results.map((r) => r.foundBy),
+      ['web', 'web', 'web', 'pinterest', 'instagram']);
+    eq('the duplicate is counted on the source that lost', body.sources[1].duplicates, 1);
+    eq('top-level query is the first source', body.query, 'red saree');
+
+    res = await post('/search', { clientId: 'j1', keywords: ['red', 'saree'], sources: four });
+    body = await res.json();
+    check('repeat is served from cache', body.sources.filter((s) => s.status === 'ok').every((s) => s.cached));
+
+    res = await post('/search', { clientId: 'j2', keywords: ['red', 'saree'], sources: ['facebook'] });
+    body = await res.json();
+    eq('every source failing keeps the 424 contract', [res.status, body.error && body.error.code], [424, 'PROVIDER_UNAVAILABLE']);
+
+    res = await post('/search', { clientId: 'j3', keywords: ['red', 'saree'], sources: ['web', 'instagram'], resultFilters: { fullSizeOnly: true } });
+    body = await res.json();
+    check('fullSizeOnly removes Instagram previews end to end',
+      res.status === 200 && body.results.length > 0 && body.results.every((r) => r.fetchable.from === 'imageUrl'),
+      body.sources && body.sources.map((s) => `${s.source}: ${s.returned} kept, ${s.removedByFilters} removed`).join(' | '));
+
+    res = await post('/search', { clientId: 'j4', keywords: ['red', 'saree'] });
+    body = await res.json();
+    eq('a request without sources is still one web search', body.sources.map((s) => s.source), ['web']);
+
+    section('SINGLE-FLIGHT  (identical searches at the same moment share one call)');
+    cache.clear();
+    calls.length = 0;
+    await Promise.all([1, 2, 3].map((n) => post('/search', { clientId: 'sf' + n, keywords: ['twin', 'query'] }).then((r) => r.json())));
+    eq('three identical searches at once -> one provider call', calls.filter((q) => q === 'twin query').length, 1);
+    eq('nothing left in flight afterwards', _inflight.size, 0);
+
+    section('SSE STREAM  (fake provider, real HTTP)');
+    cache.clear();
+    res = await post('/search/stream', { clientId: 's1', keywords: ['red', 'saree'], sources: four });
+    check('stream opens as text/event-stream', /text\/event-stream/.test(res.headers.get('content-type') || ''), res.headers.get('content-type'));
+    let events = await readStream(res);
+    eq('event order: start, one per source, done', events.map((e) => e.type), ['start', 'source', 'source', 'source', 'source', 'done']);
+    eq('sources arrive fastest first', events.filter((e) => e.type === 'source').map((e) => e.source), ['instagram', 'pinterest', 'facebook', 'web']);
+    eq('start announces every query before any result arrives', events[0].sources.map((s) => s.query),
+      ['red saree', 'red saree pinterest', 'red saree instagram', 'red saree facebook page']);
+    const fbEvent = events.find((e) => e.type === 'source' && e.source === 'facebook');
+    eq('a failed source is an event, not a broken stream', [fbEvent.status, fbEvent.error.code, 'results' in fbEvent],
+      ['error', 'PROVIDER_UNAVAILABLE', false]);
+    const doneEvent = events[events.length - 1];
+    eq('done summarises the whole search', [doneEvent.status, doneEvent.sources.map((s) => s.source)], ['partial', four]);
+    const streamed = events.filter((e) => e.type === 'source').flatMap((e) => e.results || []);
+    eq('no design is streamed twice', streamed.length, new Set(streamed.map((r) => r.id)).size);
+    eq('done.total matches what was streamed', doneEvent.total, streamed.length);
+
+    res = await post('/search/stream', { clientId: 's2', keywords: ['red'], sources: ['tiktok'] });
+    body = await res.json();
+    eq('a bad request is refused as JSON before any stream opens',
+      [res.status, /json/.test(res.headers.get('content-type') || ''), body.error.code], [400, true, 'VALIDATION_ERROR']);
+
+    config.isConfigured = false;
+    res = await post('/search/stream', { clientId: 's3', keywords: ['red'] });
+    body = await res.json();
+    eq('switched-off discovery answers 424 JSON, not a stream', [res.status, body.error.code], [424, 'DISCOVERY_NOT_CONFIGURED']);
+    config.isConfigured = true;
+
+    res = await post('/search/stream', { clientId: 's4', keywords: ['all', 'down'], sources: ['facebook'] });
+    events = await readStream(res);
+    const last = events[events.length - 1];
+    eq('every source failing still ends cleanly, marked failed', [res.status, last.type, last.status], [200, 'done', 'failed']);
+
+    section('SSE CALLER LEAVING EARLY  (must not crash or leak)');
+    cache.clear();
+    const ac = new AbortController();
+    res = await post('/search/stream', { clientId: 's5', keywords: ['slow', 'one'], sources: four }, { signal: ac.signal });
+    events = await readStream(res, () => ac.abort());
+    check('caller disconnected right after the start event', events.length >= 1 && events[0].type === 'start', events.length + ' event(s) read');
+    await new Promise((r) => setTimeout(r, 1000)); // the abandoned provider calls finish in ~670ms
+    res = await post('/search', { clientId: 's6', keywords: ['slow', 'one'], sources: ['web', 'pinterest', 'instagram'] });
+    body = await res.json();
+    check('server still answers normally afterwards', res.status === 200, 'HTTP ' + res.status);
+    check('the abandoned calls finished and filled the cache', body.sources && body.sources.every((s) => s.cached),
+      body.sources && body.sources.map((s) => s.source + ':' + s.cached).join(' '));
+    eq('nothing left in flight', _inflight.size, 0);
+  } finally {
+    serper.search = realSearch;
+    config.isConfigured = !!config.serper.apiKey;
+    cache.clear();
+    rateLimit.reset();
+    if (server.closeAllConnections) server.closeAllConnections();
+    await new Promise((r) => server.close(r));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

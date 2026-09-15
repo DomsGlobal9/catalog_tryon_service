@@ -8,6 +8,7 @@
 //
 const crypto = require('crypto');
 const taxonomy = require('../taxonomy');
+const { SOURCE_QUERY_TERMS } = require('./platforms');
 
 /**
  * Extra terms appended to bias what kind of photograph comes back.
@@ -50,11 +51,14 @@ function normalizeTokens(values) {
  * @param {string}   [input.designType]   Design area id valid for that garment.
  * @param {Object}   [input.filters]      { color, fabric, occasion }
  * @param {string}   [input.shotType]     flatlay | worn | any
+ * @param {string}   [input.source]       web | pinterest | instagram | facebook.
+ *                                        `web` (the default) adds nothing, so an
+ *                                        existing search is byte-identical.
  * @param {number}   input.page
  * @param {number}   input.limit
  * @returns {{ query: string, cacheKey: string }}
  */
-function buildQuery({ keywords = [], category, designType, filters = {}, shotType = 'any', page, limit }) {
+function buildQuery({ keywords = [], category, designType, filters = {}, shotType = 'any', source = 'web', page, limit }) {
   const garment = category ? taxonomy.getGarment(category) : null;
   const area = garment && designType ? taxonomy.getDesignType(garment.id, designType) : null;
 
@@ -78,7 +82,9 @@ function buildQuery({ keywords = [], category, designType, filters = {}, shotTyp
     ...(area ? area.queryTerms : []),
     filters.occasion,
     designWord,
-    ...(SHOT_TYPE_TERMS[shotType] || [])
+    ...(SHOT_TYPE_TERMS[shotType] || []),
+    // Last, so the garment and design words keep their weight at the front.
+    ...(SOURCE_QUERY_TERMS[source] || [])
   ]);
 
   const query = tokens.join(' ');

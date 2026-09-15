@@ -32,7 +32,17 @@ const config = {
     // Indian ethnic wear, which is the catalogue this platform serves.
     country: (process.env.SERPER_COUNTRY || 'in').trim(),
     language: (process.env.SERPER_LANGUAGE || 'en').trim(),
-    timeoutMs: intFromEnv('SERPER_TIMEOUT_MS', 8000, 1000, 30000)
+    // Was 8000. Measured provider response times over 8 recent calls included
+    // 9.0s and 10.5s - both would have failed as 424 at the old ceiling, and a
+    // search across four sources makes four such calls. 15s leaves headroom and
+    // still sits far inside the gateway's 90s limit.
+    timeoutMs: intFromEnv('SERPER_TIMEOUT_MS', 15000, 1000, 30000)
+  },
+
+  stream: {
+    // SSE comment sent while waiting on slow sources, so no proxy between the
+    // caller and us closes an idle connection.
+    heartbeatMs: intFromEnv('DISCOVERY_STREAM_HEARTBEAT_MS', 10000, 1000, 60000)
   },
 
   cache: {
@@ -54,9 +64,18 @@ const config = {
     maxLimit: 100,
     maxPage: 20,
     maxKeywords: 12,
-    // Anything smaller than this is a sprite, icon or tracking pixel, not a design.
-    minImageWidth: 400,
-    minImageHeight: 400,
+    // A floor for genuine junk only - sprites, icons, tracking pixels.
+    //
+    // This was 400, and 400 was throwing away real designs. Measured over 500
+    // results from five searches: 20 were under 400px, NONE were under 150px, and
+    // every one of the 20 was a real garment photo (236-385px) - retailer
+    // listings, blog images, and above all Pinterest previews. So the floor now
+    // only removes what is actually junk, and a caller who wants large images
+    // asks for them with `resultFilters.minWidth`, which is guaranteed.
+    minImageWidth: 150,
+    minImageHeight: 150,
+    // Most sources a single search may fan out to - one provider call each.
+    maxSources: 4,
 
     // Hosts that serve an HTML page rather than an image at the URL the provider
     // reports as imageUrl. These results are NOT dropped - they are returned

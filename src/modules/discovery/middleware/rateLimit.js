@@ -31,10 +31,18 @@ function sweep(now) {
 
 /**
  * Must be mounted AFTER validateBody — it reads req.validated.clientId.
+ *
+ * The budget is counted in PROVIDER CALLS, not requests: one search across four
+ * sources makes four calls and costs four credits' worth of budget. Counting it
+ * as one would let a client spend four times the intended amount.
  */
 function searchRateLimit(req, _res, next) {
   const clientId = req.validated && req.validated.clientId;
   if (!clientId) return next();
+
+  const cost = Array.isArray(req.validated.sources) && req.validated.sources.length
+    ? req.validated.sources.length
+    : 1;
 
   const now = Date.now();
   if (buckets.size > 10_000) sweep(now);
@@ -45,18 +53,22 @@ function searchRateLimit(req, _res, next) {
     buckets.set(clientId, bucket);
   }
 
-  bucket.count += 1;
-
-  if (bucket.count > config.rateLimit.perMinute) {
+  // Refuse BEFORE charging: a request that would overflow the budget is rejected
+  // without using any of it, so a client asking for four sources near the limit
+  // can still retry with one.
+  if (bucket.count + cost > config.rateLimit.perMinute) {
     const retryAfterSec = Math.max(1, Math.ceil((bucket.windowStart + WINDOW_MS - now) / 1000));
+    const left = Math.max(0, config.rateLimit.perMinute - bucket.count);
     return next(
       new RateLimitError(
-        `Search rate limit exceeded (${config.rateLimit.perMinute}/min). Retry in ${retryAfterSec}s.`,
+        `Search rate limit exceeded: this search needs ${cost} provider call${cost === 1 ? '' : 's'} ` +
+        `and ${left} of ${config.rateLimit.perMinute}/min remain. Retry in ${retryAfterSec}s.`,
         retryAfterSec
       )
     );
   }
 
+  bucket.count += cost;
   next();
 }
 

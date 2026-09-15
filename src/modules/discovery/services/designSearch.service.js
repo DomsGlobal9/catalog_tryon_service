@@ -1,8 +1,11 @@
 // =============================================================================
-// designSearch.service.js — Orchestrates a design search.
+// designSearch.service.js — One provider search, filtered and cached.
 // =============================================================================
 //
-//   build query -> cache lookup -> provider call -> filter -> cache store
+//   query -> cache lookup -> (shared) provider call -> filter -> cache store
+//
+// Searching several sources at once lives in multiSourceSearch.js, which calls
+// fetchSource() here once per source.
 //
 // Nothing here downloads, stores or transforms an image. The service returns
 // *references* to designs found on the web; what the caller does with them is
@@ -11,6 +14,7 @@
 const { config } = require('../discovery.config');
 const { getProvider } = require('../providers');
 const { buildQuery } = require('./queryBuilder');
+const { platformOf, upgradePinterestImage } = require('./platforms');
 const cache = require('./searchCache');
 
 function matchesNonImageHost(host) {
@@ -57,17 +61,34 @@ function hasUsableImageUrl(result) {
  * NOT a promise of permanent availability. CDN URLs, signed URLs and social
  * thumbnails expire and rotate. This is the asset that satisfied our
  * image-capability checks at search time.
+ *
+ * `sizeExact` says whether width/height describe THIS url as reported, or are our
+ * estimate. It is false only for an upgraded Pinterest image, whose larger file
+ * we deliberately do not download to measure - see platforms.js. Those also
+ * carry `fallbackUrl`, the original smaller image, in case the larger one fails.
  */
 function buildFetchable(result, imageUsable) {
   if (imageUsable) {
-    return { url: result.imageUrl, width: result.width, height: result.height, from: 'imageUrl' };
+    const upgraded = upgradePinterestImage(result);
+    if (upgraded) {
+      return {
+        url: upgraded.url,
+        width: upgraded.width,
+        height: upgraded.height,
+        from: 'imageUrl',
+        sizeExact: false,
+        fallbackUrl: result.imageUrl
+      };
+    }
+    return { url: result.imageUrl, width: result.width, height: result.height, from: 'imageUrl', sizeExact: true };
   }
   if (result.thumbnailUrl) {
     return {
       url: result.thumbnailUrl,
       width: result.thumbnailWidth ?? null,
       height: result.thumbnailHeight ?? null,
-      from: 'thumbnailUrl'
+      from: 'thumbnailUrl',
+      sizeExact: true
     };
   }
   return null; // caller drops these - nothing viewable at all
@@ -88,6 +109,11 @@ function buildFetchable(result, imageUsable) {
  * so Instagram and Facebook designs still reach the caller. The only such
  * result dropped is one that also has no thumbnail - it carries no viewable
  * image at all and is of no use to anyone.
+ *
+ * The size check normally reads the ORIGINAL width/height. The exception is an
+ * upgraded Pinterest image: its original is a 236px preview of a larger file, so
+ * judging it by 236 threw away most Pinterest results. It is judged by the size
+ * of the file we actually hand out instead.
  */
 function filterResults(results) {
   const { minImageWidth, minImageHeight } = config.search;
@@ -97,45 +123,75 @@ function filterResults(results) {
   for (const result of results) {
     if (!result || !result.imageUrl) continue;
     if (seen.has(result.imageUrl)) continue;
-    if (result.width !== null && result.width < minImageWidth) continue;
-    if (result.height !== null && result.height < minImageHeight) continue;
 
     const imageUsable = hasUsableImageUrl(result);
     const fetchable = buildFetchable(result, imageUsable);
     if (!fetchable) continue; // no retrievable image at all - of no use to anyone
 
+    const judged = fetchable.sizeExact === false ? fetchable : result;
+    if (judged.width !== null && judged.width < minImageWidth) continue;
+    if (judged.height !== null && judged.height < minImageHeight) continue;
+
     seen.add(result.imageUrl);
-    out.push({ ...result, imageUsable, fetchable });
+    out.push({ ...result, platform: platformOf(result), imageUsable, fetchable });
   }
 
   return out;
 }
 
 /**
- * rawCount is the number of results the provider returned BEFORE filtering.
- * The controller derives `hasMore` from it rather than from results.length,
- * otherwise a page that happened to contain several undersized images would
- * wrongly report that there is nothing further to fetch.
+ * Provider calls currently in flight, keyed like the cache.
  *
- * @param   {Object}   input  Already validated by middleware/validate.js.
+ * Without this, two identical searches arriving together both miss the cache and
+ * both pay for a provider call. With it, the second waits for the first and they
+ * share one call - and one bill. A failed call is shared too, but never cached,
+ * so the next request after it tries again.
+ */
+const inflight = new Map();
+
+/**
+ * One provider search for one already-built query.
+ *
+ * rawCount is the number of results the provider returned BEFORE filtering.
+ * `hasMore` is derived from it rather than from results.length, otherwise a page
+ * that happened to contain several undersized images would wrongly report that
+ * there is nothing further to fetch.
+ *
+ * @returns {Promise<{ results: Object[], rawCount: number, cached: boolean }>}
+ */
+async function fetchSource({ query, cacheKey, page, limit }) {
+  const hit = cache.get(cacheKey);
+  if (hit) return { results: hit.results, rawCount: hit.rawCount, cached: true };
+
+  if (!inflight.has(cacheKey)) {
+    const call = (async () => {
+      const { results: providerResults, rawCount } = await getProvider().search({ query, page, limit });
+      const value = { results: filterResults(providerResults), rawCount };
+      cache.set(cacheKey, value);
+      return value;
+    })();
+    inflight.set(cacheKey, call);
+    // Clear the slot however the call ends. `catch` stops this bookkeeping promise
+    // from being reported as unhandled; the real error still reaches the awaiters.
+    call.finally(() => inflight.delete(cacheKey)).catch(() => {});
+  }
+
+  const value = await inflight.get(cacheKey);
+  return { results: value.results, rawCount: value.rawCount, cached: false };
+}
+
+/**
+ * Single web search - the original entry point, kept so existing callers and
+ * tests are unaffected.
+ *
+ * @param   {Object}   input  Resolved search input.
  * @returns {Promise<{ query: string, results: Object[], rawCount: number, cached: boolean }>}
  */
 async function search(input) {
   const { page, limit } = input;
   const { query, cacheKey } = buildQuery(input);
-
-  const hit = cache.get(cacheKey);
-  if (hit) {
-    return { query, results: hit.results, rawCount: hit.rawCount, cached: true };
-  }
-
-  const provider = getProvider();
-  const { results: providerResults, rawCount } = await provider.search({ query, page, limit });
-  const results = filterResults(providerResults);
-
-  cache.set(cacheKey, { results, rawCount });
-
-  return { query, results, rawCount, cached: false };
+  const out = await fetchSource({ query, cacheKey, page, limit });
+  return { query, ...out };
 }
 
-module.exports = { search, filterResults, hasUsableImageUrl, buildFetchable };
+module.exports = { search, fetchSource, filterResults, hasUsableImageUrl, buildFetchable, _inflight: inflight };

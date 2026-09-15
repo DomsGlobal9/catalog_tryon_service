@@ -11,8 +11,10 @@
 const { z } = require('zod');
 const { config } = require('../discovery.config');
 const { ValidationError } = require('../lib/errors');
+const { SOURCES } = require('../services/platforms');
 
 const SHOT_TYPES = ['flatlay', 'worn', 'any'];
+const ORIENTATIONS = ['portrait', 'landscape', 'square'];
 
 const lowerCased = (schema) =>
   z.preprocess((value) => (typeof value === 'string' ? value.trim().toLowerCase() : value), schema);
@@ -48,6 +50,36 @@ const searchSchema = z
 
     shotType: lowerCased(z.enum(SHOT_TYPES)).default('any'),
 
+    // Where to search. Each entry is one provider call. Defaults to ['web'], which
+    // is exactly the search that existed before this field did. Repeats are
+    // collapsed, so ['pinterest', 'Pinterest'] is one Pinterest search, not two.
+    sources: z
+      .preprocess(
+        // Normalise and collapse repeats BEFORE the size check, so four distinct
+        // platforms with one written twice is accepted rather than counted as five.
+        // A single string is taken as a list of one: "pinterest" means ["pinterest"].
+        (value) => {
+          const list = typeof value === 'string' ? [value] : value;
+          return Array.isArray(list)
+            ? [...new Set(list.map((s) => (typeof s === 'string' ? s.trim().toLowerCase() : s)))]
+            : list;
+        },
+        z.array(z.enum(SOURCES)).min(1).max(config.search.maxSources)
+      )
+      .default(['web']),
+
+    // Checked against each result's real data, so unlike `filters` these are
+    // guaranteed. See services/resultFilters.js.
+    resultFilters: z
+      .object({
+        fullSizeOnly: z.boolean().optional(),
+        minWidth: z.coerce.number().int().min(1).max(10000).optional(),
+        orientation: lowerCased(z.enum(ORIENTATIONS)).optional(),
+        excludeDomains: z.array(z.string().trim().min(1).max(253)).max(20).optional()
+      })
+      .strict()
+      .default({}),
+
     // Coerced so "2" from a loosely-typed caller is accepted rather than rejected.
     page: z.coerce.number().int().min(1).max(config.search.maxPage).default(1),
     limit: z.coerce.number().int().min(1).max(config.search.maxLimit).default(config.search.defaultLimit)
@@ -78,4 +110,4 @@ function validateBody(schema) {
   };
 }
 
-module.exports = { validateBody, searchSchema, SHOT_TYPES };
+module.exports = { validateBody, searchSchema, SHOT_TYPES, ORIENTATIONS };
