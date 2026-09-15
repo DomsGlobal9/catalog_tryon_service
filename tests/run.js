@@ -159,6 +159,7 @@ async function offline() {
 
   await discoveryPlatformsAndStreaming();
   await sharedStateWithoutDatabase();
+  await require('./designstudio')({ check, eq, section, SRC });
 
   section('RETRY BEHAVIOUR  (the fix must actually rescue a dropped download)');
   // The bug this proves: the response BODY read used to sit outside the retry
@@ -900,6 +901,17 @@ async function live() {
   }
 }
 
+// If the event loop empties before the summary is printed (something awaited a
+// promise that nothing keeps alive), Node exits with code 0 and the run looks
+// green. Refuse that: an unfinished run is a failed run.
+let finishedRun = false;
+process.on('exit', (code) => {
+  if (!finishedRun && code === 0) {
+    console.log('\n✗ TEST RUN STOPPED BEFORE FINISHING (event loop emptied) - treat as failed');
+    process.exitCode = 1;
+  }
+});
+
 (async () => {
   const isLive = process.argv.includes('--live');
   console.log('ScaleEasy Catalog Service — test suite' + (isLive ? '  (offline + live)' : '  (offline)'));
@@ -917,6 +929,7 @@ async function live() {
     console.log('\n(run `npm run test:live` to also exercise a running service)');
   }
 
+  finishedRun = true;
   console.log('\n' + '='.repeat(70));
   if (failures.length) {
     console.log(failures.length + ' FAILED, ' + passed + ' passed');

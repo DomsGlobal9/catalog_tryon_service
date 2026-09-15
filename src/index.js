@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const drapingRoutes = require('./routes/draping');
 const discoveryRoutes = require('./modules/discovery/discovery.routes');
+const designstudioRoutes = require('./services/designstudio/routes');
 const { logBootStatus: logDiscoveryStatus } = require('./modules/discovery/discovery.config');
 const { requireServiceKey } = require('./middleware/auth');
 const { identify } = require('./middleware/identity');
@@ -54,6 +55,10 @@ useDiscoverySharedState(shared.discoveryAdapter());
 // Design Discovery — mounted BEFORE the 50mb parser so its own 32kb JSON limit
 // actually applies. A keyword search has no business accepting megabytes.
 app.use('/api/v1/discovery', discoveryRoutes);
+
+// Design Studio — designs + fabrics into one garment on a model. Also mounted
+// before the 50mb parser: it has its own body limit and its own error handler.
+app.use('/api/v1/designstudio', designstudioRoutes);
 
 // IMPORTANT: Increase payload size limit to 50MB to accept 3-slot Base64 image inputs (Lehenga/Sharara)
 app.use(express.json({ limit: '50mb' }));

@@ -1,11 +1,12 @@
 # ScaleEasy Catalog Service — API Documentation
 
-One service exposing two independent capabilities:
+One service exposing three independent capabilities:
 
 | Capability | Path | Shape |
 | :--- | :--- | :--- |
 | **Catalog Try-On** | `/api/v1/draping/*` | Long-running, streams over SSE |
 | **Design Discovery** | `/api/v1/discovery/*` | Fast, plain JSON |
+| **Design Studio** | `/api/v1/designstudio/*` | Designs + fabrics → one garment on a model; streams over SSE. Full reference: [`DESIGN_STUDIO_API.md`](./DESIGN_STUDIO_API.md) |
 
 They share a host, an API key and a gateway slug, but nothing else — a failure in one does not
 affect the other.
@@ -433,6 +434,8 @@ how many results were returned, were duplicates, came from other sites, or were 
 * **Zero retention for generation.** Input and output images are never written to the database.
   The API is base64/URL-in, base64-out; only job metadata is stored for billing and auditing.
 * **Discovery stores nothing at all** — no images, no results, no search history.
+* **Design Studio stores nothing either** — designs, fabrics and the generated photograph exist only
+  for the length of the request. It downloads only from Cloudinary links.
 * **Independent failure.** Discovery reports every anticipated failure as `4xx` specifically so it
   cannot trip the shared circuit breaker and take generation down, and vice versa.
 * **Generation is capped, not queued.** Excess load is rejected with `429` and a `Retry-After` header.
@@ -440,8 +443,9 @@ how many results were returned, were duplicates, came from other sites, or were 
 ### Request size limits
 
 Body size limits differ by capability: discovery parses at **32 KB** (it only ever receives
-keywords), while the catalog endpoints parse at **50 MB** (they receive base64 images). Discovery is
-mounted before the larger parser so its own limit applies.
+keywords), the catalog endpoints parse at **50 MB** (they receive base64 images), and Design Studio at
+**50 MB** (up to ten reference images; the gateway also caps requests at 50 MB). Discovery and Design Studio are mounted before the catalog
+parser so their own limits apply.
 
 
 ---

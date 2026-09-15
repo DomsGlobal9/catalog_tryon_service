@@ -1,0 +1,199 @@
+// =============================================================================
+// promptBuilder.js — the single request that becomes the photograph.
+// =============================================================================
+//
+// Structure (text and images interleaved, in this order):
+//
+//   1. TASK             one paragraph: what to make and that references are a spec
+//   2. REFERENCES       "[Image N] DESIGN - PALLU. Goes on: ..." followed by that
+//                       image; the same for each fabric and the model. Labelling
+//                       each image right next to it is what stops the model
+//                       blending a border into a pallu.
+//   3. THE GARMENT      how this garment is constructed and styled
+//   4. DESIGN RULES     copy exactly, take only the design, place it only in its area
+//   5. FABRIC RULES     exact colour, weave, sheen, drape
+//   6. THE MODEL        generated or the reference person, and a pose that shows
+//                       every referenced area (the back if a BACK design exists)
+//   7. THE PHOTOGRAPH   framing, backdrop, light, lens, focus
+//   8. QUALITY BAR      what must never appear
+//   9. CUSTOMER NOTES   last, and explicitly below the references in priority
+//
+// No I/O. The same job always produces the same text. It records on the job
+// which image number each reference got, so later messages can refer to it.
+//
+const { garmentGuide, describeArea, GLOBAL_AREAS, BACK_AREAS, taxonomy } = require('./garmentGuide');
+const { config } = require('./config');
+
+const clean = (s) => String(s).replace(/\s+/g, ' ').replace(/"/g, '\'').trim();
+const bullets = (lines) => lines.map((l) => `- ${l}`).join('\n');
+
+function areaName(garmentId, areaId) {
+  const area = taxonomy.getDesignTypes(garmentId).find((a) => a.id === areaId);
+  return area ? area.name : areaId;
+}
+
+/**
+ * @param {Object} job  A resolved job whose images have been prepared.
+ * @returns {{ parts: Object[], text: string, warnings: string[], pose: 'front'|'back' }}
+ */
+function buildPrompt(job) {
+  const g = garmentGuide(job.garmentId);
+  const warnings = [];
+  const parts = [];
+  const textLog = [];
+  const addText = (t) => { parts.push({ text: t }); textLog.push(t); };
+  const addImage = (image, label) => {
+    parts.push({ inlineData: { mimeType: image.mimeType, data: image.base64 } });
+    textLog.push(`<${label}>`);
+  };
+
+  // A reference model with no stated gender is just "the model": the photo decides.
+  const wearerWord = job.model.gender === 'male' ? 'man' : job.model.gender === 'female' ? 'woman' : 'model';
+  const possessive = job.model.gender === 'male' ? 'his' : 'her';
+  const designAreas = job.designs.map((d) => d.areaId);
+  const hasGlobal = designAreas.some((a) => GLOBAL_AREAS.has(a));
+  const hasZone = designAreas.some((a) => !GLOBAL_AREAS.has(a));
+  const needsBack = designAreas.some((a) => BACK_AREAS.has(a));
+  const hasFront = designAreas.includes('FRONT');
+  const pose = needsBack ? 'back' : 'front';
+  if (needsBack && hasFront) {
+    warnings.push('A single photograph cannot show the FRONT and BACK designs fully at once; the model is posed turning away, so the back is clear and the front is partly visible.');
+  }
+
+  // ── 1. TASK ────────────────────────────────────────────────────────────────
+  addText([
+    'TASK',
+    `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}, ` +
+    'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
+    'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
+    '',
+    'REFERENCE IMAGES'
+  ].join('\n'));
+
+  // ── 2. REFERENCES ──────────────────────────────────────────────────────────
+  let n = 0;
+  for (const d of job.designs) {
+    n += 1;
+    const lines = [
+      `[Image ${n}] DESIGN for ${d.areaId} (${d.areaName})`,
+      `Goes on: ${describeArea(job.garmentId, d.areaId)}.`
+    ];
+    if (d.note) lines.push(`Customer note for this design: ${clean(d.note)}`);
+    addText(lines.join('\n'));
+    addImage(d.image, `design ${d.areaId}`);
+    d.imageNumber = n;
+    if (d.image.lowResolution) {
+      warnings.push(`designs[${d.index}] (${d.areaId}) is only ${Math.max(d.image.original.width, d.image.original.height)}px; fine detail in that design may be lost.`);
+    }
+  }
+
+  for (const f of job.fabrics) {
+    n += 1;
+    const label = f.name ? clean(f.name) : `Fabric ${f.index + 1}`;
+    const usedFor = f.appliesTo
+      ? `Used for: ${f.appliesTo.map((a) => `${a} (${areaName(job.garmentId, a)})`).join(', ')} only.`
+      : 'Used for: the main fabric of the whole garment, meaning every part that has no fabric of its own.';
+    const lines = [`[Image ${n}] FABRIC: ${label}`, usedFor];
+    if (f.note) lines.push(`Customer note for this fabric: ${clean(f.note)}`);
+    addText(lines.join('\n'));
+    addImage(f.image, `fabric ${label}`);
+    f.imageNumber = n;
+    if (f.image.lowResolution) {
+      warnings.push(`fabrics[${f.index}] is only ${Math.max(f.image.original.width, f.image.original.height)}px; its weave may not be reproduced precisely.`);
+    }
+  }
+
+  if (job.model.kind === 'reference') {
+    n += 1;
+    addText(`[Image ${n}] MODEL: the person to dress in the new garment.`);
+    addImage(job.model.image, 'model');
+    job.model.imageNumber = n;
+  }
+
+  const allImages = [...job.designs, ...job.fabrics, job.model].map((x) => x.image).filter(Boolean);
+  if (allImages.some((img) => img.shrunkToFit)) {
+    warnings.push('The images were very detailed, so some were compressed further to fit the image model\'s request limit; the finest detail may be slightly softer.');
+  }
+
+  // ── 3. THE GARMENT ─────────────────────────────────────────────────────────
+  addText([
+    'THE GARMENT',
+    g.outfit,
+    bullets(g.construction),
+    g.styling
+  ].join('\n'));
+
+  // ── 4. DESIGN RULES ────────────────────────────────────────────────────────
+  const designRules = [
+    'Copy each design exactly, as if following a technical tech-pack: the same motifs, shapes and proportions, the same number and spacing of repeats, the same colours, and the same technique (woven zari, thread embroidery, mirror work, sequins, stone work, block or digital print) with its real texture and sheen.',
+    'A reference image may also show a person, another garment, a background, hands, text or a watermark. Take ONLY the design from it and ignore everything else in that image.',
+    'Put each design only in the area it is assigned to, at a realistic scale for that area. Do not enlarge motifs to fill space, and do not spread one area\'s design into other areas unless the garment\'s construction naturally continues it.'
+  ];
+  if (hasGlobal && hasZone) {
+    designRules.push('A design assigned to a specific area always wins inside that area. The overall, print or embroidery references apply everywhere else.');
+  }
+  designRules.push(hasGlobal
+    ? 'Do not invent any motif, embellishment, logo or pattern that is not in the references.'
+    : 'Do not invent any motif, embellishment, logo or pattern that is not in the references. Parts of the garment with no design reference stay plain in their fabric, with neat, simple finishing only.');
+  addText(['HOW TO USE THE DESIGN REFERENCES', bullets(designRules)].join('\n'));
+
+  // ── 5. FABRIC RULES ────────────────────────────────────────────────────────
+  if (job.fabrics.length) {
+    const fabricRules = [
+      'Tailor the garment from these exact materials. Match each fabric\'s base colour precisely (never warm, cool, brighten or desaturate it), its weave and texture, its surface finish (matte cotton, lustrous silk, satin shine, velvet pile, sheer georgette or chiffon), its transparency, and its weight and the way it falls.',
+      'A fabric photo may be a flat swatch, a folded piece or a roll. Show that same material cut and sewn into the garment, with natural folds and drape.',
+      'Designs sit on the fabric they belong to and respect its texture: woven zari looks woven into the cloth, prints look printed into the weave, and embroidery sits slightly raised on the surface.',
+      'Where a design\'s motif colours differ from its fabric, keep the design\'s own colours for the motifs and the fabric\'s colour for the ground.'
+    ];
+    const hasMain = job.fabrics.some((f) => !f.appliesTo);
+    if (!hasMain) {
+      fabricRules.push('Any part of the outfit not covered by a fabric reference uses the most closely related referenced fabric, so the whole outfit reads as one coordinated set.');
+    }
+    addText(['HOW TO USE THE FABRIC REFERENCES', bullets(fabricRules)].join('\n'));
+  } else {
+    addText(['FABRIC', 'No fabric reference was given. Choose one premium, realistic fabric whose colour and texture suit the designs best, and use it consistently across the garment.'].join('\n'));
+  }
+
+  // ── 6. THE MODEL ───────────────────────────────────────────────────────────
+  const modelLines = [];
+  if (job.model.kind === 'reference') {
+    modelLines.push(`Dress the exact person shown in [Image ${job.model.imageNumber}]. Keep the same face and identity, skin tone, hair, body shape and proportions. Replace only their clothing with the new garment, and ignore their original outfit, pose, background and lighting.`);
+  } else {
+    modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
+  }
+  if (pose === 'back') {
+    modelLines.push('Pose: standing full length, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.');
+  } else {
+    modelLines.push(`Pose: standing tall, facing the camera at a slight three-quarter angle, weight on one leg. ${g.poseHint}`);
+  }
+  modelLines.push('Nothing (hair, hands, jewellery or other clothing) may cover any area that has a design reference.');
+  addText(['THE MODEL', bullets(modelLines)].join('\n'));
+
+  // ── 7. THE PHOTOGRAPH ──────────────────────────────────────────────────────
+  addText(['THE PHOTOGRAPH', bullets([
+    `A full-length portrait catalogue photograph in ${config.gemini.aspectRatio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped.`,
+    'A seamless, plain studio backdrop in soft light warm grey with a smooth floor sweep. No props, furniture, plants, patterns or text.',
+    'Soft, even, diffused studio lighting from a large key light with gentle fill, and a soft natural shadow at the feet.',
+    'Camera at chest height with a natural 85 mm portrait perspective and no distortion.',
+    'Pin-sharp focus on the garment so the weave, thread work and metallic detail are crisp. Neutral white balance so every colour matches the references.'
+  ])].join('\n'));
+
+  // ── 8. QUALITY BAR ─────────────────────────────────────────────────────────
+  addText(['QUALITY BAR', bullets([
+    'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
+    'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
+    'Anatomically correct face, hands, fingers and feet. Exactly one person in the frame.',
+    'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
+  ])].join('\n'));
+
+  // ── 9. CUSTOMER NOTES ──────────────────────────────────────────────────────
+  if (job.notes) {
+    addText(['CUSTOMER NOTES', `The customer also asked: "${clean(job.notes)}". Follow this unless it contradicts the reference images or the rules above.`].join('\n'));
+  }
+
+  addText('Return only the finished photograph.');
+
+  return { parts, text: textLog.join('\n\n'), warnings, pose, imageCount: n };
+}
+
+module.exports = { buildPrompt };

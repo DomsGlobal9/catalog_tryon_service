@@ -36,6 +36,24 @@ MAX_CONCURRENT_GENERATIONS=3      # per server, both pipelines together; excess 
 GENERATION_RATE_LIMIT_PER_HOUR=60 # generations per customer per hour, across all servers; 0 = off
 KEEP_ALIVE_TIMEOUT_MS=65000       # longer than the load balancer's idle timeout, avoids stray 502s
 
+# ── Design Studio (all optional) ─────────────────────────────────────────────
+# Designs + fabrics -> one garment on a model, in one Gemini call. Uses GEMINI_API_KEY.
+DESIGNSTUDIO_MODEL=gemini-3.1-flash-image
+DESIGNSTUDIO_IMAGE_SIZE=2K              # 1K | 2K | 4K (output is always portrait 3:4)
+DESIGNSTUDIO_MAX_DESIGNS=6
+DESIGNSTUDIO_MAX_FABRICS=3
+DESIGNSTUDIO_MAX_IMAGE_MB=12            # per image
+DESIGNSTUDIO_MAX_BODY_MB=50             # whole request; the gateway allows 50 MB
+DESIGNSTUDIO_ALLOWED_IMAGE_HOSTS=res.cloudinary.com   # the only hosts ever downloaded from
+DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS=15000
+DESIGNSTUDIO_INPUT_MAX_EDGE=1536        # longest edge sent to the model
+DESIGNSTUDIO_OUTPUT_FORMAT=jpeg         # jpeg (re-encoded, ~10x smaller) | original
+DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=120000
+DESIGNSTUDIO_DEADLINE_MS=170000         # whole generation including retries
+DESIGNSTUDIO_RETRIES=2                  # after busy/unavailable answers
+DESIGNSTUDIO_NO_IMAGE_RETRIES=1         # after an answer without an image
+# DESIGNSTUDIO_TEMPERATURE=             # unset = the model's own default (recommended)
+
 # ── Running more than one server (all optional) ─────────────────────────────
 # Limits, the discovery cache and the list of running jobs are kept in three
 # small tables in the same database (created automatically at boot), so every

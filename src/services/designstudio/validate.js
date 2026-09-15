@@ -1,0 +1,174 @@
+// =============================================================================
+// validate.js — turn a request body into a clean, fully resolved job, or refuse.
+// =============================================================================
+//
+// Two layers:
+//   1. shape (zod): types, lengths, counts, no unknown fields;
+//   2. meaning: the garment exists, every design area belongs to that garment,
+//      fabric assignments do not overlap, every image is base64 or an allowed link.
+//
+// Nothing is downloaded or decoded here - that is imageInput.js, after this has
+// passed - so a malformed request costs nothing.
+//
+const { z } = require('zod');
+const { config } = require('./config');
+const { validation } = require('./errors');
+const { taxonomy, garmentGuide } = require('./garmentGuide');
+
+const MODEL_GENDERS = ['female', 'male'];
+
+const text = (max) => z.string().trim().max(max);
+
+const imageField = z.string({ error: 'must be a base64 image or an https link' }).trim().min(1, 'must not be empty');
+
+const schema = z.object({
+  clientId: z.string().trim().min(1).max(128),
+  garment: z.string().trim().min(1).max(40),
+  designs: z.array(z.object({
+    area: z.string().trim().min(1).max(40),
+    image: imageField,
+    note: text(config.limits.maxNoteChars).optional()
+  }).strict()).min(1, 'at least one design is required').max(config.limits.maxDesigns, `at most ${config.limits.maxDesigns} designs`),
+  fabrics: z.array(z.object({
+    image: imageField,
+    name: text(80).optional(),
+    appliesTo: z.array(z.string().trim().min(1).max(40)).min(1).max(20).optional(),
+    note: text(config.limits.maxNoteChars).optional()
+  }).strict()).max(config.limits.maxFabrics, `at most ${config.limits.maxFabrics} fabrics`).default([]),
+  modelImage: imageField.optional(),
+  modelGender: z.enum(MODEL_GENDERS).optional(),
+  notes: text(config.limits.maxNotesChars).optional()
+}).strict();
+
+const DATA_URI = /^data:image\/(png|jpe?g|webp|avif|heic|heif|gif|tiff?);base64,/i;
+const BASE64_BODY = /^[A-Za-z0-9+/_-]+={0,2}$/;
+
+/**
+ * Classify one image string without decoding it.
+ * @returns {{ kind: 'base64', data: string } | { kind: 'url', url: URL }}
+ */
+function classifyImage(value, field) {
+  if (/^https?:\/\//i.test(value)) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw validation(`${field} is not a valid link.`, [{ field, code: 'INVALID_URL' }]);
+    }
+    if (url.protocol !== 'https:') {
+      throw validation(`${field} must use https.`, [{ field, code: 'INSECURE_URL' }]);
+    }
+    if (url.username || url.password) {
+      throw validation(`${field} must not contain credentials.`, [{ field, code: 'INVALID_URL' }]);
+    }
+    if (!hostAllowed(url.hostname)) {
+      throw validation(`${field} must be base64 or a Cloudinary link (${config.input.allowedHosts.join(', ')}).`,
+        [{ field, code: 'IMAGE_SOURCE_NOT_ALLOWED', host: url.hostname }]);
+    }
+    return { kind: 'url', url };
+  }
+
+  const body = value.replace(DATA_URI, '').replace(/\s+/g, '');
+  if (body.length < 64 || !BASE64_BODY.test(body)) {
+    throw validation(`${field} must be a base64 image (optionally a data:image/...;base64, URI) or an https Cloudinary link.`,
+      [{ field, code: 'INVALID_IMAGE_ENCODING' }]);
+  }
+  if (Math.floor(body.length * 3 / 4) > config.limits.maxImageBytes) {
+    throw validation(`${field} is larger than ${config.limits.maxImageBytes / 1024 / 1024} MB.`, [{ field, code: 'IMAGE_TOO_LARGE' }]);
+  }
+  return { kind: 'base64', data: body };
+}
+
+function hostAllowed(hostname) {
+  const host = hostname.toLowerCase();
+  return config.input.allowedHosts.some((allowed) =>
+    host === allowed || (allowed === 'res.cloudinary.com' && /^res-\d+\.cloudinary\.com$/.test(host)));
+}
+
+function formatZodIssues(error) {
+  return error.issues.map((issue) => ({
+    field: issue.path.length ? issue.path.join('.').replace(/\.(\d+)/g, '[$1]') : '(body)',
+    code: 'INVALID_FIELD',
+    message: issue.message
+  }));
+}
+
+/**
+ * @returns {Object} a resolved job: canonical garment, resolved areas, classified images.
+ * @throws StudioError 400
+ */
+function resolveRequest(body) {
+  const parsed = schema.safeParse(body === undefined ? {} : body);
+  if (!parsed.success) {
+    const issues = formatZodIssues(parsed.error);
+    throw validation(`Invalid request: ${issues.map((i) => `${i.field} ${i.message}`).join('; ')}`, issues);
+  }
+  const input = parsed.data;
+
+  const garment = taxonomy.getGarment(input.garment);
+  if (!garment) {
+    throw validation(`Unknown garment "${input.garment}". Use one of: ${taxonomy.GARMENT_IDS.join(', ')}.`,
+      [{ field: 'garment', code: 'UNKNOWN_GARMENT' }]);
+  }
+
+  const resolveArea = (value, field) => {
+    const area = taxonomy.getDesignType(garment.id, value);
+    if (!area) {
+      throw validation(`"${value}" is not a design area of ${garment.id}. Use one of: ${taxonomy.designTypeIds(garment.id).join(', ')}.`,
+        [{ field, code: 'UNKNOWN_DESIGN_AREA' }]);
+    }
+    return area;
+  };
+
+  const seenAreas = new Map();
+  const designs = input.designs.map((d, i) => {
+    const field = `designs[${i}]`;
+    const area = resolveArea(d.area, `${field}.area`);
+    if (seenAreas.has(area.id)) {
+      throw validation(`${field} and ${seenAreas.get(area.id)} are both for ${area.id}. Send one design per area.`,
+        [{ field: `${field}.area`, code: 'DUPLICATE_DESIGN_AREA' }]);
+    }
+    seenAreas.set(area.id, field);
+    return { index: i, areaId: area.id, areaName: area.name, note: d.note || null, source: classifyImage(d.image, `${field}.image`) };
+  });
+
+  let mainFabric = null;
+  const claimed = new Map();
+  const fabrics = input.fabrics.map((f, i) => {
+    const field = `fabrics[${i}]`;
+    let appliesTo = null;
+    if (f.appliesTo) {
+      appliesTo = [...new Set(f.appliesTo.map((a, j) => resolveArea(a, `${field}.appliesTo[${j}]`).id))];
+      for (const areaId of appliesTo) {
+        if (claimed.has(areaId)) {
+          throw validation(`${field} and ${claimed.get(areaId)} both apply to ${areaId}. Each area can have one fabric.`,
+            [{ field: `${field}.appliesTo`, code: 'FABRIC_AREA_CONFLICT' }]);
+        }
+        claimed.set(areaId, field);
+      }
+    } else {
+      if (mainFabric !== null) {
+        throw validation(`${field} and fabrics[${mainFabric}] both have no appliesTo. Only one fabric can be the main fabric; say where the others go.`,
+          [{ field: `${field}.appliesTo`, code: 'MULTIPLE_MAIN_FABRICS' }]);
+      }
+      mainFabric = i;
+    }
+    return { index: i, name: f.name || null, appliesTo, note: f.note || null, source: classifyImage(f.image, `${field}.image`) };
+  });
+
+  const guideWearer = garmentGuide(garment.id).wearer;
+
+  return {
+    clientId: input.clientId,
+    garmentId: garment.id,
+    garmentName: garment.name,
+    designs,
+    fabrics,
+    model: input.modelImage
+      ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
+      : { kind: 'generated', gender: input.modelGender || guideWearer },
+    notes: input.notes || null
+  };
+}
+
+module.exports = { resolveRequest, classifyImage, hostAllowed, MODEL_GENDERS, schema };
