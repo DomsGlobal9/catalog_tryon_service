@@ -58,7 +58,7 @@ function normalizeTokens(values) {
  * @param {number}   input.limit
  * @returns {{ query: string, cacheKey: string }}
  */
-function buildQuery({ keywords = [], category, designType, filters = {}, shotType = 'any', source = 'web', page, limit }) {
+function buildQuery({ keywords = [], category, designType, filters = {}, shotType = 'any', source = 'web', recency = 'any', page, limit }) {
   const garment = category ? taxonomy.getGarment(category) : null;
   const area = garment && designType ? taxonomy.getDesignType(garment.id, designType) : null;
 
@@ -90,13 +90,15 @@ function buildQuery({ keywords = [], category, designType, filters = {}, shotTyp
   const query = tokens.join(' ');
 
   // The cache key covers everything that changes the provider call. The finished
-  // query already encodes category, designType, shotType and keywords, so it
-  // needs no separate fields. clientId is deliberately excluded: two clients
+  // query already encodes category, designType, shotType, source and keywords.
+  // `recency` is NOT part of the query text - it travels as a separate provider
+  // parameter - so it must be in the key, or a "past week" search would be served
+  // the cached "any time" answer. clientId is deliberately excluded: two clients
   // asking the same thing should share the cached answer rather than each
   // spending a credit.
   const cacheKey = crypto
     .createHash('sha1')
-    .update(JSON.stringify({ query, page, limit }))
+    .update(JSON.stringify(recency === 'any' ? { query, page, limit } : { query, page, limit, recency }))
     .digest('hex');
 
   return { query, cacheKey };

@@ -106,6 +106,19 @@ async function offline() {
   eq('dupatta as an area of anarkali', [r.category, r.designType], ['ANARKALI', 'DUPATTA']);
   r = parseInstruction('i want some designs please');
   eq('all filler resolves to nothing', [r.category, r.keywords, r.confidence], [null, [], 'low']);
+  r = parseInstruction('i want red zari saree pallu designs');
+  eq('a part (pallu) beats a finish (zari) wherever it appears', [r.category, r.designType, r.keywords, r.unresolved],
+    ['SAREE', 'PALLU', ['red', 'zari'], []]);
+  r = parseInstruction('zari border saree');
+  eq('zari border -> BORDER with zari kept as a word', [r.designType, r.keywords], ['BORDER', ['zari']]);
+  r = parseInstruction('kurti embroidery neck');
+  eq('embroidery neck -> NECK', [r.category, r.designType, r.keywords], ['KURTHI', 'NECK', ['embroidery']]);
+  r = parseInstruction('saree zari work designs');
+  eq('a finish alone is still chosen', [r.designType, r.keywords], ['ZARI_WORK', []]);
+  r = parseInstruction('blouse neck and sleeve design');
+  eq('two parts: the first wins, the second is a recognised word', [r.designType, r.keywords, r.unresolved], ['NECK', ['sleeve'], []]);
+  r = parseInstruction('please help me thanks');
+  eq('politeness alone resolves to nothing (no billed search)', [r.category, r.keywords], [null, []]);
 
   section('RESOLVER  (explicit input always wins)');
   const base = { clientId: 't', filters: {}, shotType: 'any', page: 1, limit: 20 };
@@ -284,7 +297,36 @@ async function discoveryPlatformsAndStreaming() {
   check('each source has its own cache entry',
     new Set(['web', 'pinterest', 'instagram', 'facebook'].map((s) => buildQuery({ ...rs({ keywords: ['x'] }), source: s }).cacheKey)).size === 4);
 
-  section('REQUEST VALIDATION  (sources and resultFilters)');
+  section('RECENCY  (a real date restriction, sent to the provider)');
+  const crypto = require('crypto');
+  const plain = buildQuery(rs({ keywords: ['red', 'saree'] }));
+  eq('"any" keeps the exact old cache key', plain.cacheKey,
+    crypto.createHash('sha1').update(JSON.stringify({ query: 'red saree', page: 1, limit: 20 })).digest('hex'));
+  const weekKey = buildQuery({ ...rs({ keywords: ['red', 'saree'] }), recency: 'week' });
+  check('"week" gets its own cache entry (never served the any-time answer)', weekKey.cacheKey !== plain.cacheKey);
+  eq('recency does not change the query words', weekKey.query, 'red saree');
+  const realFetchForBody = global.fetch;
+  const sentBodies = [];
+  global.fetch = async (_url, opts) => {
+    sentBodies.push(JSON.parse(opts.body));
+    return { ok: true, status: 200, json: async () => ({ images: [] }) };
+  };
+  try {
+    await D('providers/serper.provider').search({ query: 'red saree', page: 1, limit: 10, recency: 'week' });
+    await D('providers/serper.provider').search({ query: 'red saree', page: 1, limit: 10, recency: 'any' });
+    await D('providers/serper.provider').search({ query: 'red saree', page: 1, limit: 10 });
+  } finally {
+    global.fetch = realFetchForBody;
+  }
+  eq('week is sent to the provider as tbs=qdr:w', sentBodies[0].tbs, 'qdr:w');
+  eq('"any" sends no date filter', 'tbs' in sentBodies[1], false);
+  eq('an old request body without recency is unchanged', sentBodies[2],
+    { q: 'red saree', num: 10, page: 1, gl: config.serper.country, hl: config.serper.language });
+
+  section('REQUEST VALIDATION  (sources, recency and resultFilters)');
+  eq('recency defaults to any', searchSchema.safeParse({ clientId: 'a', keywords: ['x'] }).data.recency, 'any');
+  eq('recency is case-insensitive', searchSchema.safeParse({ clientId: 'a', keywords: ['x'], recency: 'Month' }).data.recency, 'month');
+  check('unknown recency rejected', !searchSchema.safeParse({ clientId: 'a', keywords: ['x'], recency: 'decade' }).success);
   const parse = (b) => searchSchema.safeParse(Object.assign({ clientId: 'a', keywords: ['x'] }, b));
   eq('sources default to web', parse({}).data.sources, ['web']);
   eq('repeats and capitals collapsed', parse({ sources: ['Pinterest', 'pinterest', 'WEB'] }).data.sources, ['pinterest', 'web']);

@@ -62,22 +62,31 @@ function normalize(item, index) {
   };
 }
 
+/**
+ * Our recency values -> Google's time filter, sent as `tbs`. `any` sends nothing,
+ * so an ordinary search is byte-identical to what it was.
+ */
+const RECENCY_TBS = { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' };
+
 /** @type {import('./imageSearchProvider').ImageSearchProvider} */
 const serperProvider = {
   name: 'serper',
 
-  async search({ query, page, limit }) {
+  async search({ query, page, limit, recency }) {
     if (!config.isConfigured) throw new NotConfiguredError();
+
+    const body = {
+      q: query,
+      num: limit,
+      page,
+      gl: config.serper.country,
+      hl: config.serper.language
+    };
+    if (RECENCY_TBS[recency]) body.tbs = RECENCY_TBS[recency];
 
     const json = await postJson(config.serper.endpoint, {
       headers: { 'X-API-KEY': config.serper.apiKey },
-      body: {
-        q: query,
-        num: limit,
-        page,
-        gl: config.serper.country,
-        hl: config.serper.language
-      },
+      body,
       timeoutMs: config.serper.timeoutMs,
       providerName: 'Serper'
     });

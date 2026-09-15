@@ -16,7 +16,7 @@ const { searchSources, planSources, dedupe, summarise } = require('./services/mu
 const { SOURCES } = require('./services/platforms');
 const cache = require('./services/searchCache');
 const rateLimit = require('./middleware/rateLimit');
-const { ORIENTATIONS, SHOT_TYPES } = require('./middleware/validate');
+const { ORIENTATIONS, SHOT_TYPES, RECENCIES } = require('./middleware/validate');
 const { NotConfiguredError } = require('./lib/errors');
 
 /**
@@ -226,6 +226,7 @@ function categories(_req, res) {
     success: true,
     categories: taxonomy.GARMENT_IDS,
     shotTypes: SHOT_TYPES,
+    recency: RECENCIES,
     sources: SOURCES,
     resultFilters: {
       fullSizeOnly: 'boolean',

@@ -80,7 +80,15 @@ const FILLER = new Set([
   'latest', 'new', 'best', 'good', 'nice', 'beautiful', 'lovely', 'some', 'any',
   'a', 'an', 'the', 'of', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'to',
   'is', 'are', 'was', 'were', 'be', 'it', 'this', 'that', 'these', 'those',
-  'from', 'by', 'as', 'having', 'has', 'have', 'want', 'plz'
+  'from', 'by', 'as', 'having', 'has', 'have', 'want', 'plz',
+
+  // Conversational and generic words. Without these, "please help me thanks"
+  // survived as the keywords "help thanks" and ran a real, billed web search for
+  // them. Now a sentence made only of these resolves to nothing and is refused.
+  'help', 'thanks', 'thank', 'thankyou', 'hello', 'hi', 'hey', 'sir', 'madam', 'mam',
+  'something', 'anything', 'stuff', 'thing', 'things', 'related', 'regarding', 'about',
+  'more', 'few', 'many', 'lot', 'lots', 'option', 'options', 'variety', 'varieties',
+  'collection', 'collections', 'also', 'just', 'really', 'very', 'so', 'kind of'
 ]);
 
 /** Every single-word descriptive term the parser treats as meaningful. */

@@ -15,6 +15,7 @@ const { SOURCES } = require('../services/platforms');
 
 const SHOT_TYPES = ['flatlay', 'worn', 'any'];
 const ORIENTATIONS = ['portrait', 'landscape', 'square'];
+const RECENCIES = ['any', 'day', 'week', 'month', 'year'];
 
 const lowerCased = (schema) =>
   z.preprocess((value) => (typeof value === 'string' ? value.trim().toLowerCase() : value), schema);
@@ -49,6 +50,11 @@ const searchSchema = z
       .default({}),
 
     shotType: lowerCased(z.enum(SHOT_TYPES)).default('any'),
+
+    // Only images published within this period. Unlike shotType this is a real
+    // restriction applied by the search engine itself, not extra words: measured,
+    // "past week" and "past month" shared 0 of 30 results with "any time".
+    recency: lowerCased(z.enum(RECENCIES)).default('any'),
 
     // Where to search. Each entry is one provider call. Defaults to ['web'], which
     // is exactly the search that existed before this field did. Repeats are
@@ -110,4 +116,4 @@ function validateBody(schema) {
   };
 }
 
-module.exports = { validateBody, searchSchema, SHOT_TYPES, ORIENTATIONS };
+module.exports = { validateBody, searchSchema, SHOT_TYPES, ORIENTATIONS, RECENCIES };

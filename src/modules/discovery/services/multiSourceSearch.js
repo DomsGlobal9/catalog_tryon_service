@@ -35,7 +35,8 @@ async function runSource(plan, resolved) {
       query: plan.query,
       cacheKey: plan.cacheKey,
       page: resolved.page,
-      limit: resolved.limit
+      limit: resolved.limit,
+      recency: resolved.recency
     });
 
     // A platform source keeps only that platform. Adding "pinterest" to a query

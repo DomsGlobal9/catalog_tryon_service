@@ -58,6 +58,47 @@ function consume(consumed, start, length) {
 }
 
 /**
+ * Design areas that describe a FINISH across the garment rather than a PART of it.
+ *
+ * When a sentence names both, the part is what the caller is looking at and the
+ * finish describes it: "red zari saree pallu designs" wants pallu designs that
+ * have zari. The old rule - first area in the sentence wins - turned that into a
+ * Zari Work search and demoted "pallu" to an unrecognised word. A finish is only
+ * chosen when no part is named ("saree zari work designs").
+ */
+const FINISH_AREAS = new Set(['OVERALL', 'EMBROIDERY', 'PRINT', 'PRINT_PATTERN', 'ZARI_WORK']);
+
+/**
+ * Pick the design area from everything in the sentence that names one.
+ *
+ * Returns the chosen hit (already consumed) plus the token positions of the other
+ * area words, which are released back so they become search keywords - and are
+ * counted as recognised, not unresolved.
+ */
+function chooseDesignArea(tokens, consumed, garmentId) {
+  const hits = [];
+  let hit;
+  while ((hit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(garmentId, p)))) {
+    hits.push(hit);
+    consume(consumed, hit.start, hit.length);
+  }
+  if (!hits.length) return { chosen: null, released: [] };
+
+  hits.sort((a, b) => a.start - b.start);
+  const chosen = hits.find((h) => !FINISH_AREAS.has(h.value.id)) || hits[0];
+
+  const released = [];
+  for (const h of hits) {
+    if (h === chosen) continue;
+    for (let k = h.start; k < h.start + h.length; k++) {
+      consumed[k] = false;
+      released.push(k);
+    }
+  }
+  return { chosen, released };
+}
+
+/**
  * @param   {string} instruction
  * @param   {Object} [options]
  * @param   {string} [options.categoryHint]  Canonical garment id the caller
@@ -84,15 +125,17 @@ function parseInstruction(instruction, options = {}) {
   let category = null;
   let designType = null;
   let designTypeScope = null;
+  // Positions of area words that were not chosen; they become recognised keywords.
+  let releasedAreaWords = [];
 
   if (categoryHint) {
     // The caller has already named the garment, so match design areas within it
     // FIRST - the sentence need not repeat the garment at all.
-    const areaHit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(categoryHint, p));
-    if (areaHit) {
-      designType = areaHit.value.id;
+    const { chosen, released } = chooseDesignArea(tokens, consumed, categoryHint);
+    if (chosen) {
+      designType = chosen.value.id;
       designTypeScope = categoryHint;
-      consume(consumed, areaHit.start, areaHit.length);
+      releasedAreaWords = released;
     }
 
     // Consume any garment word so it cannot leak into keywords, but do NOT adopt
@@ -114,14 +157,15 @@ function parseInstruction(instruction, options = {}) {
     // 2. Design area, scoped strictly to that garment. If no garment was
     //    identified we leave designType unset rather than guessing.
     if (category) {
-      const areaHit = findLongest(tokens, consumed, (p) => taxonomy.getDesignType(category, p));
-      if (areaHit) {
-        designType = areaHit.value.id;
+      const { chosen, released } = chooseDesignArea(tokens, consumed, category);
+      if (chosen) {
+        designType = chosen.value.id;
         designTypeScope = category;
-        consume(consumed, areaHit.start, areaHit.length);
+        releasedAreaWords = released;
       }
     }
   }
+  const recognised = new Set(releasedAreaWords);
 
   // 3. Multi-word descriptive phrases, so "heavy zari" survives as one keyword
   //    instead of splitting into two far less useful tokens.
@@ -146,7 +190,7 @@ function parseInstruction(instruction, options = {}) {
     if (FILLER.has(token)) continue;
     if (token.length < 2) continue;
     found.push({ at: i, word: token });
-    if (!DESCRIPTIVE.has(token)) unresolved.push(token);
+    if (!DESCRIPTIVE.has(token) && !recognised.has(i)) unresolved.push(token);
   }
 
   // Source order, duplicates dropped.

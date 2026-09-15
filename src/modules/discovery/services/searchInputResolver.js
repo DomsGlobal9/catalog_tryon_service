@@ -95,6 +95,7 @@ function resolveSearchInput(input) {
     keywords,
     filters: input.filters || {},
     shotType: input.shotType,
+    recency: input.recency || 'any',
     sources: Array.isArray(input.sources) && input.sources.length ? input.sources : ['web'],
     resultFilters: input.resultFilters || {},
     page: input.page,

@@ -159,13 +159,13 @@ const inflight = new Map();
  *
  * @returns {Promise<{ results: Object[], rawCount: number, cached: boolean }>}
  */
-async function fetchSource({ query, cacheKey, page, limit }) {
+async function fetchSource({ query, cacheKey, page, limit, recency = 'any' }) {
   const hit = cache.get(cacheKey);
   if (hit) return { results: hit.results, rawCount: hit.rawCount, cached: true };
 
   if (!inflight.has(cacheKey)) {
     const call = (async () => {
-      const { results: providerResults, rawCount } = await getProvider().search({ query, page, limit });
+      const { results: providerResults, rawCount } = await getProvider().search({ query, page, limit, recency });
       const value = { results: filterResults(providerResults), rawCount };
       cache.set(cacheKey, value);
       return value;
@@ -188,9 +188,9 @@ async function fetchSource({ query, cacheKey, page, limit }) {
  * @returns {Promise<{ query: string, results: Object[], rawCount: number, cached: boolean }>}
  */
 async function search(input) {
-  const { page, limit } = input;
+  const { page, limit, recency } = input;
   const { query, cacheKey } = buildQuery(input);
-  const out = await fetchSource({ query, cacheKey, page, limit });
+  const out = await fetchSource({ query, cacheKey, page, limit, recency });
   return { query, ...out };
 }
 
