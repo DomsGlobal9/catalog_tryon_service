@@ -16,6 +16,10 @@ const { getProvider } = require('../providers');
 const { buildQuery } = require('./queryBuilder');
 const { platformOf, upgradePinterestImage } = require('./platforms');
 const cache = require('./searchCache');
+const { createLimiter } = require('../lib/limiter');
+
+/** Every provider call in this process goes through one queue. See lib/limiter.js. */
+const providerLimiter = createLimiter(config.provider.concurrency, { maxWaitMs: config.provider.queueTimeoutMs });
 
 function matchesNonImageHost(host) {
   if (!host) return false;
@@ -165,7 +169,9 @@ async function fetchSource({ query, cacheKey, page, limit, recency = 'any' }) {
 
   if (!inflight.has(cacheKey)) {
     const call = (async () => {
-      const { results: providerResults, rawCount } = await getProvider().search({ query, page, limit, recency });
+      const { results: providerResults, rawCount } = await providerLimiter.run(
+        () => getProvider().search({ query, page, limit, recency })
+      );
       const value = { results: filterResults(providerResults), rawCount };
       cache.set(cacheKey, value);
       return value;
@@ -194,4 +200,7 @@ async function search(input) {
   return { query, ...out };
 }
 
-module.exports = { search, fetchSource, filterResults, hasUsableImageUrl, buildFetchable, _inflight: inflight };
+module.exports = {
+  search, fetchSource, filterResults, hasUsableImageUrl, buildFetchable,
+  _inflight: inflight, _providerLimiter: providerLimiter
+};

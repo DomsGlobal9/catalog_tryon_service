@@ -61,6 +61,12 @@ DISCOVERY_CACHE_TTL_SEC=3600       # repeat searches served from cache, not re-b
 DISCOVERY_CACHE_MAX_ENTRIES=500
 DISCOVERY_RATE_LIMIT_PER_MIN=20    # provider calls per minute per clientId; cached ones are free
 DISCOVERY_STREAM_HEARTBEAT_MS=10000 # keep-alive interval on the /search/stream endpoint
+# Provider calls in flight at once; extra calls queue. 32 simultaneous calls on one
+# key had 7 refused as "rate limit exhausted"; with a cap of 10, 48 all succeeded.
+DISCOVERY_PROVIDER_CONCURRENCY=10
+DISCOVERY_PROVIDER_QUEUE_TIMEOUT_MS=20000 # longest a call waits for a slot before a 424
+DISCOVERY_PROVIDER_RETRIES=2          # extra tries after a provider 429/5xx; timeouts and bad keys never retried
+DISCOVERY_PROVIDER_RETRY_BASE_MS=500  # wait before retry n is base * 2^n (+ up to 250ms)
 # Hosts whose imageUrl serves an HTML page rather than an image (Instagram,
 # Facebook). Results from these fall back to the thumbnail, which is all that
 # can actually be retrieved. Comma-separated; defaults cover the known ones.

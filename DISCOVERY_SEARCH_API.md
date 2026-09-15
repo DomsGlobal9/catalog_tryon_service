@@ -429,6 +429,21 @@ one page rather than paging through small ones — each page is a fresh set of c
 A request that would go over the limit is refused **without using any of your budget** — `429` with a
 `Retry-After` header and a message saying how many calls it needed and how many remain.
 
+### At busy moments
+
+The search provider limits how many searches one account may run at the same moment. The service
+handles that for you:
+
+- At most 10 provider calls run at once; others **wait their turn** rather than being refused. During a
+  burst a platform's results therefore arrive a few seconds later, not missing. A call that cannot get a
+  turn within 20 s fails with `424` and the message *"Search capacity is busy"*.
+- If the provider still answers "too many requests" or has a temporary fault, the call is **retried
+  twice** after a short wait. The error you finally see, if any, ends with *"(after 3 attempts)"*.
+- A provider timeout or a rejected key is **not** retried — waiting again would not help.
+
+Measured: 12 four-platform searches started together (48 provider calls) — all 48 succeeded in 13.6 s.
+Before this queue, 8 such searches (32 calls) lost 7 calls to the provider's limit.
+
 ---
 
 ## Errors

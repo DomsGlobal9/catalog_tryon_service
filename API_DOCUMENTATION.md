@@ -407,6 +407,10 @@ how many results were returned, were duplicates, came from other sites, or were 
 - **Caching:** identical searches are cached for 1 hour in-process, and identical searches arriving at
   the same moment share one provider call. The cache empties on restart and is not shared between
   instances.
+- **Busy moments:** at most 10 provider calls run at once per instance; extra calls wait their turn
+  (up to 20 s) instead of being refused by the provider. A provider "too many requests" or 5xx is
+  retried twice with a short wait; timeouts and credential errors are not. Measured: 48 simultaneous
+  calls all succeeded, where 32 without the queue lost 7. Under load a platform simply arrives later.
 - **No `5xx` for anticipated failures.** Discovery shares a gateway route with catalog generation, and
   that gateway trips a circuit breaker on repeated `5xx`; a provider outage is therefore `424`.
 - **Fails soft.** Without a provider key, or if the taxonomy fails its integrity check, the service still

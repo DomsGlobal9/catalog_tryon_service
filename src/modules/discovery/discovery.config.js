@@ -39,6 +39,19 @@ const config = {
     timeoutMs: intFromEnv('SERPER_TIMEOUT_MS', 15000, 1000, 30000)
   },
 
+  provider: {
+    // Most provider calls in flight at once. Measured: 32 simultaneous calls on one
+    // key -> 7 refused with "quota or rate limit exhausted". Extra calls queue.
+    concurrency: intFromEnv('DISCOVERY_PROVIDER_CONCURRENCY', 10, 1, 100),
+    // Longest a call may wait in that queue before failing with 424.
+    queueTimeoutMs: intFromEnv('DISCOVERY_PROVIDER_QUEUE_TIMEOUT_MS', 20000, 1000, 60000),
+    // Extra attempts after a "too many requests" or a provider 5xx. Refusals of
+    // that kind arrive in under a second, so a short wait and retry usually works.
+    // Timeouts and credential rejections are never retried.
+    retries: intFromEnv('DISCOVERY_PROVIDER_RETRIES', 2, 0, 5),
+    retryBaseMs: intFromEnv('DISCOVERY_PROVIDER_RETRY_BASE_MS', 500, 50, 5000)
+  },
+
   stream: {
     // SSE comment sent while waiting on slow sources, so no proxy between the
     // caller and us closes an idle connection.

@@ -88,6 +88,8 @@ const serperProvider = {
       headers: { 'X-API-KEY': config.serper.apiKey },
       body,
       timeoutMs: config.serper.timeoutMs,
+      retries: config.provider.retries,
+      retryBaseMs: config.provider.retryBaseMs,
       providerName: 'Serper'
     });
 

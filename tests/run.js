@@ -323,6 +323,82 @@ async function discoveryPlatformsAndStreaming() {
   eq('an old request body without recency is unchanged', sentBodies[2],
     { q: 'red saree', num: 10, page: 1, gl: config.serper.country, hl: config.serper.language });
 
+  section('PROVIDER RETRIES  ("too many requests" is retried; timeouts and bad keys are not)');
+  const { postJson } = D('lib/httpClient');
+  const fakeRes = (status, json = { images: [] }, headers = {}) => ({
+    ok: status >= 200 && status < 300, status,
+    headers: { get: (h) => headers[h.toLowerCase()] ?? null },
+    text: async () => JSON.stringify(json), json: async () => json
+  });
+  async function scripted(steps, opts = {}) {
+    const realF = global.fetch;
+    const waits = [];
+    let calls = 0;
+    global.fetch = async () => {
+      const step = steps[Math.min(calls, steps.length - 1)];
+      calls++;
+      if (step instanceof Error) throw step;
+      return step;
+    };
+    try {
+      const out = await postJson('https://provider.test', { body: {}, timeoutMs: 1000, providerName: 'Serper', retries: 2,
+        retryBaseMs: 500, sleep: async (ms) => { waits.push(ms); }, ...opts });
+      return { out, calls, waits };
+    } catch (err) {
+      return { err, calls, waits };
+    } finally {
+      global.fetch = realF;
+    }
+  }
+  const timeoutErr = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  let rr = await scripted([fakeRes(429), fakeRes(200, { images: [1] })]);
+  eq('429 then success -> answers after one retry', [rr.out && rr.out.images.length, rr.calls], [1, 2]);
+  check('the retry waited at least the base delay', rr.waits.length === 1 && rr.waits[0] >= 500, 'waited ' + rr.waits.join(','));
+  rr = await scripted([fakeRes(429), fakeRes(429), fakeRes(429)]);
+  eq('429 three times -> gives up after 3 attempts', [rr.calls, rr.err && rr.err.statusCode], [3, 424]);
+  check('final message says how many attempts', rr.err && /quota or rate limit exhausted\. \(after 3 attempts\)/.test(rr.err.message), rr.err && rr.err.message);
+  check('backoff grows between attempts', rr.waits.length === 2 && rr.waits[1] > rr.waits[0], rr.waits.join(' -> '));
+  rr = await scripted([fakeRes(503), fakeRes(200)]);
+  eq('provider 503 then success -> retried', [!!rr.out, rr.calls], [true, 2]);
+  rr = await scripted([Object.assign(new TypeError('fetch failed'), {}), fakeRes(200)]);
+  eq('dropped connection then success -> retried', [!!rr.out, rr.calls], [true, 2]);
+  rr = await scripted([fakeRes(401)]);
+  eq('wrong key (401) is NOT retried', [rr.calls, rr.err && rr.err.message], [1, 'Serper rejected our credentials.']);
+  rr = await scripted([fakeRes(400)]);
+  eq('bad request (400) is NOT retried', rr.calls, 1);
+  rr = await scripted([timeoutErr, fakeRes(200)]);
+  eq('timeout is NOT retried (it already used the whole budget)', [rr.calls, rr.err && /did not respond within 1000ms\.$/.test(rr.err.message)], [1, true]);
+  rr = await scripted([fakeRes(429, {}, { 'retry-after': '2' }), fakeRes(200)]);
+  check('Retry-After from the provider is honoured', rr.out && rr.waits[0] >= 2000, 'waited ' + rr.waits[0]);
+  rr = await scripted([fakeRes(429, {}, { 'retry-after': '3600' }), fakeRes(200)]);
+  check('an absurd Retry-After is capped at 5s', rr.out && rr.waits[0] <= 5250, 'waited ' + rr.waits[0]);
+  rr = await scripted([fakeRes(429), fakeRes(200)], { retries: 0 });
+  eq('retries: 0 fails straight away', rr.calls, 1);
+
+  section('PROVIDER CONCURRENCY CAP  (queue, never lock up)');
+  const { createLimiter } = D('lib/limiter');
+  const pause = (ms) => new Promise((res) => setTimeout(res, ms));
+  let lim = createLimiter(2, { maxWaitMs: 5000 });
+  let running = 0;
+  let peak = 0;
+  const done = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => lim.run(async () => {
+    running++; peak = Math.max(peak, running);
+    await pause(40);
+    running--;
+    return n;
+  })));
+  eq('six calls through a cap of 2: never more than 2 at once, all finish', [peak, done], [2, [1, 2, 3, 4, 5, 6]]);
+  eq('nothing left running or queued', lim.stats(), { active: 0, queued: 0, max: 2 });
+  lim = createLimiter(1, { maxWaitMs: 60 });
+  const long = lim.run(() => pause(250));
+  const waited = await lim.run(async () => 'should not run').then(() => null, (e) => e);
+  check('a call that waits too long gives up with 424, not a hang', waited && waited.statusCode === 424 && /busy/.test(waited.message), waited && waited.message);
+  await long;
+  eq('after that, the slot is free again', [await lim.run(async () => 'ok'), lim.stats().active, lim.stats().queued], ['ok', 0, 0]);
+  lim = createLimiter(1, { maxWaitMs: 1000 });
+  const boom = await lim.run(async () => { throw new Error('boom'); }).then(() => null, (e) => e.message);
+  eq('a failing call still frees its slot', [boom, await lim.run(async () => 'next ran')], ['boom', 'next ran']);
+
   section('REQUEST VALIDATION  (sources, recency and resultFilters)');
   eq('recency defaults to any', searchSchema.safeParse({ clientId: 'a', keywords: ['x'] }).data.recency, 'any');
   eq('recency is case-insensitive', searchSchema.safeParse({ clientId: 'a', keywords: ['x'], recency: 'Month' }).data.recency, 'month');
