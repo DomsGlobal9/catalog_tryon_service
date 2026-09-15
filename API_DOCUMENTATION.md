@@ -340,249 +340,78 @@ while (true) {
 
 # 🔎 Design Discovery
 
-A separate capability on the same service. It takes keywords — or one line of natural language —
-and returns **references** to garment designs found on the web.
+A separate capability on the same service. It takes keywords — or one line of plain English — and
+returns **links to garment design images** found on the web, **Pinterest**, **Instagram** and
+**Facebook**.
 
-> **Browse-only.** Discovery says *"here are designs found on the web"*, not *"here is a design
-> licensed and cleared for use"*. It never downloads, stores, transforms or returns image bytes.
-> Every result carries `sourceUrl` and `sourceDomain`; **responsibility for rights in any
-> downstream use rests with the caller.**
+> **Browse-only.** Discovery never downloads, stores, transforms or returns image bytes. Every result
+> carries `sourceUrl` and `sourceDomain`; **responsibility for rights in any downstream use rests with
+> the caller.**
 
-## `POST /api/v1/discovery/search`
+> **The complete reference** — every field, the stream event format with a working reader, platform
+> behaviour, costs and errors — is [`DISCOVERY_SEARCH_API.md`](./DISCOVERY_SEARCH_API.md). This section
+> is a summary; where they differ, that file is authoritative.
 
-> A standalone reference covering just this endpoint - payload, response and errors - is in
-> [`DISCOVERY_SEARCH_API.md`](./DISCOVERY_SEARCH_API.md), for handing to a caller who only needs search.
+## Endpoints
 
-### Request payload
-
-| Field | Type | Required | Notes |
-| :--- | :--- | :--- | :--- |
-| `clientId` | String | **Yes** | Tenant identifier; also the rate-limit bucket. Max 128 chars. |
-| `keywords` | String[] | * | 1–12 terms, each 1–64 chars. |
-| `instruction` | String | * | One line of natural language, max 500 chars. |
-| `category` | String | * | A garment id or alias — see `GET /taxonomy`. Max 64 chars. |
-| `designType` | String | No | A design area **of that garment**. Requires `category`. |
-| `filters.color` / `.fabric` / `.occasion` | String | No | Search qualifiers, not guarantees. |
-| `shotType` | String | No | `flatlay`, `worn`, or `any` (default). |
-| `page` | Number | No | 1–20, default 1. |
-| `limit` | Number | No | 1–100, default 20. Asking for more costs no extra — see below. |
-
-\* **At least one of `keywords`, `category` or `instruction` is required.** They combine freely:
-explicit fields always win, and `instruction` only fills the gaps they leave.
-
-**Taxonomy.** The service knows **12 garments and 107 design areas** — fetch the tree from
-`GET /api/v1/discovery/taxonomy`. A design area is validated against its garment, so `SAREE` +
-`PALLU` is accepted while `SAREE` + `SLEEVE` returns `400` listing what is valid.
-
-Canonical ids match the generation service's spelling, so one id means one garment platform-wide:
-`LEHANGA` (displayed *Lehenga*) and `KURTHI` (displayed *Kurti*). `LEHENGA` and `KURTI` are
-accepted as aliases and canonicalised — the `interpreted` block shows what you resolved to.
-
-**Natural language.** Send a sentence instead of structured fields and it is resolved
-deterministically against the taxonomy — no LLM, no added latency:
-
-```json
-{ "clientId": "acme", "instruction": "I want red bridal kanjivaram saree pallu designs with heavy zari" }
-```
-resolves to category `SAREE`, designType `PALLU`, keywords `["red","bridal","kanjivaram","heavy zari"]`.
-
-You may also pin a category alongside an instruction — the design area is then resolved *within*
-that garment even if the sentence never names it.
-
-**`shotType` is a search hint, not a filter — and it is unreliable.** Setting `flatlay` appends
-the words `flat lay product photo` to the query. Nothing inspects the images that come back, so
-on-model photographs still appear.
-
-Re-measured by inspecting every returned image across three searches (46 results):
-
-| Search (`shotType: "flatlay"`) | Results | Garment only | Worn by a person |
-| :--- | ---: | ---: | ---: |
-| `red bridal saree` | 11 | 9 | **2 (18%)** |
-| `gold kanjivaram saree` | 15 | 7 | **8 (53%)** |
-| `blue anarkali` | 20 | 5 | **15 (75%)** |
-| **Total** | **46** | **21** | **25 (54%)** |
-
-> An earlier version of this document claimed 92% garment-only for `flatlay`. **That figure was
-> wrong** and has been replaced with the counts above. Treat `flatlay` as a mild preference that
-> often fails, not as a guarantee — and expect it to fail worst for stitched garments such as
-> anarkalis and kurtis, which are overwhelmingly photographed on models.
-
-If your pipeline needs genuine flat-lays, you must check the images yourself; the service does not.
-
-### Response
-
-```jsonc
-{
-  "success": true,
-  "searchId": "b1f2c3d4-...",
-  "query": "red bridal kanjivaram saree pallu closeup design",
-  "cached": false,
-  "interpreted": {
-    "category": "SAREE", "categoryName": "Saree",
-    "designType": "PALLU", "designTypeName": "Pallu Design",
-    "keywords": ["red", "bridal", "kanjivaram"],
-    "source": "instruction",       // instruction | structured | mixed
-    "confidence": "high",
-    "unresolved": []
-  },
-  "results": [
-    {
-      "id": "result_9f2a1c7b4e10",
-      "position": 1,
-      "title": "Red Bridal Kanjivaram Saree",
-      "imageUrl": "https://example.com/images/saree-123.jpg",
-      "thumbnailUrl": "https://encrypted-tbn0.gstatic.com/...",
-      "thumbnailWidth": 190,
-      "thumbnailHeight": 253,
-      "sourceUrl": "https://example.com/product/123",
-      "sourceDomain": "example.com",
-      "width": 1200,
-      "height": 1600,
-      "imageUsable": true,
-      "fetchable": {
-        "url": "https://example.com/images/saree-123.jpg",
-        "width": 1200, "height": 1600,
-        "from": "imageUrl"
-      }
-    }
-  ],
-  "pagination": { "page": 1, "limit": 20, "hasMore": true }
-}
-```
-
-Two fields that mean less than they may appear to:
-
-- **`searchId` is a correlation id for logs only.** There is no database, so nothing can be fetched
-  by it later.
-- **`hasMore` is inferred, not authoritative.** The upstream provider reports no total count, so a
-  full page is the only available signal.
-
-`id` is a stable hash of `imageUrl`, so the same design keeps the same id across repeated searches.
-
-### `fetchable` — the only field most consumers need
-
-Two different truths live in every result:
-
-| | Meaning |
+| Endpoint | Purpose |
 | :--- | :--- |
-| `imageUrl`, `width`, `height` | What the **source claims the original is** — whether or not it can be retrieved |
-| `fetchable.url`, `.width`, `.height` | What you can **actually retrieve**, and its true size |
+| `POST /api/v1/discovery/search` | Search. Waits for every platform, answers once in JSON. |
+| `POST /api/v1/discovery/search/stream` | The same search as **Server-Sent Events**: each platform's results as soon as that platform finishes. |
+| `GET /api/v1/discovery/taxonomy` | The garment → design-area tree (12 garments, 107 areas). |
+| `GET /api/v1/discovery/categories` | Garment ids, sources, recency values, shot types, result-filter shape and limits. |
 
-**If you only read `fetchable`, you are correct in every case** — no branching, and no knowledge of
-Instagram, Facebook or `imageUsable` required:
+Both search endpoints take the **same body**:
 
-```js
-const res = await fetch(result.fetchable.url);   // always an image
-store({ width: result.fetchable.width, height: result.fetchable.height });
-```
-
-Worked example — an Instagram result. Note the ~3× gap, and that `width`/`height` are **not**
-rewritten: the original post genuinely is 1440×1920, which is legitimate provenance.
-
-```jsonc
-{
-  "imageUrl": "https://lookaside.instagram.com/...",   // serves HTML, do not fetch
-  "width": 1440, "height": 1920,                       // the original post
-  "thumbnailUrl": "https://encrypted-tbn0.gstatic.com/...",
-  "thumbnailWidth": 387, "thumbnailHeight": 516,
-  "imageUsable": false,
-  "fetchable": { "url": "https://encrypted-tbn0.gstatic.com/...",
-                 "width": 387, "height": 516, "from": "thumbnailUrl" }
-}
-```
-
-> **`fetchable.url` is point-in-time, not permanent.** It is the URL Discovery selected as the
-> retrievable image asset, based on its image-capability checks **at the time of the search**. CDN
-> URLs, signed URLs and social thumbnails expire and rotate. If you intend to keep a design,
-> retrieve it promptly and store your own copy — do not treat our URL as durable storage.
-
-### Sources, and what each can give you
-
-Results come from the open web **and** from social platforms. They are not equally usable:
-
-| Source | `imageUrl` | `thumbnailUrl` | `imageUsable` |
-| :--- | :--- | :--- | :--- |
-| Retailers, blogs, **Pinterest** (`i.pinimg.com`) | a real image | a real image | `true` |
-| **Instagram** (`lookaside.instagram.com`) | an HTML page | a real image | `false` |
-| **Facebook** (`lookaside.fbsbx.com`) | an HTML page | a real image | `false` |
-
-**Instagram and Facebook designs are only ever available at ~400px** — measured sizes 335×597,
-387×516, 447×447. Their `imageUrl` serves HTML and the thumbnail is all that can be retrieved.
-There is no workaround. If you are feeding these to a generation model, treat them as weak inputs.
-
-There is no `sources` parameter and none is needed: Pinterest and Instagram surface naturally in
-untargeted searches, and including a platform name as an ordinary keyword biases heavily toward it.
-(`site:` operators return zero results from this provider and are not used.)
-
-Results are filtered before return: entries without an image URL are dropped, duplicates by image
-URL are collapsed, images the provider reports as smaller than 400×400 are discarded, and anything
-with neither a usable `imageUrl` nor a thumbnail is removed. Results with an unreported size are kept.
-
-## `GET /api/v1/discovery/taxonomy`
-
-The full garment → design-area tree, so a Manage Designs UI renders from the service rather than
-hardcoding 107 entries. No payload.
-
-```jsonc
-{
-  "success": true,
-  "garmentCount": 12,
-  "designAreaCount": 107,
-  "garments": [
-    { "id": "SAREE", "name": "Saree",
-      "designTypes": [ { "id": "PALLU", "name": "Pallu Design" } ] }
-  ]
-}
-```
-
-Garments: `SAREE` `BLOUSE` `DUPATTA` `KURTHI` `ANARKALI` `PETTICOAT` `GOWN` `SUIT` `SHERWANI`
-`BOTTOM_WEAR` `LEHANGA` `SHARARA`.
-
-## `GET /api/v1/discovery/categories`
-
-Garment ids, shot types and request limits. No payload.
-
-```json
-{
-  "success": true,
-  "categories": ["SAREE", "BLOUSE", "DUPATTA", "KURTHI", "ANARKALI", "PETTICOAT",
-                 "GOWN", "SUIT", "SHERWANI", "BOTTOM_WEAR", "LEHANGA", "SHARARA"],
-  "shotTypes": ["flatlay", "worn", "any"],
-  "limits": { "maxLimit": 100, "maxPage": 20 }
-}
-```
-
-## ⚠️ Discovery error codes
-
-| Status | `error.code` | Meaning |
+| Field | Required | Summary |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Bad body — also covers unknown `category`, a `designType` that is not an area of its garment, `designType` without `category`, an unresolvable instruction, and no search terms at all. `error.details` names the field and lists what is valid. |
-| `400` | `INVALID_JSON` | Body was not valid JSON. |
-| `401` | — | Missing or wrong `x-api-key`. |
-| `413` | `PAYLOAD_TOO_LARGE` | Body exceeded the 32 KB discovery limit. |
-| `429` | `RATE_LIMIT_EXCEEDED` | Per-client search budget exhausted. Honour `Retry-After`. |
-| `424` | `PROVIDER_UNAVAILABLE` | Upstream search provider failed, timed out or rejected us. |
-| `424` | `DISCOVERY_NOT_CONFIGURED` | Discovery is switched off on this deployment. |
-| `424` | `TAXONOMY_INVALID` | Taxonomy failed its integrity check; discovery disabled, generation unaffected. |
+| `clientId` | **Yes** | Your account id and rate-limit bucket. Keep it stable. |
+| `keywords` / `instruction` / `category` | at least one | What to search for. Explicit fields beat what is parsed from `instruction`. |
+| `designType` | No | A design area of `category`, e.g. `SAREE` + `PALLU`. |
+| `sources` | No | `web` (default), `pinterest`, `instagram`, `facebook` — up to 4, searched in parallel. |
+| `recency` | No | `any` (default), `day`, `week`, `month`, `year`. |
+| `resultFilters` | No | Guaranteed: `fullSizeOnly`, `minWidth`, `orientation`, `excludeDomains`. |
+| `shotType` | No | `flatlay` / `worn` / `any` — **a hint only**; `flatlay` still returned a person wearing the garment 54% of the time. |
+| `filters.color` / `.fabric` / `.occasion` | No | Words added to the search, not verified. |
+| `page` / `limit` | No | 1–20 / 1–100 (per platform), defaults 1 / 20. |
 
-Errors are shaped `{ "success": false, "error": { "code", "message", "details"? } }`.
+A request that sends no `sources` is exactly the single web search that existed before — same query,
+same result shape, with some additive fields.
 
-**Why `424` and not `503`.** Discovery shares a gateway slug with catalog generation, and the
-gateway runs a per-slug circuit breaker that trips on repeated `5xx`. Reporting an upstream outage
-as `5xx` would take `generate-catalog` offline as collateral damage, so every anticipated failure —
-provider outages included — is reported as `4xx`.
+## What each result tells you
 
-## 🔧 Discovery operational notes
+Every result has `platform` (the site it is from), `foundBy` (the platform search that found it) and
+`fetchable` — **the URL to actually retrieve, and its size**. Read `fetchable` and you never need to
+branch on platform:
 
-- **Caching.** Identical queries are served from an in-process cache (default TTL 1 hour), so
-  repeats do not re-bill the provider. Cached responses set `"cached": true`. Per-process: it
-  empties on restart and does not coordinate across instances.
-- **Rate limiting.** Default 20 searches/minute per `clientId`, counted whether or not the response
-  came from cache. This protects the search-provider budget; the gateway separately enforces its own
-  limits.
-- **Fails soft.** If the provider key is absent or the taxonomy fails its integrity check, the
-  service still boots, logs the reason, and only `/api/v1/discovery/*` returns `424`. **Catalog
-  generation is never affected.**
+- Instagram and Facebook only allow a **small preview** (`fetchable.from: "thumbnailUrl"`, ~330–480 px).
+- Pinterest images indexed at 236/474 px are **upgraded to the 736 px file**; their size is an estimate
+  (`fetchable.sizeExact: false`) and the original is kept as `fetchable.fallbackUrl`.
+- `fetchable.url` is point-in-time — retrieve and store your own copy if you intend to keep a design.
+
+The JSON response also has `sources[]`: per platform, the exact query sent, `status`, time taken, and
+how many results were returned, were duplicates, came from other sites, or were removed by your filters.
+
+## Behaviour that matters in production
+
+- **One failing platform does not fail the search.** `/search` still answers `200` and reports the
+  failure in `sources[]`; only when every platform fails does it return `424`. The stream reports it in
+  that platform's event and ends with `done.status` of `partial` or `failed`.
+- **Requests are refused before a stream opens** — invalid body, bad key, over the rate limit or
+  switched off are normal JSON `400/401/413/424/429`. Only `200 text/event-stream` is a stream.
+- **Cost:** each platform is one search-provider call (1 credit for 10 results, 2 credits for 20, 50 or
+  100).
+- **Rate limit:** 20 provider calls per minute per `clientId`. A four-platform search counts 4; a search
+  answered from cache — including the same search with different `resultFilters` — counts 0. A refused
+  request uses none of the budget and carries `Retry-After`.
+- **Caching:** identical searches are cached for 1 hour in-process, and identical searches arriving at
+  the same moment share one provider call. The cache empties on restart and is not shared between
+  instances.
+- **No `5xx` for anticipated failures.** Discovery shares a gateway route with catalog generation, and
+  that gateway trips a circuit breaker on repeated `5xx`; a provider outage is therefore `424`.
+- **Fails soft.** Without a provider key, or if the taxonomy fails its integrity check, the service still
+  boots and only `/api/v1/discovery/*` returns `424` (`DISCOVERY_NOT_CONFIGURED` / `TAXONOMY_INVALID`).
+  Catalog generation is never affected.
 
 ---
 
@@ -750,6 +579,30 @@ Result quality was checked too: for a 20-result search, all 20 `fetchable.url` v
 real image, and all 20 `fetchable.width`/`.height` pairs matched the decoded bytes exactly —
 including the Instagram results, which correctly reported their true ~400 px size rather than the
 original post's dimensions.
+
+### Design Discovery — platforms, filters and streaming (15 September 2026)
+
+Run against a **local build** with the real search provider (a dedicated test key), **not yet through
+the production gateway** — the gateway checks still need repeating after deploy.
+
+| Scenario | Result |
+| :--- | :--- |
+| Four platforms, stream | `start`, then four `source` events in finishing order, then `done`; first results ~2.3 s, slowest ~8 s |
+| Platform purity | Pinterest, Instagram and Facebook searches each returned only their own platform |
+| Duplicates across platforms | None returned; counted in `duplicates` |
+| Upgraded Pinterest images | 38/38 sampled loaded at the larger size; a deliberately broken one fell back to `fallbackUrl` |
+| `recency: "week"` | 0–1 of 30 results shared with `any`; cached separately |
+| All result filters | Every returned result satisfied them; a filter matching nothing returned `200` with 0 results |
+| Every platform failing (bad provider key) | `/search` returned `424`; the stream sent four error events and `done.status: "failed"` |
+| Heartbeat | `: keepalive` sent while platforms were still working |
+| Caller disconnecting mid-stream | Server finished quietly, logged it, kept serving |
+| Malformed stream requests (bad JSON, 40 KB body, no `clientId`, wrong key, bad pair) | JSON `400` / `413` / `401` before any stream opened |
+| Rate limit | Ten filter changes on a cached search all allowed; new searches refused at 20 calls with `Retry-After` |
+| 24 simultaneous requests (12 JSON + 12 stream) | 24/24 succeeded |
+| Visual check, top 8 per platform for a blouse-back search | Web, Pinterest, Instagram 8/8 relevant; Facebook relevant but 3/8 were collages or text posters |
+
+Automated: 138 offline checks (a fake provider behind a real local HTTP server, including the stream)
+plus the live suite (`npm run test:live`).
 
 ### Catalog generation
 
