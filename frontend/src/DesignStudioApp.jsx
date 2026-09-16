@@ -125,6 +125,11 @@ export default function DesignStudioApp() {
   const [modelImage, setModelImage] = useState(null);
   const [modelGender, setModelGender] = useState('');
 
+  // pairWith: the supporting piece worn with the product (a saree's blouse).
+  const [pairColor, setPairColor] = useState('');
+  const [pairColorHex, setPairColorHex] = useState('');
+  const [pairNote, setPairNote] = useState('');
+
   const [running, setRunning] = useState(false);
   const [events, setEvents] = useState([]);
   const [startInfo, setStartInfo] = useState(null);
@@ -270,8 +275,15 @@ export default function DesignStudioApp() {
       payload[catalogue ? 'modelImageUrl' : 'modelImage'] = imageValue(modelImage);
     }
     if (modelGender) payload.modelGender = modelGender;
+
+    const pair = {};
+    if (clean(pairColor)) pair[catalogue ? 'colour' : 'color'] = clean(pairColor);
+    if (clean(pairColorHex)) pair.colorHex = asHex(pairColorHex);
+    if (clean(pairNote)) pair.note = clean(pairNote);
+    if (Object.keys(pair).length) payload.pairWith = pair;
     return payload;
-  }, [clientId, garment, productName, notes, shape, designs, fabrics, modelKind, modelImage, modelGender, areas]);
+  }, [clientId, garment, productName, notes, shape, designs, fabrics, modelKind, modelImage, modelGender,
+    pairColor, pairColorHex, pairNote, areas]);
 
   // Built once per change, not once per render: a few megabytes of base64 must
   // not be stringified again every time a checkbox moves.
@@ -331,6 +343,12 @@ export default function DesignStudioApp() {
     }));
     if (sent.length > limits.maxFabrics) warn(`${sent.length} fabrics — the limit is ${limits.maxFabrics}.`);
 
+    const pairSent = clean(pairColor) || clean(pairColorHex) || clean(pairNote);
+    if (pairSent && current && current.pairedWith === null) {
+      warn(`A ${current.name.toLowerCase()} is the whole outfit, so pairWith will not be used (the service says so in start.warnings).`);
+    }
+    if (clean(pairColorHex) && !hexish(pairColorHex)) warn('The pairWith hex is not a 6-digit colour — expect a named 400.');
+
     if (modelKind === 'reference' && !hasImage(modelImage)) {
       warn('Model is set to "my own photo" but none is attached — a model will be created instead.');
     }
@@ -352,7 +370,7 @@ export default function DesignStudioApp() {
       }
     });
     return list;
-  }, [clientId, garment, designs, fabrics, modelKind, modelImage, limits, payloadBytes]);
+  }, [clientId, garment, current, designs, fabrics, modelKind, modelImage, pairColor, pairColorHex, pairNote, limits, payloadBytes]);
 
   const blocked = checks.some((c) => c.level === 'block');
 
@@ -410,6 +428,7 @@ export default function DesignStudioApp() {
     if (abortRef.current) abortRef.current.abort();
     setDesigns([blankDesign()]); setFabrics([blankFabric()]);
     setModelKind('generated'); setModelImage(null); setModelGender('');
+    setPairColor(''); setPairColorHex(''); setPairNote('');
     setEvents([]); setStartInfo(null); setBrief(null); setImage(null);
     setDone(null); setError(null); setCancelNote(null); setRunning(false);
   }
@@ -498,6 +517,45 @@ export default function DesignStudioApp() {
               <ImagePicker slot={modelImage} onChange={setModelImage} disabled={running} compact />
             </div>
           )}
+        </div>
+
+        <h4>Worn with it <span className="ds-hint">pairWith — never the product, never designed</span></h4>
+        {current && current.pairedWith === undefined ? (
+          <p className="ds-note">
+            This service does not report <code>pairedWith</code> yet — it is running older code. Restart it to see
+            what a {current.name.toLowerCase()} is worn with. <code>pairWith</code> is still sent as typed.
+          </p>
+        ) : current && current.pairedWith ? (
+          <p className="ds-note">
+            The <strong>{current.name.toLowerCase()}</strong> is the product. A real photo also needs a supporting{' '}
+            <strong>{current.pairedWith.pieces}</strong>, kept plain — none of your designs are used there.
+            Default colour when left blank: {current.pairedWith.defaultColour}.
+          </p>
+        ) : (
+          <p className="ds-note">
+            {current ? `A ${current.name.toLowerCase()} is the whole outfit, so nothing else is worn with it.` : 'Loading…'}
+          </p>
+        )}
+        <div className="ds-row">
+          <div className="ds-field">
+            <label>pairWith.color</label>
+            <input value={pairColor} onChange={(e) => setPairColor(e.target.value)} maxLength={60} disabled={running}
+              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'saree' ? 'cream' : 'antique gold'} />
+          </div>
+          <div className="ds-field ds-narrow">
+            <label>pairWith.colorHex</label>
+            <div className="ds-hexrow">
+              <input type="color" value={hexish(pairColorHex) ? asHex(pairColorHex) : '#C9A227'}
+                onChange={(e) => setPairColorHex(e.target.value)} disabled={running} />
+              <input value={pairColorHex} onChange={(e) => setPairColorHex(e.target.value)}
+                placeholder="#C9A227" disabled={running} />
+            </div>
+          </div>
+          <div className="ds-field ds-grow">
+            <label>pairWith.note</label>
+            <input value={pairNote} onChange={(e) => setPairNote(e.target.value)} maxLength={300} disabled={running}
+              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'saree' ? 'soft chiffon saree' : 'short puff sleeves'} />
+          </div>
         </div>
       </section>
 
@@ -755,6 +813,12 @@ export default function DesignStudioApp() {
                   ).join(' · ')}
                 </div>
               )}
+              <div className="ds-kv ds-kv-wide">
+                <span className="ds-label">worn with it</span>
+                {startInfo.pairedWith
+                  ? `${startInfo.pairedWith.pieces} — ${startInfo.pairedWith.colour} (from ${startInfo.pairedWith.from})${startInfo.pairedWith.note ? ` · ${startInfo.pairedWith.note}` : ''}`
+                  : 'nothing — the product is the whole outfit'}
+              </div>
               {startInfo.warnings && startInfo.warnings.length > 0 && (
                 <ul className="ds-warnings">
                   {startInfo.warnings.map((w, i) => <li key={i}>{w}</li>)}

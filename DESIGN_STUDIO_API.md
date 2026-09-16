@@ -60,6 +60,10 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `productName` | string, ≤120 | No | e.g. `"Bridal Banarasi Saree"`. Used as a hint to the style and occasion. No text is ever drawn into the image. |
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
 | `modelGender` | `female` \| `male` | No | Defaults to the garment's usual wearer (`male` for `SHERWANI`, `female` for the rest). |
+| `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
+| `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
+| `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
+| `pairWith.note` | string, ≤300 | No | e.g. `"short puff sleeves"`, `"soft chiffon saree"`. |
 | `notes` | string, ≤600 | No | Anything else. The reference images always take priority over notes. |
 
 Unknown fields are refused, so a typo never silently does nothing.
@@ -82,6 +86,7 @@ rewriting. Both spellings produce exactly the same result.
 | `fabrics[].details.quantityMeters` | accepted, not used (it cannot change a photograph) |
 | `instructions` | `notes` |
 | `modelImageUrl` | `modelImage` |
+| `pairedWith`, `pairWith.colour` | `pairWith`, `pairWith.color` |
 
 ```json
 {
@@ -127,6 +132,45 @@ Measured: a sleeve design photographed on mustard made mint sleeves mustard, and
 gota border photographed on royal blue made a rust lehenga's hem blue. With the
 fabric's colour applied automatically, both came out in the intended colour.
 
+### The product, and what it is worn with
+
+A real photograph of a saree needs a blouse, and a photograph of a blouse needs a saree — but
+**only one garment is the product**: the one named in `garment`. Every design you send belongs to
+it. Anything else the model needs to wear is a **supporting piece**: plain and solid, never carrying
+any of your designs, so the product is what the eye goes to.
+
+| `garment` | Worn with (never designed) | Its colour by default |
+| :--- | :--- | :--- |
+| `SAREE` | a fitted, elbow-length blouse | the saree's main fabric colour |
+| `BLOUSE` | a solid, matte saree, pallu pinned back so the whole blouse shows | a quiet neutral that sets the blouse off |
+| `PETTICOAT` | a short fitted blouse ending at the waist | a quiet neutral |
+| `DUPATTA` | a solid kurta and churidar | a quiet neutral |
+| `BOTTOM_WEAR` | a short fitted top ending at the waist | a quiet neutral |
+| `LEHANGA` | a fitted short choli and a light dupatta | the lehenga's main fabric colour |
+| `ANARKALI` | a fitted churidar | the Anarkali's main fabric colour |
+| `KURTHI` | slim churidar or leggings | coordinates with the kurti |
+| `SHERWANI` | a fitted churidar | coordinates with the sherwani |
+| `GOWN`, `SUIT`, `SHARARA` | nothing — the product is the whole outfit | — |
+
+"Main fabric colour" is the `color` / `colorHex` of the fabric **without** `appliesTo`.
+
+To choose the supporting piece's colour or look yourself, send `pairWith`:
+
+```json
+{ "garment": "SAREE", "pairWith": { "color": "antique gold", "colorHex": "#C9A227", "note": "short puff sleeves" } }
+```
+```json
+{ "garment": "BLOUSE", "pairWith": { "color": "cream", "colorHex": "#F3EAD7", "note": "soft chiffon saree" } }
+```
+
+Your designs still never go on the supporting piece, even with a `note`. If you send `pairWith` for
+a garment that is the whole outfit (`GOWN`, `SUIT`, `SHARARA`), it is not used and `start.warnings`
+says so. The `start` event echoes what was decided in `pairedWith`, and `GET /options` lists the
+supporting pieces and default colour for every garment.
+
+Why this exists, measured: when the blouse was only described as "plain unless a design reference
+describes it", a saree's pallu design came out on the blouse instead.
+
 ### How a request is answered, in two steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
@@ -157,7 +201,7 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 
 | `type` | When | Contents |
 | :--- | :--- | :--- |
-| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
+| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
 | `status` | Twice | `stage: "reading-references"` first, then `stage: "generating"` with `attempt` |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
 | `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`) |
@@ -245,8 +289,8 @@ generations. The cancelled stream ends with an `error` event whose code is `CANC
 
 ## `GET /api/v1/designstudio/options`
 
-Everything needed to build a valid request: the 12 garments with their design areas and default model
-gender, the limits, and the accepted image sources and formats. Build your pickers from this rather than
+Everything needed to build a valid request: the 12 garments with their design areas, default model
+gender and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
 hard-coding the lists.
 
 ---

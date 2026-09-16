@@ -21,7 +21,7 @@ const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
 const { resolveRequest } = require('./validate');
 const { prepareImages } = require('./imageInput');
-const { buildPrompt, referenceList } = require('./promptBuilder');
+const { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
 const { generateImage } = require('./geminiImage');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
@@ -91,6 +91,12 @@ async function generate(req, res, next) {
       // itemCode is echoed back so the caller can match the photo to their stock.
       fabrics: job.fabrics.map((f) => ({ index: f.index, name: f.name, itemCode: f.itemCode, color: f.colorHex || f.color, appliesTo: f.appliesTo || 'MAIN' })),
       productName: job.productName,
+      // What the model wears with the product, so the caller can see the blouse
+      // (or saree) colour that was decided without having to guess.
+      pairedWith: (() => {
+        const pair = pairing(job);
+        return pair ? { pieces: pair.pieces, colour: pair.colour, from: pair.from, note: pair.note } : null;
+      })(),
       model: job.model.kind,
       pose: prompt.pose,
       aspectRatio: config.gemini.aspectRatio,
@@ -210,6 +216,11 @@ function options(_req, res) {
       id: g.id,
       name: g.name,
       defaultModelGender: garmentGuide(g.id).wearer,
+      // The supporting pieces worn with this product (never designed), or null
+      // when the product is the whole outfit. Set their colour with pairWith.
+      pairedWith: garmentGuide(g.id).pairedWith
+        ? { pieces: garmentGuide(g.id).pairedWith.pieces, defaultColour: DEFAULT_PAIRING_COLOUR[garmentGuide(g.id).pairedWith.colour] }
+        : null,
       designAreas: taxonomy.getDesignTypes(g.id).map((a) => ({ id: a.id, name: a.name }))
     }))
   });

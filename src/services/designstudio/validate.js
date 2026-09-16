@@ -32,6 +32,7 @@ const imageField = z.string({ error: 'must be a base64 image or an https link' }
 //   parts[].designImageUrl | imageUrl -> image        parts[].description -> note
 //   fabrics[].imageUrl -> image              fabrics[].details.* -> flattened
 //   colour -> color                          modelImageUrl -> modelImage
+//   pairedWith -> pairWith                   pairWith.colour -> color
 //
 // Accepted and then ignored, because they cannot change a photograph:
 //   quantityMeters (stock), parts[].label (a caller's own display name).
@@ -49,6 +50,15 @@ function canonicaliseFields(raw) {
   pick(body, 'instructions', 'notes');
   pick(body, 'parts', 'designs');
   pick(body, 'modelImageUrl', 'modelImage');
+  pick(body, 'pairedWith', 'pairWith');
+
+  if (body.pairWith && typeof body.pairWith === 'object' && !Array.isArray(body.pairWith)) {
+    const pair = { ...body.pairWith };
+    pick(pair, 'colour', 'color');
+    pick(pair, 'colourHex', 'colorHex');
+    pick(pair, 'description', 'note');
+    body.pairWith = pair;
+  }
 
   if (Array.isArray(body.designs)) {
     body.designs = body.designs.map((entry) => {
@@ -119,6 +129,13 @@ const schema = z.object({
     quantityMeters: z.number().nonnegative().optional() // stock information; ignored
   }).strict()).max(config.limits.maxFabrics, `at most ${config.limits.maxFabrics} fabrics`).default([]),
   modelImage: imageField.optional(),
+  // The supporting pieces worn with the product (a saree's blouse, a blouse's
+  // saree). They never carry a design; this only sets their colour and look.
+  pairWith: z.object({
+    color: text(60).optional(),
+    colorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #C9A227').optional(),
+    note: text(config.limits.maxNoteChars).optional()
+  }).strict().optional(),
   modelGender: z.enum(MODEL_GENDERS).optional(),
   notes: text(config.limits.maxNotesChars).optional()
 }).strict();
@@ -269,7 +286,14 @@ function resolveRequest(rawBody) {
     model: input.modelImage
       ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
       : { kind: 'generated', gender: input.modelGender || garmentGuide(garment.id).wearer },
-    notes: input.notes || null
+    notes: input.notes || null,
+    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note)
+      ? {
+        color: input.pairWith.color || null,
+        colorHex: input.pairWith.colorHex ? `#${input.pairWith.colorHex.replace('#', '').toUpperCase()}` : null,
+        note: input.pairWith.note || null
+      }
+      : null
   };
 }
 

@@ -340,6 +340,64 @@ async function runAll({ check, eq, section, SRC }) {
     eq(`${name}: skipped, generation still goes ahead`, empty.size, 0);
   }
 
+  section('DESIGN STUDIO: THE PRODUCT AND WHAT IT IS WORN WITH');
+  // Measured: the prompt said the blouse was "plain unless a design reference
+  // describes it", and a saree's pallu design (gold dots) came out on the blouse.
+  const { pairing } = S('promptBuilder');
+  eq('every garment says what it is worn with (null only when it is the whole outfit)',
+    taxonomy.GARMENT_IDS.filter((id) => GUIDE[id].pairedWith === undefined), []);
+  eq('whole-outfit garments pair with nothing', ['GOWN', 'SUIT', 'SHARARA'].map((id) => GUIDE[id].pairedWith), [null, null, null]);
+  eq('a saree is worn with a blouse, a blouse with a saree, a petticoat with a blouse',
+    ['SAREE', 'BLOUSE', 'PETTICOAT', 'LEHANGA'].map((id) => GUIDE[id].pairedWith.pieces), ['blouse', 'saree', 'blouse', 'choli and dupatta']);
+  eq('no garment keeps the "plain unless a design reference describes it" loophole',
+    taxonomy.GARMENT_IDS.filter((id) => /unless a design reference (describes|covers)/.test(`${GUIDE[id].styling}`)), []);
+
+  const sareePair = buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER'], {
+    fabrics: [{ image: IMG, name: 'Plain wine silk', color: 'wine', colorHex: '#722F37' }]
+  })).text;
+  check('saree: the saree is the only product, and every design belongs to it',
+    /The saree is the only product in this photograph\. Every design reference below belongs to the saree and to nothing else/.test(sareePair));
+  check('saree: the blouse is named as NOT the product, and no reference may appear on it',
+    /The blouse is NOT the product: it only completes the photograph/.test(sareePair)
+    && /No design reference applies to the blouse\. None of the references' motifs, borders, buttis, prints, embroidery, mirror work or zari may appear on it/.test(sareePair));
+  check('saree: by default the blouse matches the main fabric colour exactly',
+    /Colour of the blouse: wine, hex #722F37 \(from the saree's main fabric\) - match it exactly\./.test(sareePair));
+  check('saree with no fabric colour: the blouse still follows the main fabric, in words',
+    /Colour of the blouse: the same colour as the saree's main fabric\./.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
+  check('the worn-with block sits after the garment and before the design rules',
+    sareePair.indexOf('THE GARMENT') < sareePair.indexOf('WHAT THE MODEL WEARS WITH IT')
+    && sareePair.indexOf('WHAT THE MODEL WEARS WITH IT') < sareePair.indexOf('HOW TO USE THE DESIGN REFERENCES'));
+
+  const pairJob = resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], pairWith: { colour: 'cream', colourHex: 'f3ead7', description: 'soft chiffon' } }));
+  eq('pairWith resolves, British spellings and description included, hex normalised',
+    pairJob.pairWith, { color: 'cream', colorHex: '#F3EAD7', note: 'soft chiffon' });
+  eq('pairedWith is accepted as the same field', resolveRequest(body({ pairedWith: { color: 'gold' } })).pairWith.color, 'gold');
+  eq('an empty pairWith is the same as none', resolveRequest(body({ pairWith: {} })).pairWith, null);
+  eq('a bad pairWith hex is refused', code(() => resolveRequest(body({ pairWith: { colorHex: 'goldish' } }))), 'INVALID_FIELD');
+  eq('an unknown key inside pairWith is refused', code(() => resolveRequest(body({ pairWith: { fabric: 'silk' } }))), 'INVALID_FIELD');
+
+  const blouseJob = fakeJob('BLOUSE', ['NECK'], { pairWith: { color: 'cream', colorHex: '#F3EAD7', note: 'soft chiffon saree' } });
+  const blousePair = buildPrompt(blouseJob).text;
+  check('blouse: the saree is the supporting piece, pallu pinned back so the whole blouse shows',
+    /The saree is NOT the product/.test(blousePair) && /pallu pinned back behind the shoulder, so the entire blouse/.test(blousePair));
+  check('blouse: the caller\'s pairWith colour and note decide the saree',
+    /Colour of the saree: cream, hex #F3EAD7 \(from the caller\) - match it exactly\./.test(blousePair)
+    && /Customer note for the saree: soft chiffon saree\. Follow it, but still put no design reference on it\./.test(blousePair));
+  check('blouse with no pairWith: a quiet neutral saree that is clearly not the blouse\'s colour',
+    /Colour of the saree: a quiet, solid neutral .* clearly different from the blouse's own colour/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+  eq('the caller\'s colour beats the matching default',
+    pairing(fakeJob('SAREE', ['PALLU'], { fabrics: [{ image: IMG, colorHex: '#722F37' }], pairWith: { colorHex: '#C9A227' } })).colour, 'hex #C9A227');
+  check('a fabric for one area is not mistaken for the main fabric\'s colour',
+    /the same colour as the saree's main fabric/.test(buildPrompt(fakeJob('SAREE', ['PALLU'], { fabrics: [{ image: IMG, colorHex: '#DC143C', appliesTo: ['PALLU'] }] })).text));
+  const plural = buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text;
+  check('plural supporting pieces read naturally (lehenga: choli and dupatta)',
+    /The choli and dupatta are NOT the product: they only complete the photograph/.test(plural) && /may appear on them/.test(plural));
+
+  const gownPair = buildPrompt(fakeJob('GOWN', ['NECK'], { pairWith: { color: 'gold' } }));
+  eq('a gown has nothing to pair: no worn-with block, and pairWith is reported as unused, not silently dropped',
+    [/WHAT THE MODEL WEARS WITH IT/.test(gownPair.text), /only product in this photograph/.test(gownPair.text), gownPair.warnings],
+    [false, false, ['pairWith was not used: a gown is the whole outfit, so nothing else is worn with it.']]);
+
   const back = buildPrompt(fakeJob('BLOUSE', ['BACK']));
   eq('a BACK design turns the model so the back is visible', [back.pose, /looking back over the shoulder/.test(back.text)], ['back', true]);
   const both = buildPrompt(fakeJob('KURTHI', ['FRONT', 'BACK']));
@@ -469,6 +527,9 @@ async function runAll({ check, eq, section, SRC }) {
     const opt = await (await fetch(base + '/options')).json();
     eq('GET /options lists 12 garments with their areas, limits and 3:4', [opt.garments.length, opt.garments.find((g) => g.id === 'SAREE').designAreas.length, opt.limits.maxDesigns, opt.model.aspectRatio, opt.garments.find((g) => g.id === 'SHERWANI').defaultModelGender],
       [12, 8, 6, '3:4', 'male']);
+    eq('GET /options says what each product is worn with, and the default colour',
+      [opt.garments.find((g) => g.id === 'SAREE').pairedWith, opt.garments.find((g) => g.id === 'BLOUSE').pairedWith.pieces, opt.garments.find((g) => g.id === 'GOWN').pairedWith],
+      [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'saree', null]);
 
     let res = await post('/generate', { clientId: 'x', garment: 'SAREE', designs: [{ area: 'SLEEVE', image: IMG }] });
     let json = await res.json();
@@ -499,6 +560,8 @@ async function runAll({ check, eq, section, SRC }) {
     eq('the first status is the describe step', events[1].stage, 'reading-references');
     const start = events[0];
     eq('start says what will be made', [start.garment, start.designs.map((d) => d.area), start.fabrics[0].appliesTo, start.model, start.pose, start.aspectRatio], ['SAREE', ['PALLU', 'BORDER'], 'MAIN', 'generated', 'front', '3:4']);
+    eq('start says what the model wears with the product, and where its colour came from',
+      start.pairedWith, { pieces: 'blouse', colour: 'the same colour as the saree\'s main fabric', from: 'the default', note: null });
     const imageEvent = events.find((e) => e.type === 'image');
     const decoded = imageEvent && await sharp(Buffer.from(imageEvent.image.split(',')[1], 'base64')).metadata();
     eq('the image is a real base64 JPEG data URI of the final picture', decoded && [imageEvent.image.slice(0, 23), decoded.format, decoded.width, decoded.height, imageEvent.width], ['data:image/jpeg;base64,', 'jpeg', 768, 1024, 768]);

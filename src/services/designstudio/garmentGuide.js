@@ -8,7 +8,12 @@
 //
 //   outfit     what the finished outfit consists of, so a "PALLU" design lands
 //              on a correctly constructed saree rather than a vague drape
-//   styling    what else the model wears, chosen never to compete with the product
+//   styling    footwear, jewellery and other finishing touches
+//   pairedWith the supporting pieces a real photograph needs but that are NOT the
+//              product (a saree needs a blouse; a blouse needs a saree). They
+//              never carry a design. null when the product is the whole outfit.
+//              colour: match | coordinate | contrast - the default when the
+//              caller sends no pairWith colour.
 //   pose       a pose that actually shows the product's key parts
 //   areas      for every design area: exactly where on the garment it goes
 //
@@ -54,7 +59,10 @@ const GUIDE = {
       // forearm produced TWO pallus, one on each arm. One sentence, one pallu.
       'The saree has exactly ONE pallu: a single continuous length that crosses the chest, passes over the LEFT shoulder and hangs down the front of the left side, fully open and facing the camera so all of its design is visible. Do not show a pallu on the right side, over the right arm, or anywhere twice.'
     ],
-    styling: 'The blouse is a fitted, elbow-length blouse in the saree\'s main colour or its border colour, plain unless a design reference describes it.',
+    // Measured: "plain unless a design reference describes it" let a pallu design
+    // move onto the blouse. A saree has no blouse areas, so nothing describes it.
+    styling: null,
+    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse', colour: 'match' },
     poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
       // Measured: the pallu ended in a large panel of plain crimson with no design.
@@ -72,7 +80,8 @@ const GUIDE = {
     top: 'blouse',
     outfit: 'A fitted saree blouse (choli). The blouse is the product.',
     construction: ['Give the blouse a precise tailored fit with clean darts and seams.'],
-    styling: 'Pair it with a plain, solid, matte saree in a quiet neutral tone. Pin the pallu back behind the shoulder so the entire blouse (front, neckline and sleeves) is visible and nothing covers it.',
+    styling: null,
+    pairedWith: { pieces: 'saree', plural: false, looks: 'a solid, matte saree draped with its pallu pinned back behind the shoulder, so the entire blouse (front, neckline and sleeves) is visible and nothing covers it', colour: 'contrast' },
     poseHint: 'Arms are relaxed and held slightly away from the body so the sleeves and sides of the blouse are fully visible.',
     areas: {
       HAND: 'the sleeve ends of the blouse: the cuff, sleeve hem or armhole finishing and its detailing'
@@ -85,7 +94,8 @@ const GUIDE = {
     top: 'dupatta',
     outfit: 'A full-length dupatta. The dupatta is the product.',
     construction: ['Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, one decorated end and its tassels are all clearly visible.'],
-    styling: 'Pair it with a plain, solid, matte kurta and churidar in a quiet neutral tone that does not compete with the dupatta.',
+    styling: null,
+    pairedWith: { pieces: 'kurta and churidar', plural: true, looks: 'a solid, matte kurta and churidar', colour: 'contrast' },
     poseHint: 'One hand lightly holds the dupatta edge to spread it open towards the camera.',
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',
@@ -102,7 +112,8 @@ const GUIDE = {
     top: 'kurti',
     outfit: 'A knee-length kurti. The kurti is the product.',
     construction: ['Tailor it with a flattering straight or A-line fall, with side slits unless a design reference shows otherwise.'],
-    styling: 'Pair it with slim, plain churidar or leggings in a coordinating neutral colour and simple flat footwear. No dupatta.',
+    styling: 'Simple flat footwear. No dupatta.',
+    pairedWith: { pieces: 'churidar', plural: false, looks: 'slim churidar or leggings', colour: 'coordinate' },
     poseHint: 'Arms are relaxed slightly away from the body so the sides and sleeves are visible.',
     areas: {
       HEMLINE: 'the bottom hem of the kurti: the hem band and its border or scalloping'
@@ -116,6 +127,7 @@ const GUIDE = {
     outfit: 'A floor-length Anarkali suit with a fitted bodice, a high waist seam just under the bust, and a full flared skirt made of many panels (kalis), worn with a matching churidar.',
     construction: ['Let the flare fall in rich, even folds to the floor, with the hem border running all the way round.', 'Add a dupatta only if a design reference is given for the dupatta.'],
     styling: 'Footwear is simple and barely visible under the flare.',
+    pairedWith: { pieces: 'churidar', plural: false, looks: 'a fitted churidar', colour: 'match' },
     poseHint: 'One hand lightly lifts the side of the flare so the panels open out and show their design.',
     areas: {
       FLARE: 'the flared skirt below the waist seam: the number, colour blocking and design of its panels (kalis)',
@@ -130,7 +142,8 @@ const GUIDE = {
     top: 'petticoat',
     outfit: 'A saree petticoat (inskirt) shown as the product itself: a floor-length, flared skirt with a drawstring waist.',
     construction: ['Show it on its own with no saree over it, so the whole petticoat is visible.'],
-    styling: 'Pair it with a short, plain, fitted blouse in a neutral colour, ending at the waist so the waistband shows.',
+    styling: null,
+    pairedWith: { pieces: 'blouse', plural: false, looks: 'a short, fitted blouse ending at the waist so the waistband shows', colour: 'contrast' },
     poseHint: 'Arms are relaxed at the sides, clear of the waistband.',
     areas: {
       WAIST: 'the waistband of the petticoat: its drawstring casing and detailing',
@@ -147,6 +160,7 @@ const GUIDE = {
     outfit: 'A floor-length ethnic gown. The gown is the product.',
     construction: ['Give it a fitted bodice and a skirt that falls to the floor with graceful volume.'],
     styling: 'Footwear is simple and mostly hidden. Jewellery is minimal.',
+    pairedWith: null, // the product is the whole outfit
     poseHint: 'One hand lightly holds the skirt so its flare and hem are visible.',
     areas: {
       SKIRT_FLARE: 'the skirt of the gown from the waist to the floor, including any train: its fullness, panels and design',
@@ -161,6 +175,7 @@ const GUIDE = {
     outfit: 'A salwar kameez: a long kameez (tunic) with matching bottoms (salwar, churidar or palazzo).',
     construction: ['Make the kameez and bottoms a coordinated set from the specified fabrics.', 'Add a dupatta only if a design reference asks for one.'],
     styling: 'Footwear is simple flats.',
+    pairedWith: null, // the product is the whole outfit
     poseHint: 'Arms are relaxed slightly away from the body so the kameez sides and sleeves are visible.',
     areas: {
       BOTTOM_SALWAR: 'the bottoms of the suit (salwar, churidar or palazzo): their exact cut, fullness and design, matching the reference',
@@ -174,7 +189,8 @@ const GUIDE = {
     top: 'sherwani',
     outfit: 'A knee-length sherwani with a structured mandarin collar and a front button placket, worn with a fitted churidar.',
     construction: ['Tailor it sharply, with a clean shoulder line and a straight fall to the knee.'],
-    styling: 'Pair it with a churidar in a coordinating colour and plain mojari shoes. No stole unless a design reference asks for one.',
+    styling: 'Plain mojari shoes. No stole unless a design reference asks for one.',
+    pairedWith: { pieces: 'churidar', plural: false, looks: 'a fitted churidar', colour: 'coordinate' },
     poseHint: 'Standing upright, arms relaxed at the sides, clear of the buttons and pockets.',
     areas: {
       COLLAR_NECK: 'the collar of the sherwani: the mandarin (bandhgala) collar\'s height, shape and embellishment',
@@ -190,7 +206,8 @@ const GUIDE = {
     top: 'bottom wear',
     outfit: 'Ethnic bottom wear (palazzo, salwar, churidar, patiala or trousers, following the design references). The bottom wear is the product.',
     construction: ['Show the bottoms full length from the waist to the ankles, following the style and cut in the references.'],
-    styling: 'Pair it with a short, plain, solid-colour fitted top that ends at the waist, so the waistband and the full length of the bottoms are visible.',
+    styling: null,
+    pairedWith: { pieces: 'top', plural: false, looks: 'a short, fitted top that ends at the waist, so the waistband and the full length of the bottoms are visible', colour: 'contrast' },
     poseHint: 'Standing with the feet slightly apart so the full shape of each leg is visible.',
     areas: {
       WAIST: 'the waistband of the bottoms and its detailing',
@@ -212,7 +229,9 @@ const GUIDE = {
       'Let the skirt fall in rich, even folds with plenty of volume, with the hem border running all the way round.',
       'Pin the dupatta at the left shoulder and let it fall behind the arm, so it frames the outfit without hiding the skirt.'
     ],
-    styling: 'The choli and dupatta match the lehenga\'s palette and fabrics, and stay plain unless a design reference covers them.',
+    // Same loophole as the saree: no lehenga area covers the choli or the dupatta.
+    styling: null,
+    pairedWith: { pieces: 'choli and dupatta', plural: true, looks: 'a fitted short choli blouse and a light dupatta', colour: 'match' },
     poseHint: 'One hand lightly lifts the side of the skirt so its flare and border open out.',
     areas: {
       SKIRT: 'the lehenga skirt from the waist to the floor: its full flare, panels (kalis) and design',
@@ -228,6 +247,7 @@ const GUIDE = {
     outfit: 'A sharara set: a short kurti ending at mid-thigh, over sharara pants that are fitted to the knee and then flare out dramatically to the floor.',
     construction: ['Make the knee seam of the sharara clearly visible, with the flare falling in wide folds.', 'Add a dupatta only if a design reference is given for the dupatta.'],
     styling: 'Footwear is simple and mostly hidden by the flare.',
+    pairedWith: null, // the product is the whole outfit
     poseHint: 'Standing with one foot slightly forward so the flare of the pants opens out.',
     areas: {
       FLARE_PANTS: 'the sharara pants: the knee seam and the wide flare below it, with its panels and design',

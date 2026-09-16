@@ -10,6 +10,8 @@
 //                       each image right next to it is what stops the model
 //                       blending a border into a pallu.
 //   3. THE GARMENT      how this garment is constructed and styled
+//   3b. WORN WITH IT    the supporting pieces a real photo needs (a saree's
+//                       blouse, a blouse's saree): plain, never the product
 //   4. DESIGN RULES     copy exactly, take only the design, place it only in its area
 //   5. FABRIC RULES     exact colour, weave, sheen, drape
 //   6. THE MODEL        generated or the reference person, and a pose that shows
@@ -44,6 +46,57 @@ function referenceList(job) {
   for (const f of job.fabrics) items.push({ ref: ++ref, kind: 'fabric', label: f.name || `fabric ${f.index + 1}`, image: f.image });
   if (job.model.kind === 'reference') items.push({ ref: ++ref, kind: 'model', label: 'the model to dress', image: job.model.image });
   return items;
+}
+
+/** How /options describes each garment's default colour for its supporting pieces. */
+const DEFAULT_PAIRING_COLOUR = {
+  match: 'matches the main fabric',
+  coordinate: 'coordinates with the product',
+  contrast: 'a quiet neutral that sets the product off'
+};
+
+/**
+ * What the model wears WITH the product, and in what colour.
+ *
+ * A real photograph of a saree needs a blouse, and a photograph of a blouse
+ * needs a saree - but only one of them is the product. Measured: while the
+ * prompt said the blouse was "plain unless a design reference describes it", a
+ * pallu design moved onto the blouse. So the supporting pieces are named, kept
+ * plain, and their colour is decided here: the caller's pairWith colour, else the
+ * garment's default (the main fabric's colour for a saree's blouse, a quiet
+ * neutral for a blouse's saree).
+ *
+ * @returns {null | { pieces: string, plural: boolean, looks: string, colour: string, exact: boolean, from: string, note: string|null }}
+ */
+function pairing(job) {
+  const g = garmentGuide(job.garmentId);
+  if (!g.pairedWith) return null;
+  const stated = (words, hex) => [words ? clean(words) : null, hex ? `hex ${hex}` : null].filter(Boolean).join(', ');
+  const base = {
+    pieces: g.pairedWith.pieces,
+    plural: g.pairedWith.plural,
+    looks: g.pairedWith.looks,
+    note: job.pairWith && job.pairWith.note ? clean(job.pairWith.note) : null
+  };
+
+  if (job.pairWith && (job.pairWith.color || job.pairWith.colorHex)) {
+    return { ...base, colour: stated(job.pairWith.color, job.pairWith.colorHex), exact: true, from: 'the caller' };
+  }
+  if (g.pairedWith.colour === 'match') {
+    const main = job.fabrics.find((f) => !f.appliesTo && (f.color || f.colorHex));
+    return main
+      ? { ...base, colour: stated(main.color, main.colorHex), exact: true, from: `the ${g.product}'s main fabric` }
+      : { ...base, colour: `the same colour as the ${g.product}'s main fabric`, exact: false, from: 'the default' };
+  }
+  if (g.pairedWith.colour === 'coordinate') {
+    return { ...base, colour: `a solid colour that coordinates with the ${g.product}'s palette without matching it exactly`, exact: false, from: 'the default' };
+  }
+  return {
+    ...base,
+    colour: `a quiet, solid neutral (ivory, beige, soft grey or black) that is clearly different from the ${g.product}'s own colour, so the ${g.product} stands out`,
+    exact: false,
+    from: 'the default'
+  };
 }
 
 /**
@@ -82,6 +135,11 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     }
   }
 
+  const pair = pairing(job);
+  if (job.pairWith && !pair) {
+    warnings.push(`pairWith was not used: a ${g.product} is the whole outfit, so nothing else is worn with it.`);
+  }
+
   // ── 1. TASK ────────────────────────────────────────────────────────────────
   const productLine = job.productName
     ? `The finished product is sold as "${clean(job.productName)}" - treat that name as a hint to the style and occasion only, and never draw any text into the image.`
@@ -91,6 +149,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}, ` +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
+    ...(pair ? [`The ${g.product} is the only product in this photograph. Every design reference below belongs to the ${g.product} and to nothing else the model wears.`] : []),
     ...(productLine ? [productLine] : []),
     '',
     'REFERENCE IMAGES'
@@ -213,8 +272,25 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     'THE GARMENT',
     g.outfit,
     bullets(g.construction),
-    g.styling
+    ...(g.styling ? [g.styling] : [])
   ].join('\n'));
+
+  // ── 3b. WHAT THE MODEL WEARS WITH IT ───────────────────────────────────────
+  if (pair) {
+    const is = pair.plural ? 'are' : 'is';
+    const it = pair.plural ? 'them' : 'it';
+    const lines = [
+      `The product is the ${g.product}. The ${pair.pieces} ${is} NOT the product: ${pair.plural ? 'they only complete' : 'it only completes'} the photograph.`,
+      `The ${pair.pieces}: ${pair.looks}.`,
+      `Colour of the ${pair.pieces}: ${pair.colour}${pair.exact ? ` (from ${pair.from}) - match it exactly` : ''}.`,
+      // Measured: a pallu design ended up on the blouse.
+      `No design reference applies to the ${pair.pieces}. None of the references' motifs, borders, buttis, prints, embroidery, mirror work or zari may appear on ${it}.`
+    ];
+    lines.push(pair.note
+      ? `Customer note for the ${pair.pieces}: ${pair.note}. Follow it, but still put no design reference on ${it}.`
+      : `The ${pair.pieces} ${is} plain and solid, with neat, simple finishing only, so all attention stays on the ${g.product}.`);
+    addText(['WHAT THE MODEL WEARS WITH IT', bullets(lines)].join('\n'));
+  }
 
   // ── 4. DESIGN RULES ────────────────────────────────────────────────────────
   const designRules = [
@@ -308,4 +384,4 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   return { parts, text: textLog.join('\n\n'), warnings, pose, imageCount: n };
 }
 
-module.exports = { buildPrompt, referenceList };
+module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR };
