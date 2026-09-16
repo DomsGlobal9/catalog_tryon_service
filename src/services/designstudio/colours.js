@@ -31,7 +31,7 @@ const rgb = (hex) => [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
 /** Every colour a description names, as RGB: explicit hex first, then known words. */
 function coloursIn(text) {
-  const s = ` ${String(text || '').toLowerCase().replace(/[\/,;()]+/g, ' ')} `;
+  const s = ` ${String(text || '').toLowerCase().replace(/[/,;()]+/g, ' ')} `;
   const found = (s.match(/#[0-9a-f]{6}/g) || []).map((h) => rgb(h.slice(1)));
   let rest = s.replace(/#[0-9a-f]{6}/g, ' ');
   for (const name of NAMES) {

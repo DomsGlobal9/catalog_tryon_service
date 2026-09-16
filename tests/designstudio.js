@@ -535,7 +535,7 @@ async function runAll({ check, eq, section, SRC }) {
     /never repeated on the blouse, not as sleeve cuffs, not around the neckline/.test(sareeBand) && /a fitted SLEEVELESS blouse/.test(sareeBand)
     && /Final check on the blouse: it is one solid colour from edge to edge\. Look at the armholes and neckline: there is NO gold, zari, metallic or patterned band there/.test(sareeBand)
     && sareeBand.indexOf('Final check on the blouse') > sareeBand.indexOf('QUALITY BAR')
-    && !/Final check on/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
+    && !/Final check on/.test(buildPrompt(fakeJob('GOWN', ['SLEEVE'])).text));
 
   const printed = buildPrompt(fakeJob('BLOUSE', ['BACK'], { fabrics: [{ image: IMG, color: 'navy', colorHex: '#1C2B5A' }] }), { descriptions: new Map([[1, { motifs: 'buttis', technique: 'Ajrakh block print, matte' }]]) }).text;
   check('a printed design is locked as a print (an ajrakh print came out as woven zari in production)',
@@ -667,6 +667,13 @@ async function runAll({ check, eq, section, SRC }) {
   check('a saree never gets tassels nobody sent (multi-coloured tassels appeared on a pallu), and a full-length photo keeps floor below the feet',
     /No tassels, latkans, pom-poms or fringe on the pallu end or anywhere on the saree/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text)
     && /both feet stand on visible floor with a clear strip of floor below them/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
+  const anarkaliNeck = buildPrompt(fakeJob('ANARKALI', ['NECK']));
+  check('without a sleeve design, the last words of the prompt and a dedicated check keep sleeves plain (printed sleeves survived a correction in production)',
+    anarkaliNeck.text.indexOf('Final check on the sleeves of the Anarkali') > anarkaliNeck.text.indexOf('QUALITY BAR')
+    && qa.buildChecklist(anarkaliNeck.review).some((c) => c.id === 'plain_sleeves')
+    && !qa.buildChecklist(buildPrompt(fakeJob('ANARKALI', ['SLEEVE'])).review).some((c) => c.id === 'plain_sleeves'));
+  check('a button is not colour-checked (amber gemstone buttons failed as "not ivory")',
+    !qa.buildChecklist(buildPrompt(fakeJob('SHERWANI', ['BUTTON'], { fabrics: [{ image: IMG, color: 'ivory', colorHex: '#EDE3CC' }] }), { descriptions: new Map([[1, { motifs: 'gemstone', colours: 'background: dark blue', technique: 'metal button', groundType: 'garment fabric', groundColour: 'dark blue' }]]) }).review).some((c) => c.id === 'colour_button'));
   check('the describe step is asked for the problem and for the ground colour of every design',
     describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
 

@@ -419,6 +419,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       && /zari|metallic|brocade|tissue|paithani|banaras|kanjiv/i.test(`${info.technique || ''} ${info.motifs || ''}`);
     review.parts.push({
       zariGround,
+      trim: TRIM_AREAS.has(d.areaId),
       area: d.areaId,
       part: partWords(d.areaId, g.product),
       where: describeArea(job.garmentId, d.areaId).split(/\.\s/)[0],
@@ -577,8 +578,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     : 'Do not invent any motif, embellishment, logo or pattern that is not in the references. Parts of the garment with no design reference stay plain in their fabric, with neat, simple finishing only.');
   // Measured in production: a NECK photo's printed sleeves and a FRONT photo's
   // embroidered cuffs were copied onto an anarkali and a suit that had no sleeve design.
-  const hasSleeves = taxonomy.getDesignTypes(job.garmentId).some((a) => a.id === 'SLEEVE');
-  if (hasSleeves && !hasGlobal && !designAreas.some((a) => a === 'SLEEVE' || a === 'HAND')) {
+  const plainSleeves = taxonomy.getDesignTypes(job.garmentId).some((a) => a.id === 'SLEEVE')
+    && !hasGlobal && !designAreas.some((a) => a === 'SLEEVE' || a === 'HAND');
+  if (plainSleeves) {
     designRules.push(`The ${g.product} has NO sleeve design: its sleeves are plain fabric from shoulder to wrist - no print, embroidery, buttis, lace or border band on them, not even at the cuff - whatever sleeves the reference photographs show.`);
   }
   addText(['HOW TO USE THE DESIGN REFERENCES', bullets(designRules)].join('\n'));
@@ -645,6 +647,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Measured three times in real saree photos: the saree border repeated as gold
     // bands on the blouse sleeves, despite the blouse being described as plain.
     // The final check, right before the image is made, is where it is named.
+    // Measured in production: printed sleeves from a NECK photo survived the rule
+    // above and one correction. The last word in the prompt carries the most weight.
+    ...(plainSleeves ? [`Final check on the sleeves of the ${g.product}: if it has sleeves, they are plain ${g.product} fabric from shoulder to wrist, with no print, embroidery, band or motif anywhere on them. If a pattern appears on a sleeve, remove it.`] : []),
     ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${edgesOf(pair.pieces, job.garmentId)}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
     // Measured again with striped saree references: the band returned on both runs.
     // A perceptual test the model can check works better than naming the band.
@@ -675,6 +680,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     : null;
   Object.assign(review, {
     plainRest,
+    plainSleeves,
     product: g.product,
     garmentId: job.garmentId,
     framing: g.framing,

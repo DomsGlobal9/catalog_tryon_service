@@ -76,7 +76,9 @@ function buildChecklist(review) {
     // Measured: "gold" on a gold tissue pallu and gold zari motifs in a border were
     // flagged as wrong colours. Only a background clearly unlike the ground is
     // checked, and motif colours are explicitly allowed.
-    if (part.ground && !part.contrast && !part.zariGround && part.referenceBackground && !sameColourFamily(part.referenceBackground, part.ground)) {
+    // Measured: amber gemstone buttons failed "ground colour is not ivory". A button
+    // or tassel is attached, not cut from the cloth, so it has no ground colour.
+    if (part.ground && !part.contrast && !part.zariGround && !part.trim && part.referenceBackground && !sameColourFamily(part.referenceBackground, part.ground)) {
       add(`colour_${part.area.toLowerCase()}`,
         `On the ${part.part} (${part.where}) - and only there, not on other parts of the garment - the ground (background) colour must be ${part.ground}. The design reference was photographed on ${part.referenceBackground}. Judge ONLY the ground: the base cloth and any wide stripes, bands, checks or blocks. Motifs, buttis, zari, gold or metallic work (including a solid gold or zari panel or band) and coloured decoration are allowed in any colour, and skin seen through sheer or net fabric is not a ground colour. Is it true that ${part.referenceBackground} - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the ${part.part}?`,
         `On the ${part.part}, ${part.referenceBackground} and every shade or tint of it is replaced by ${part.ground}. No ${part.referenceBackground} stripes, bands or blocks.`);
@@ -86,6 +88,12 @@ function buildChecklist(review) {
         `Do the motifs on the ${part.part} look PRINTED - lying flat on the cloth (a foil print may shine) - rather than raised woven zari, brocade or thread embroidery?`,
         `The design on the ${part.part} is a flat, matte PRINT: no woven zari, brocade, metallic thread or embroidery.`);
     }
+  }
+
+  if (review.plainSleeves) {
+    add('plain_sleeves',
+      `No sleeve design was ordered. If the ${product} has sleeves, are they plain ${product} fabric from shoulder to wrist - with NO print, embroidery, buttis, band or motif anywhere on them?`,
+      `The sleeves of the ${product} are plain ${product} fabric from shoulder to wrist: no print, embroidery, buttis, band or motif anywhere on them - not copied from any reference photograph.`);
   }
 
   if (review.plainRest && review.plainRest.length) {
