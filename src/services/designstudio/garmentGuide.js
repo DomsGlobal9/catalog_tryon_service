@@ -112,9 +112,13 @@ const GUIDE = {
       'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. Wherever both ends are visible, they match exactly.'
     ],
     styling: null,
-    // Not waist-up: the dupatta's ends and tassels hang to about the knee.
-    framing: 'three-quarter',
-    pairedWith: { pieces: 'kurta', plural: false, looks: 'a simple, solid, matte straight kurta with no drape, border or embellishment of its own, and slim matching churidar just visible at the bottom of the frame', colour: 'contrast' },
+    // Full length. Not waist-up: its ends and tassels hang to about the knee. And
+    // not three-quarter either - measured on four real dupattas, the image model
+    // framed three of them head to toe even when told the feet are out of frame.
+    // The whole dupatta is visible either way; promising a crop it does not
+    // reliably deliver would be the worse contract.
+    framing: 'full',
+    pairedWith: { pieces: 'kurta', plural: false, looks: 'a simple, solid, matte straight kurta with no drape, border or embellishment of its own, worn with slim matching churidar', colour: 'contrast' },
     poseHint: 'One hand lightly holds the dupatta edge to spread it open towards the camera.',
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',

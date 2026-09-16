@@ -30,7 +30,9 @@ async function runAll({ check, eq, section, SRC }) {
     DESIGNSTUDIO_MAX_IMAGE_MB: '2',
     // Short, so the "it hangs" cases finish in milliseconds instead of minutes.
     DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS: '1000',
-    DESIGNSTUDIO_DEADLINE_MS: '5000'
+    DESIGNSTUDIO_DEADLINE_MS: '5000',
+    DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS: '300',
+    DESIGNSTUDIO_DESCRIBE_DEADLINE_MS: '3000'
   });
   const express = require('express');
   const sharp = require('sharp');
@@ -412,9 +414,15 @@ async function runAll({ check, eq, section, SRC }) {
     /No tassels or latkans on the dupatta, and no fringe unless a design reference shows one/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'CORNER'])).text)
     && !/No tassels or latkans/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL'])).text)
     && !/and its tassels are all clearly visible/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
-  check('the close framings say the legs and feet are out of frame (two dupattas were shot head to toe)',
-    /the ankles and feet are NOT in it/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text)
-    && /the knees, legs and feet are NOT in it/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+  check('the waist-up framing says the legs and feet are out of frame',
+    /the knees, legs and feet are NOT in it/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+  // A three-quarter framing is still supported for a future garment, and says the
+  // feet are out of frame. No garment uses it: dupattas were shot head to toe.
+  const savedFraming = GUIDE.DUPATTA.framing;
+  GUIDE.DUPATTA.framing = 'three-quarter';
+  check('a three-quarter framing (still supported) keeps hanging ends in frame and says the feet are not',
+    /down to mid-calf/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text) && /the ankles and feet are NOT in it/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
+  GUIDE.DUPATTA.framing = savedFraming;
   check('borrowing is named part by part (gota cuffs came from a neck reference photo)',
     /not on its sleeves, cuffs, neckline, hem or any other part without a design of its own/.test(suitText));
   check('lace and cutwork keep their shapes (hearts appeared) and show only their own ground (a lilac print showed through lace)',
@@ -442,6 +450,47 @@ async function runAll({ check, eq, section, SRC }) {
     /"contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour/.test(askText)
     && JSON.stringify(asked[0].generationConfig.responseSchema.properties.references.items.properties.groundType.enum) === JSON.stringify(['contrast panel', 'garment fabric', 'not applicable']));
   eq('the contrast answer survives parsing', describe.readAnswer({ references: [{ ref: 1, motifs: 'triangles', groundType: 'contrast panel', groundColour: 'deep red' }] }, [{ ref: 1 }]).get(1).groundColour, 'deep red');
+
+  section('DESIGN STUDIO: ROUND 2  (new designs and fabrics, faults seen in real generations)');
+  // Two real runs lost their whole brief: one describe attempt hung past the
+  // shared 25s limit and the retry had no time left. Each attempt now has its own.
+  let describeCalls = 0;
+  describe._setFetch(async (url, opts) => {
+    describeCalls++;
+    if (describeCalls === 1) {
+      return new Promise((resolve, reject) => opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }))));
+    }
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ references: [one(1, 'kalis'), one(2, 'gota')] }) }] } }] }), { status: 200 });
+  });
+  const hungStarted = Date.now();
+  const recoveredAfterHang = await describe.describeReferences(referenceList(fakeJob('LEHANGA', ['SKIRT', 'BORDER'])));
+  eq('one hung describe attempt no longer loses the brief: it is cut off and the retry still runs',
+    [recoveredAfterHang.size, describeCalls, Date.now() - hungStarted < 2500], [2, 2, true]);
+  describe._setFetch(describeAnswer(goodDescription));
+
+  // A rust kurti got a green churidar and an emerald sherwani a black one - the
+  // colours of garments in the reference photos. A petticoat's blouse was the
+  // reference model's black crop T-shirt.
+  const kurtiPair = buildPrompt(fakeJob('KURTHI', ['NECK'], { fabrics: [{ image: IMG, name: 'Rust raw silk', color: 'rust orange', colorHex: '#A6501E' }] })).text;
+  check('a coordinating supporting piece is a tone of the product\'s own fabric colour, never a colour from a reference photo',
+    /Colour of the churidar: a deeper or lighter tone of rust orange, hex #A6501E \(the kurti's own fabric colour\), or a quiet neutral - never a colour that appears only in a reference photograph/.test(kurtiPair));
+  check('a contrasting supporting piece is also never a colour taken from a reference photo',
+    /so the petticoat stands out - never a colour that appears only in a reference photograph/.test(buildPrompt(fakeJob('PETTICOAT', ['WAIST'])).text));
+  check('no supporting piece copies the outfit of anyone in the reference photos',
+    /The churidar is never copied from what anyone in the reference photographs is wearing - not its style, cut or colour/.test(kurtiPair)
+    && /The choli and dupatta are never copied from what anyone in the reference photographs is wearing - not their style/.test(buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text));
+
+  // A BORDER_HEM reference that was a dress dotted all over turned the whole gown skirt into dots.
+  const hemJob = fakeJob('GOWN', ['BORDER_HEM', 'NECK']);
+  const hem = buildPrompt(hemJob, { descriptions: new Map([[1, { motifs: 'black sequin dots', layout: 'scattered all over the entire dress', groundType: 'garment fabric' }]]) });
+  check('an edge-area design stays a band however much of the garment its photo covers, and the caller is told',
+    /This is an edge area\. However much of the garment its reference photograph covers, reproduce this design only as a band of realistic width along the border hem - never spread it over the rest of the gown/.test(hem.text)
+    && hem.warnings.some((w) => /The BORDER_HEM reference shows a pattern across the whole garment rather than a border hem band, so it is used only as a band along the border hem/.test(w)));
+  check('a neck or yoke is not squeezed into a band, and a real border reference raises no warning',
+    (hem.text.match(/This is an edge area/g) || []).length === 1
+    && buildPrompt(fakeJob('GOWN', ['BORDER_HEM']), { descriptions: new Map([[1, { motifs: 'floral scroll', layout: 'continuous band at the hem' }]]) }).warnings.length === 0);
+  check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
+    /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 
   check('a supporting piece gets no band or trim either (a saree border showed at the blouse sleeve edges)',
     /not even a narrow band or trim at a sleeve edge, neckline or hem/.test(buildPrompt(fakeJob('SAREE', ['BORDER'])).text));
@@ -524,17 +573,16 @@ async function runAll({ check, eq, section, SRC }) {
     /Colour of the skirt: a quiet, solid neutral .* clearly different from the blouse's own colour/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
 
   section('DESIGN STUDIO: FRAMING  (the product fills the photograph)');
-  eq('framing per garment: blouse waist-up, dupatta three-quarter, the rest full length',
+  eq('framing per garment: blouse waist-up, everything else (dupatta included) full length',
     Object.fromEntries(taxonomy.GARMENT_IDS.map((id) => [id, GUIDE[id].framing])),
-    { SAREE: 'full', BLOUSE: 'waist-up', DUPATTA: 'three-quarter', KURTHI: 'full', ANARKALI: 'full', PETTICOAT: 'full', GOWN: 'full', SUIT: 'full', SHERWANI: 'full', BOTTOM_WEAR: 'full', LEHANGA: 'full', SHARARA: 'full' });
+    { SAREE: 'full', BLOUSE: 'waist-up', DUPATTA: 'full', KURTHI: 'full', ANARKALI: 'full', PETTICOAT: 'full', GOWN: 'full', SUIT: 'full', SHERWANI: 'full', BOTTOM_WEAR: 'full', LEHANGA: 'full', SHARARA: 'full' });
   check('blouse: a waist-up photograph in which the blouse is never cropped, and not head to toe',
     blousePrompt.framing === 'waist-up' && /A waist-up portrait catalogue photograph in 3:4: the frame runs from a little above the head down to the upper thighs/.test(blousePair)
     && /The blouse itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame/.test(blousePair)
     && !/head to toe/.test(blousePair) && !/fingers and feet/.test(blousePair));
   const dupattaPrompt = buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL']));
-  check('dupatta: three-quarter, so its hanging ends and tassels stay in frame (waist-up would cut them)',
-    dupattaPrompt.framing === 'three-quarter' && /down to mid-calf/.test(dupattaPrompt.text)
-    && /both of its hanging ends and any tassels are fully inside the frame/.test(dupattaPrompt.text) && !/head to toe/.test(dupattaPrompt.text));
+  check('dupatta: full length, so its hanging ends and tassels are always in frame, with the head and face too',
+    dupattaPrompt.framing === 'full' && /head to toe/.test(dupattaPrompt.text) && /the model's whole head and face are inside the frame/.test(dupattaPrompt.text));
   check('dupatta: worn over a plain kurta with no drape or border of its own',
     /The kurta is NOT the product/.test(dupattaPrompt.text) && /no drape, border or embellishment of its own/.test(dupattaPrompt.text));
   const backBlouse = buildPrompt(fakeJob('BLOUSE', ['BACK'])).text;
@@ -689,7 +737,7 @@ async function runAll({ check, eq, section, SRC }) {
       [opt.garments.find((g) => g.id === 'SAREE').pairedWith, opt.garments.find((g) => g.id === 'BLOUSE').pairedWith.pieces, opt.garments.find((g) => g.id === 'GOWN').pairedWith],
       [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'skirt', null]);
     eq('GET /options says how each garment is framed',
-      ['SAREE', 'BLOUSE', 'DUPATTA'].map((id) => opt.garments.find((g) => g.id === id).framing), ['full', 'waist-up', 'three-quarter']);
+      ['SAREE', 'BLOUSE', 'DUPATTA'].map((id) => opt.garments.find((g) => g.id === id).framing), ['full', 'waist-up', 'full']);
 
     let res = await post('/generate', { clientId: 'x', garment: 'SAREE', designs: [{ area: 'SLEEVE', image: IMG }] });
     let json = await res.json();

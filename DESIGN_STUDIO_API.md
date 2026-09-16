@@ -14,7 +14,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
-| **Output** | One JPEG, portrait **3:4**, plain studio background, as base64. Full length, except a blouse (waist-up) and a dupatta (three-quarter) |
+| **Output** | One JPEG, portrait **3:4**, plain studio background, as base64. Full length, except a blouse (waist-up) |
 
 ---
 
@@ -143,7 +143,7 @@ and the supporting pieces mostly out of it.
 | `garment` | Framing | Worn with (never designed) | Its colour by default |
 | :--- | :--- | :--- | :--- |
 | `BLOUSE` | **waist-up** — head to upper thighs | a plain skirt, only its waistband in frame. **No saree, no pallu, no drape.** | a quiet neutral that sets the blouse off |
-| `DUPATTA` | **three-quarter** — head to mid-calf, so both hanging ends and tassels show | a plain straight kurta with no drape or border | a quiet neutral |
+| `DUPATTA` | full length, so both hanging ends and any tassels show | a plain straight kurta with no drape or border | a quiet neutral |
 | `SAREE` | full length | a fitted, elbow-length blouse | the saree's main fabric colour |
 | `LEHANGA` | full length | a fitted short choli and a light dupatta | the lehenga's main fabric colour |
 | `ANARKALI` | full length | a fitted churidar | the Anarkali's main fabric colour |
@@ -157,8 +157,17 @@ and the supporting pieces mostly out of it.
 
 Why the framing differs, measured: a blouse worn with a saree was a small strip at the top of a
 full-length photo, and the saree's pallu covered a third of the blouse even when told to pin it
-back. A dupatta is not waist-up because its decorated ends and tassels hang to about the knee.
-A `BACK` design keeps the same framing and turns the model around.
+back. A dupatta is full length because its decorated ends and tassels hang to about the knee; a
+head-to-mid-calf crop was tried and the image model framed three of four dupattas head to toe
+anyway, so full length is what is promised. A `BACK` design keeps the same framing and turns the
+model around.
+
+A contrast panel keeps its own colour. A red embroidered yoke on a blue kurta stays red on your
+fabric, while embroidery photographed on a garment of the same colour takes your fabric's colour.
+The `brief` event says which way each design was read (`groundType`: `contrast panel` or
+`garment fabric`) and names any part kept as a contrast panel. The call is dependable on close-ups;
+on a small yoke in a full-length photo it can go either way, so send `designs[].groundColorHex`
+when the colour of that panel matters.
 
 To choose the supporting piece's colour or look yourself, send `pairWith`:
 
@@ -207,7 +216,7 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 
 | `type` | When | Contents |
 | :--- | :--- | :--- |
-| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `framing` (`full`/`three-quarter`/`waist-up`), `aspectRatio`, `warnings` |
+| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `framing` (`full`/`waist-up`), `aspectRatio`, `warnings` |
 | `status` | Twice | `stage: "reading-references"` first, then `stage: "generating"` with `attempt` |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
 | `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`) |
@@ -357,6 +366,12 @@ Inside the stream (`error` event):
   multi-coloured butis disappeared; with a plain wine silk on the body, they came through exactly.
 - **Very fine motifs are approximate.** Large areas, drape, fabric colour and texture are dependable;
   a tiny repeated motif may be simplified. Naming it in `designs[].note` helps.
+- **Send a close-up for an edge.** A `BORDER`, hem, cuff or waistband design is always made as a band
+  along that edge. If its picture is a whole garment patterned all over, it is still used only as a
+  band, and the `brief` event says so — but a close-up of the band itself gives a closer match.
+- **Embellishment shapes are approximate.** Measured: small cone tassels came back as round latkans
+  with pearls, and a feathered gota fringe as a flat scalloped band. The placement and colours were
+  right; the exact shape of a small 3D trim is the least reliable detail.
 - **Send a design for every part you want decorated.** A `BACK` design is the back only; its photo's
   sleeves are not guaranteed to carry over. For decorated sleeves, send a `SLEEVE` design too.
 - **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same

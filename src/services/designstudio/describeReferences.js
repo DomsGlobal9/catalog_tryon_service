@@ -188,17 +188,21 @@ async function describeReferences(items, { signal } = {}) {
   const wanted = items.filter((i) => i.kind === 'design' || i.kind === 'fabric');
   if (!config.describe.enabled || !wanted.length || !config.gemini.apiKey()) return out;
 
-  const timeout = AbortSignal.timeout(config.describe.timeoutMs);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  // The whole step has a deadline; each attempt has its own shorter limit inside
+  // it, so one stuck call cannot use up the time the retry needs.
+  const deadline = AbortSignal.timeout(config.describe.deadlineMs);
+  const overall = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  const attempt = () => AbortSignal.any([overall, AbortSignal.timeout(config.describe.timeoutMs)]);
 
-  const first = await ask(wanted, combined);
+  const first = await ask(wanted, attempt());
   for (const [ref, info] of first.map) out.set(ref, info);
   if (signal && signal.aborted) return out;
 
   let second = null;
-  if (wanted.some((i) => !out.has(i.ref)) && !combined.aborted) {
-    // One more try for just the missing ones, inside the same time limit.
-    second = await ask(wanted.filter((i) => !out.has(i.ref)), combined);
+  if (wanted.some((i) => !out.has(i.ref)) && !overall.aborted) {
+    // One more try for just the missing ones - or all of them, if the first
+    // attempt timed out or failed outright.
+    second = await ask(wanted.filter((i) => !out.has(i.ref)), attempt());
     for (const [ref, info] of second.map) out.set(ref, info);
   }
   const missing = wanted.filter((i) => !out.has(i.ref));

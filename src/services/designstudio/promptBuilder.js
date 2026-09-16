@@ -51,6 +51,12 @@ const PART_WORDS = [
   ['borders', /BORDER|PALLU|WAIST/],
   ['hem', /HEM|FRONT/]
 ];
+/**
+ * Areas that are a band along an edge. Not NECK or COLLAR_NECK: a yoke is a panel,
+ * and squeezing it into a band would lose it.
+ */
+const EDGE_AREAS = new Set(['BORDER', 'BORDER_HEM', 'HEMLINE', 'HEM_BOTTOM', 'BOTTOM_BORDER', 'BOTTOM_ANKLE', 'WAISTBAND', 'WAIST_BELT', 'HAND']);
+
 /** "SLEEVE" -> "sleeve"; for a photo of a whole garment: "take ONLY its sleeve". */
 function areaWords(areaId) {
   return areaId.toLowerCase().replace(/_/g, ' ');
@@ -109,7 +115,8 @@ function framingLine(g) {
   if (g.framing === 'three-quarter') {
     return `A three-quarter-length portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to mid-calf, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame. This is deliberately not a full-length photograph: the bottom edge of the frame cuts across the lower legs at mid-calf, and the ankles and feet are NOT in it.`;
   }
-  return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped.`;
+  // Measured: bottom wear came out cropped at the chest, with no head or face.
+  return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped: the model's whole head and face are inside the frame.`;
 }
 
 /** How /options describes each garment's default colour for its supporting pieces. */
@@ -146,18 +153,26 @@ function pairing(job) {
   if (job.pairWith && (job.pairWith.color || job.pairWith.colorHex)) {
     return { ...base, colour: stated(job.pairWith.color, job.pairWith.colorHex), exact: true, from: 'the caller' };
   }
+  const main = job.fabrics.find((f) => !f.appliesTo && (f.color || f.colorHex));
   if (g.pairedWith.colour === 'match') {
-    const main = job.fabrics.find((f) => !f.appliesTo && (f.color || f.colorHex));
     return main
       ? { ...base, colour: stated(main.color, main.colorHex), exact: true, from: `the ${g.product}'s main fabric` }
       : { ...base, colour: `the same colour as the ${g.product}'s main fabric`, exact: false, from: 'the default' };
   }
+  // Measured: "coordinates with the palette" gave a rust kurti a green churidar
+  // (the green kurti its neck design was photographed on) and an emerald
+  // sherwani a black one (the black sherwani its cuffs came from). A default
+  // colour is chosen from the product itself, never from a reference photo.
+  const notFromPhotos = ' - never a colour that appears only in a reference photograph, such as the colour of a garment a design was photographed on';
   if (g.pairedWith.colour === 'coordinate') {
-    return { ...base, colour: `a solid colour that coordinates with the ${g.product}'s palette without matching it exactly`, exact: false, from: 'the default' };
+    const tone = main
+      ? `a deeper or lighter tone of ${stated(main.color, main.colorHex)} (the ${g.product}'s own fabric colour), or a quiet neutral`
+      : `a colour taken from the ${g.product}'s own fabric, or a quiet neutral`;
+    return { ...base, colour: `${tone}${notFromPhotos}`, exact: false, from: 'the default' };
   }
   return {
     ...base,
-    colour: `a quiet, solid neutral (ivory, beige, soft grey or black) that is clearly different from the ${g.product}'s own colour, so the ${g.product} stands out`,
+    colour: `a quiet, solid neutral (ivory, beige, soft grey or black) that is clearly different from the ${g.product}'s own colour, so the ${g.product} stands out${notFromPhotos}`,
     exact: false,
     from: 'the default'
   };
@@ -307,6 +322,15 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     lines.push(d.coverage === 'reference'
       ? 'Follow this reference\'s own layout exactly, including any plain areas it shows.'
       : 'This design covers the whole of this part, edge to edge and right to its end. Do not leave any large plain panel or empty gap inside this part; only a narrow finishing edge of a few centimetres may be plain.');
+    // Measured: a BORDER_HEM reference that was a dress dotted with sequins all
+    // over turned the whole gown skirt into polka dots. An edge area stays a band.
+    if (EDGE_AREAS.has(d.areaId)) {
+      lines.push(`This is an edge area. However much of the garment its reference photograph covers, reproduce this design only as a band of realistic width along the ${areaWords(d.areaId)} - never spread it over the rest of the ${g.product}.`);
+      const words = `${info.motifs || ''} ${info.layout || ''} ${info.notes || ''}`;
+      if (/all[- ]?over|throughout|entire (?:garment|dress|gown|outfit|fabric|surface)|whole (?:garment|dress|gown|outfit|fabric|surface)|covers? the (?:whole|entire)/i.test(words)) {
+        warnings.push(`The ${d.areaId} reference shows a pattern across the whole garment rather than a ${areaWords(d.areaId)} band, so it is used only as a band along the ${areaWords(d.areaId)}. A close-up of the band itself gives a closer match.`);
+      }
+    }
     if (d.note) lines.push(`Customer note for this design: ${clean(d.note)}`);
     addText(lines.join('\n'));
     addImage(d.image, `design ${d.areaId}`);
@@ -367,6 +391,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     const lines = [
       `The product is the ${g.product}. The ${pair.pieces} ${is} NOT the product: ${pair.plural ? 'they only complete' : 'it only completes'} the photograph.`,
       `The ${pair.pieces}: ${pair.looks}.`,
+      // Measured three times: a supporting piece copied the outfit of a person in a
+      // reference photo (a black crop T-shirt twice, a green and a black churidar).
+      `The ${pair.pieces} ${is} never copied from what anyone in the reference photographs is wearing - not ${pair.plural ? 'their' : 'its'} style, cut or colour.`,
       `Colour of the ${pair.pieces}: ${pair.colour}${pair.exact ? ` (from ${pair.from}) - match it exactly` : ''}.`,
       // Measured: a pallu design ended up on the blouse.
       // Measured: a thin band of the saree's floral border still showed at the

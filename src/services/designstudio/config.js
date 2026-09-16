@@ -49,7 +49,11 @@ const config = {
   describe: {
     enabled: String(process.env.DESIGNSTUDIO_DESCRIBE || 'on').toLowerCase() !== 'off',
     model: process.env.DESIGNSTUDIO_DESCRIBE_MODEL || 'gemini-2.5-flash',
-    timeoutMs: int('DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS', 25000, { min: 1000 }),
+    // Per ATTEMPT. Measured: 8-10s normally, but two real runs hit 25s on one
+    // attempt and, with a single shared limit, the retry never ran. Each attempt
+    // now has its own limit inside an overall deadline.
+    timeoutMs: int('DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS', 25000, { min: 100 }),
+    deadlineMs: int('DESIGNSTUDIO_DESCRIBE_DEADLINE_MS', 55000, { min: 200 }),
     // gemini-2.5-flash is a thinking model and its thinking counts against this
     // cap. Measured: ~550 thinking + ~360-540 answer tokens for four references,
     // so 2048 left too little room on an unlucky run. Thinking is capped

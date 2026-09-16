@@ -38,7 +38,7 @@ const PRESETS = [
     productName: 'Chikankari Blouse', notes: 'clean boutique catalogue look' },
   { label: 'Blouse back', garment: 'BLOUSE', areas: ['BACK'],
     productName: 'Zari Back Blouse', notes: 'the back is the hero' },
-  { label: 'Dupatta (three-quarter)', garment: 'DUPATTA', areas: ['BORDER', 'PALLU_END', 'TASSEL'],
+  { label: 'Dupatta', garment: 'DUPATTA', areas: ['BORDER', 'PALLU_END', 'TASSEL'],
     productName: 'Organza Dupatta', notes: 'soft, airy drape' }
 ];
 
