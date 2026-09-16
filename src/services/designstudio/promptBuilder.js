@@ -57,6 +57,9 @@ const PART_WORDS = [
  */
 const EDGE_AREAS = new Set(['BORDER', 'BORDER_HEM', 'HEMLINE', 'HEM_BOTTOM', 'BOTTOM_BORDER', 'BOTTOM_ANKLE', 'WAISTBAND', 'WAIST_BELT', 'HAND']);
 
+/** Attached trims, not cut from the garment's fabric. */
+const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
+
 /** "SLEEVE" -> "sleeve"; for a photo of a whole garment: "take ONLY its sleeve". */
 function areaWords(areaId) {
   return areaId.toLowerCase().replace(/_/g, ' ');
@@ -98,7 +101,12 @@ function extrasLines(job, g) {
     lines.push('No dupatta, stole, shawl or scarf of any kind.');
   }
   if (job.garmentId === 'DUPATTA' && !areas.has('TASSEL')) {
-    lines.push('No tassels or latkans on the dupatta, and no fringe unless a design reference shows one.');
+    // Measured: a PALLU_END photo of a whole dupatta with tassels still produced tassels.
+    lines.push('No tassels, latkans or pom-poms on the dupatta ends - even if a reference photograph of a whole dupatta shows them - and no fringe unless a design reference shows one.');
+  }
+  if (job.garmentId === 'DUPATTA' && !areas.has('BODY') && !areas.has('OVERALL') && !areas.has('PRINT')) {
+    // Measured: the same photo's body buttis appeared on a dupatta with no BODY design.
+    lines.push('The body of the dupatta between its borders and ends is plain fabric: no buttis, motifs or print from any reference photograph (the fabric\'s own weave may show).');
   }
   return lines;
 }
@@ -264,13 +272,18 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     const info = descriptions.get(fabricRefNumber(fabric));
     if (!info) return null;
     const words = `${info.motifs} ${info.technique} ${info.layout}`;
-    return PATTERNED.test(words) ? fabric : null;
+    // Measured: an olive banarasi with small woven "diamond-shaped florets" took
+    // over a third of a dupatta body that had a leheriya design - no keyword above
+    // matched. Any fabric the describe step says has motifs counts.
+    const hasMotifs = info.motifs && !/^\s*(?:-|none|no\b|plain|n\/?a|solid)/i.test(info.motifs);
+    return PATTERNED.test(words) || hasMotifs ? fabric : null;
   };
 
   let n = 0;
   for (const d of job.designs) {
     n += 1;
-    const clash = patternedFabricFor(d.areaId);
+    // Trims are not cut from the fabric, so a patterned fabric cannot fight them.
+    const clash = TRIM_AREAS.has(d.areaId) ? null : patternedFabricFor(d.areaId);
     const lines = [
       `[Image ${n}] DESIGN for ${d.areaId} (${d.areaName})`,
       `Goes on: ${describeArea(job.garmentId, d.areaId)}.`,
@@ -284,6 +297,14 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       lines.push(`If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the ${partWords(d.areaId, g.product)}. If it shows a whole garment or outfit, take ONLY its ${areaWords(d.areaId)}: every other part of it - ${otherParts(d.areaId)}, and any other garment worn with it - is NOT part of this reference and must not appear anywhere on the new ${g.product} - not on its sleeves, cuffs, neckline, hem or any other part without a design of its own - and no embellishment from those other parts is moved onto this part.`);
     }
     lines.push('This picture decides the design. Where a customer note describes something different from the picture, follow the picture.');
+    // Measured twice: a PALLU_END photo of a whole dupatta with purple tassels put
+    // those tassels on the new dupatta, even with a general "no tassels" rule.
+    // Naming the exact picture that shows them is what the model needs.
+    const seen = descriptions.get(n) || {};
+    if (!designAreas.includes('TASSEL') && d.areaId !== 'TASSEL'
+      && /tassel|latkan|pom-?pom|fringe/i.test(`${seen.motifs || ''} ${seen.layout || ''} ${seen.notes || ''} ${seen.technique || ''}`)) {
+      lines.push(`[Image ${n}] also shows tassels, latkans, pom-poms or a fringe. They are NOT part of this design: do not put them anywhere on the ${g.product}.`);
+    }
     if (clash) {
       const fabricName = clash.name ? clean(clash.name) : `fabric ${clash.index + 1}`;
       lines.push(`IMPORTANT for this part: its fabric (${fabricName}) carries its own all-over woven pattern. That pattern must stay a quiet ground here - THIS design's motifs are what must be seen on ${d.areaId}, at their own size and colours. Do not let the fabric's pattern replace them.`);
@@ -321,7 +342,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Measured: a pallu ended in a large blank panel of plain fabric.
     lines.push(d.coverage === 'reference'
       ? 'Follow this reference\'s own layout exactly, including any plain areas it shows.'
-      : 'This design covers the whole of this part, edge to edge and right to its end. Do not leave any large plain panel or empty gap inside this part; only a narrow finishing edge of a few centimetres may be plain.');
+      : 'A repeating pattern covers the whole of this part, edge to edge and right to its end, with no large plain panel or empty gap; only a narrow finishing edge of a few centimetres may be plain. But if this reference is ONE placed piece - a yoke, neckpiece, appliqué, patch or a single motif - make it once, at its real size and in its natural position; never stretch or repeat it to fill the part.');
     // Measured: a BORDER_HEM reference that was a dress dotted with sequins all
     // over turned the whole gown skirt into polka dots. An edge area stays a band.
     if (EDGE_AREAS.has(d.areaId)) {

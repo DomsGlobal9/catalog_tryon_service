@@ -294,7 +294,7 @@ async function runAll({ check, eq, section, SRC }) {
     /Keep the motif colours exactly as they are in this reference, including multi-coloured motifs/.test(ctrlText)
     && /Recolour the motifs to suit this part's own fabric palette/.test(ctrlText));
   check('a design covers its whole part by default (the blank pallu end case), unless the caller wants the reference layout',
-    /covers the whole of this part, edge to edge and right to its end/.test(ctrlText) && /including any plain areas it shows/.test(ctrlText));
+    /A repeating pattern covers the whole of this part, edge to edge and right to its end/.test(ctrlText) && /including any plain areas it shows/.test(ctrlText));
   check('the saree pallu itself must not end in a plain block', /The pallu must never end in a large plain block of fabric/.test(ctrlText));
 
   eq('references are numbered once, in the order the model sees them',
@@ -411,8 +411,8 @@ async function runAll({ check, eq, section, SRC }) {
     && !/No dupatta, stole/.test(buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text)
     && !/No dupatta, stole/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
   check('a dupatta gets tassels only from a TASSEL design (two dupattas grew tassels unasked)',
-    /No tassels or latkans on the dupatta, and no fringe unless a design reference shows one/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'CORNER'])).text)
-    && !/No tassels or latkans/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL'])).text)
+    /No tassels, latkans or pom-poms on the dupatta ends - even if a reference photograph of a whole dupatta shows them - and no fringe unless a design reference shows one/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'CORNER'])).text)
+    && !/No tassels, latkans/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL'])).text)
     && !/and its tassels are all clearly visible/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
   check('the waist-up framing says the legs and feet are out of frame',
     /the knees, legs and feet are NOT in it/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
@@ -492,6 +492,36 @@ async function runAll({ check, eq, section, SRC }) {
   check('a dupatta hangs both ends down the front, side by side, as mirror images (3 of 4 came out with different ends)',
     /BOTH long ends hang straight down the front of the body, one over each shoulder, side by side and at the same height/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text)
     && /The two ends hanging side by side are mirror images of each other/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text));
+  section('DESIGN STUDIO: ROUND 3  (real fabric photos, faults seen in real generations)');
+  // An olive banarasi with small woven florets took over a third of a leheriya body.
+  const floretJob = fakeJob('DUPATTA', ['BODY'], { fabrics: [{ image: IMG, name: 'Olive Banarasi silk' }] });
+  const floret = buildPrompt(floretJob, { descriptions: new Map([[2, { motifs: 'Small diamond-shaped florets', technique: 'woven silk' }]]) });
+  check('a fabric described with any motifs counts as patterned, not only brocade or jaal keywords',
+    floret.warnings.some((w) => /BODY has both a design and a patterned fabric \(Olive Banarasi silk/.test(w)));
+  eq('a fabric whose motifs are "none" or "plain" still raises nothing',
+    ['none', 'Plain. No motifs.', '-', 'Solid colour'].map((m) => buildPrompt(fakeJob('DUPATTA', ['BODY'], { fabrics: [{ image: IMG, name: 'x' }] }), { descriptions: new Map([[2, { motifs: m }]]) }).warnings.length),
+    [0, 0, 0, 0]);
+  check('a dupatta BODY design runs the full length between the borders, up to both ends',
+    /the whole field between the borders along its full length, right up to both decorated ends/.test(buildPrompt(fakeJob('DUPATTA', ['BODY'])).text));
+  // A PALLU_END photo of a whole dupatta brought its tassels and body buttis along.
+  const endOnly = buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'BORDER'])).text;
+  check('no BODY design: the dupatta body stays plain, whatever a whole-dupatta photo shows',
+    /The body of the dupatta between its borders and ends is plain fabric: no buttis, motifs or print from any reference photograph/.test(endOnly)
+    && !/The body of the dupatta between its borders and ends is plain/.test(buildPrompt(fakeJob('DUPATTA', ['BODY'])).text));
+  // A saree blouse came out with zari bands at the sleeves and neckline again.
+  check('a saree blouse is cut from plain fabric, never from the saree border, pallu or body',
+    /cut from plain solid fabric - never from the saree's woven border, pallu or body fabric/.test(buildPrompt(fakeJob('SAREE', ['BORDER'])).text));
+  // A neckpiece appliqué on a FRONT design was stretched from the neck to the hem.
+  check('a single placed piece is made once at its real size, never stretched to fill the part',
+    /if this reference is ONE placed piece - a yoke, neckpiece, appliqué, patch or a single motif - make it once, at its real size and in its natural position; never stretch or repeat it to fill the part/.test(buildPrompt(fakeJob('KURTHI', ['FRONT'])).text));
+
+  const tasselLeak = buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'BORDER']), { descriptions: new Map([[1, { motifs: 'floral branches', notes: 'purple silk tassels hang from the end' }]]) }).text;
+  check('a reference that also shows tassels is named, and its tassels excluded (purple tassels came from a pallu-end photo twice)',
+    /\[Image 1\] also shows tassels, latkans, pom-poms or a fringe\. They are NOT part of this design/.test(tasselLeak)
+    && !/also shows tassels/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'TASSEL']), { descriptions: new Map([[1, { notes: 'tassels hang from the end' }]]) }).text));
+  eq('a patterned fabric raises no clash warning on a trim (tassels and buttons are not cut from it)',
+    buildPrompt(fakeJob('DUPATTA', ['TASSEL'], { fabrics: [{ image: IMG, name: 'Olive silk' }] }), { descriptions: new Map([[2, { motifs: 'woven florets' }]]) }).warnings, []);
+
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 

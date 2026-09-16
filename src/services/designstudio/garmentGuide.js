@@ -69,7 +69,7 @@ const GUIDE = {
     // move onto the blouse. A saree has no blouse areas, so nothing describes it.
     styling: null,
     // Measured twice: a zari band from the saree border appeared at the sleeve ends.
-    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse whose sleeves end in a plain, clean hem and whose neckline is plain, with no border band anywhere', colour: 'match' },
+    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse cut from plain solid fabric - never from the saree\'s woven border, pallu or body fabric - whose sleeves end in a plain, clean hem and whose neckline is plain, with no zari band, border or trim anywhere on it', colour: 'match' },
     poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
       // Measured: the pallu ended in a large panel of plain crimson with no design.
@@ -126,7 +126,7 @@ const GUIDE = {
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',
       PALLU_END: 'the two short decorated ends of the dupatta (the pallu ends), including their cross-bands. Both ends carry this same design in the same colours and the same metallic finish',
-      BODY: 'the main body of the dupatta: the field between the borders, with motifs at the reference\'s size and spacing',
+      BODY: 'the main body of the dupatta: the whole field between the borders along its full length, right up to both decorated ends, with motifs at the reference\'s size and spacing',
       CORNER: 'the four corners of the dupatta, where the borders meet: the corner motif',
       TASSEL: 'the tassels (latkans) hanging from both dupatta ends: copy their shape, beads, colours, length and spacing, identical on both ends'
     }
