@@ -278,7 +278,16 @@ async function runAll({ check, eq, section, SRC }) {
   ctrlJob.designs[1].coverage = 'reference';
   const ctrlText = buildPrompt(ctrlJob).text;
   check('a stated ground colour beats the reference photo\'s own colour (the navy collar case)',
-    /Ground colour for this part: hex #F2E8DC\. Reproduce the motifs on exactly this colour, whatever colour the reference photo is on\./.test(ctrlText));
+    /Ground colour for this part: hex #F2E8DC - from the caller\./.test(ctrlText) && /reference photo's own background colour must NOT appear/.test(ctrlText));
+  // Measured: a mustard sleeve reference made mint sleeves mustard, and a blue
+  // gota reference made a rust lehenga's hem blue, because no ground was stated.
+  const autoGround = buildPrompt(fakeJob('KURTHI', ['SLEEVE', 'NECK'], {
+    fabrics: [{ image: IMG, name: 'Mint cotton silk', color: 'mint green', colorHex: '#9CC5AE' }]
+  })).text;
+  eq('with no ground stated, every designed part takes the colour from its fabric automatically',
+    (autoGround.match(/Ground colour for this part: mint green, hex #9CC5AE - from its fabric \(Mint cotton silk\)\./g) || []).length, 2);
+  eq('a part whose fabric states no colour gets no invented ground line',
+    (buildPrompt(fakeJob('KURTHI', ['SLEEVE'], { fabrics: [{ image: IMG, name: 'Some silk' }] })).text.match(/Ground colour for this part/g) || []).length, 0);
   check('motif colours are kept by default and recoloured only when asked',
     /Keep the motif colours exactly as they are in this reference, including multi-coloured motifs/.test(ctrlText)
     && /Recolour the motifs to suit this part's own fabric palette/.test(ctrlText));

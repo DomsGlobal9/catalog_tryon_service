@@ -44,7 +44,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `designs[].area` | string | **Yes** | A design area **of that garment**, e.g. `PALLU`, `BORDER`, `BODY` for a saree. See `GET /options`. One design per area. |
 | `designs[].image` | string | **Yes** | The design picture. See *Images*. |
 | `designs[].note` | string, ≤300 | No | A short instruction for this design only. |
-| `designs[].groundColorHex` | string | No | e.g. `"#F2E8DC"`. The base colour **this part** must be, whatever colour the reference photo happens to be on. Use it when a reference is shot on a different coloured cloth. |
+| `designs[].groundColorHex` | string | No | e.g. `"#F2E8DC"`. The base colour **this part** must be, whatever colour the reference photo happens to be on. **You rarely need it**: if the fabric covering that part states a colour, that colour is used automatically. Set this only to override. |
 | `designs[].groundColor` | string, ≤60 | No | The same in words, e.g. `"ivory"`. |
 | `designs[].keepMotifColors` | boolean | No | Default `true`: the motifs keep the reference's own colours, including multi-coloured ones. `false` recolours them to suit the part's fabric. |
 | `designs[].coverage` | `full` | `reference` | No | Default `full`: the design covers the whole part with no large plain gaps. `reference` follows the reference's own layout, including any plain areas it shows. |
@@ -116,6 +116,16 @@ Every image is **either**:
 JPEG, PNG, WebP, AVIF and HEIC are accepted. Each image may be up to **12 MB**, and the whole
 request up to **50 MB**. Images at least **1000 px** on their longest side give the best detail; under
 512 px works but you will get a warning, and under 64 px is refused.
+
+### Colours: where each part's base colour comes from
+
+1. `designs[].groundColorHex` / `groundColor` for that part, if you send it;
+2. otherwise the **colour of the fabric covering that part** (`fabrics[].colorHex` / `color`);
+3. the design reference supplies **motifs only** - its own background colour is never used.
+
+Measured: a sleeve design photographed on mustard made mint sleeves mustard, and a
+gota border photographed on royal blue made a rust lehenga's hem blue. With the
+fabric's colour applied automatically, both came out in the intended colour.
 
 ### How a request is answered, in two steps
 

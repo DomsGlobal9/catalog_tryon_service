@@ -143,9 +143,19 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       lines.push(`IMPORTANT for this part: its fabric (${fabricName}) carries its own all-over woven pattern. That pattern must stay a quiet ground here - THIS design's motifs are what must be seen on ${d.areaId}, at their own size and colours. Do not let the fabric's pattern replace them.`);
       warnings.push(`${d.areaId} has both a design and a patterned fabric (${fabricName}, described as ${clean((descriptions.get(fabricRefNumber(clash)) || {}).technique || 'patterned')}). The fabric's own pattern can compete with the design. For the sharpest result, send a plainer fabric for ${d.areaId}.`);
     }
-    if (d.groundColor || d.groundColorHex) {
-      const stated = [d.groundColor ? clean(d.groundColor) : null, d.groundColorHex ? `hex ${d.groundColorHex}` : null].filter(Boolean).join(', ');
-      lines.push(`Ground colour for this part: ${stated}. Reproduce the motifs on exactly this colour, whatever colour the reference photo is on.`);
+    // The caller's own ground colour for this part wins. Otherwise take it from
+    // the fabric covering the part - measured: without this line a mustard sleeve
+    // reference made mint sleeves mustard, and a blue gota reference made a rust
+    // lehenga's hem blue. The same wording fixed an ivory collar when set by hand.
+    const partFabric = fabricFor(d.areaId);
+    const ground = (d.groundColor || d.groundColorHex)
+      ? { words: d.groundColor, hex: d.groundColorHex, from: 'the caller' }
+      : (partFabric && (partFabric.color || partFabric.colorHex))
+        ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
+        : null;
+    if (ground) {
+      const stated = [ground.words ? clean(ground.words) : null, ground.hex ? `hex ${ground.hex}` : null].filter(Boolean).join(', ');
+      lines.push(`Ground colour for this part: ${stated} - from ${ground.from}. Reproduce the motifs on exactly this colour. The reference photo's own background colour must NOT appear on the garment.`);
     }
     lines.push(d.keepMotifColors
       ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
