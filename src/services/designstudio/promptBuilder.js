@@ -523,6 +523,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   addText(['QUALITY BAR', bullets([
     'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
     `Exactly one complete ${g.product}, with exactly one of each of its parts. Never show a part twice, never mirror a decorated panel onto the other side, and never add an extra drape, shawl, stole or dupatta that this garment does not have.`,
+    // Measured three times in real saree photos: the saree border repeated as gold
+    // bands on the blouse sleeves, despite the blouse being described as plain.
+    // The final check, right before the image is made, is where it is named.
+    ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${pair.pieces === 'blouse' || pair.pieces === 'choli and dupatta' ? 'sleeve ends, cuffs and neckline' : 'edges and hems'}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'

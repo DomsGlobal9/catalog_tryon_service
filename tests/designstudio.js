@@ -529,6 +529,13 @@ async function runAll({ check, eq, section, SRC }) {
     && /Ground colour for this part: red\. In its reference this part is a separately coloured contrast panel/.test(frontContrast.text)
     && frontContrast.warnings.filter((w) => /contrast panel/.test(w)).length === 1);
 
+  const sareeBand = buildPrompt(fakeJob('SAREE', ['BORDER'])).text;
+  check('the saree border belongs to the saree only, and the final check names the blouse sleeve ends (bands came back three times)',
+    /never repeated on the blouse, not as sleeve cuffs, not around the neckline/.test(sareeBand)
+    && /Final check on the blouse: it is one solid colour from edge to edge\. Look at the sleeve ends, cuffs and neckline: there is NO gold, zari, metallic or patterned band there/.test(sareeBand)
+    && sareeBand.indexOf('Final check on the blouse') > sareeBand.indexOf('QUALITY BAR')
+    && !/Final check on/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
+
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 
