@@ -46,14 +46,61 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `designs[].note` | string, ≤300 | No | A short instruction for this design only. |
 | `fabrics` | array, 0–3 | No | The fabrics to make the garment from. |
 | `fabrics[].image` | string | **Yes** | The fabric picture. |
-| `fabrics[].name` | string, ≤80 | No | e.g. `"Banarasi silk"`. Helps the model understand the material. |
+| `fabrics[].name` | string, ≤80 | No | e.g. `"Banarasi Brocade"`. Helps the model understand the material. |
+| `fabrics[].material` | string, ≤120 | No | e.g. `"Pure Katan silk with woven zari"`. Decides how the cloth falls and shines. |
+| `fabrics[].color` | string, ≤60 | No | The colour in words, e.g. `"Wine / deep magenta with gold zari"`. |
+| `fabrics[].colorHex` | string | No | e.g. `"#722F37"`. **A stated colour or hex wins over the photo's shade**, because a fabric photo can be shot in warm or cool light. The photo is still used for the weave, motifs and zari. |
+| `fabrics[].itemCode` | string, ≤40 | No | Your stock code. Echoed back in the `start` event so you can match the photo to the item. |
 | `fabrics[].appliesTo` | string[] | No | The design areas this fabric is used for. **Leave it out for the main fabric**, which covers every part without its own fabric. Only one fabric can be the main fabric, and each area can have only one fabric. |
 | `fabrics[].note` | string, ≤300 | No | A short instruction for this fabric only. |
+| `productName` | string, ≤120 | No | e.g. `"Bridal Banarasi Saree"`. Used as a hint to the style and occasion. No text is ever drawn into the image. |
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
 | `modelGender` | `female` \| `male` | No | Defaults to the garment's usual wearer (`male` for `SHERWANI`, `female` for the rest). |
 | `notes` | string, ≤600 | No | Anything else. The reference images always take priority over notes. |
 
 Unknown fields are refused, so a typo never silently does nothing.
+
+### If your payload comes from a product catalogue
+
+These field names are accepted as well, so a request built around a product record needs no
+rewriting. Both spellings produce exactly the same result.
+
+| Catalogue name | Same as |
+| :--- | :--- |
+| `productType`, `garmentType` | `garment` |
+| `parts` | `designs` |
+| `parts[].type` | `designs[].area` |
+| `parts[].designImageUrl`, `parts[].imageUrl` | `designs[].image` |
+| `parts[].description` | `designs[].note` |
+| `parts[].label` | accepted, not used (your own display name) |
+| `fabrics[].imageUrl` | `fabrics[].image` |
+| `fabrics[].details.*` | the `fabrics[]` fields themselves (`name`, `material`, `color`/`colour`, `colorHex`, `itemCode`) |
+| `fabrics[].details.quantityMeters` | accepted, not used (it cannot change a photograph) |
+| `instructions` | `notes` |
+| `modelImageUrl` | `modelImage` |
+
+```json
+{
+  "clientId": "shop-42-user-9",
+  "productType": "saree",
+  "productName": "Bridal Banarasi Saree",
+  "instructions": "luxury boutique look",
+  "parts": [
+    { "type": "pallu",  "label": "Pallu",  "description": "gold zari peacock motif", "designImageUrl": "https://res.cloudinary.com/acme/image/upload/v1/pallu.jpg" },
+    { "type": "border", "label": "Border", "description": "wide temple border",      "designImageUrl": "https://res.cloudinary.com/acme/image/upload/v1/border.jpg" },
+    { "type": "body",   "label": "Body",   "description": "small woven butis",       "designImageUrl": "https://res.cloudinary.com/acme/image/upload/v1/body.jpg" }
+  ],
+  "fabrics": [
+    {
+      "imageUrl": "https://res.cloudinary.com/acme/image/upload/v1/fab-0003.jpg",
+      "appliesTo": ["body"],
+      "details": { "itemCode": "FAB-0003", "name": "Banarasi Brocade", "material": "Silk blend with zari work", "color": "Wine / deep magenta", "colorHex": "#722F37", "quantityMeters": 5.5 }
+    }
+  ]
+}
+```
+
+`clientId` is still required, and a typo inside `details` is refused with the field named.
 
 ### Images
 
@@ -85,7 +132,7 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 
 | `type` | When | Contents |
 | :--- | :--- | :--- |
-| `start` | Immediately | `jobId`, `garment`, `designs`, `fabrics`, `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
+| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
 | `status` | Each attempt | `stage: "generating"`, `attempt`, `message` |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
 | `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `generateMs`, `totalMs`) |

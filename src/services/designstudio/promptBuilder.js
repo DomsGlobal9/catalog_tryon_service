@@ -61,11 +61,15 @@ function buildPrompt(job) {
   }
 
   // ── 1. TASK ────────────────────────────────────────────────────────────────
+  const productLine = job.productName
+    ? `The finished product is sold as "${clean(job.productName)}" - treat that name as a hint to the style and occasion only, and never draw any text into the image.`
+    : null;
   addText([
     'TASK',
     `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}, ` +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
+    ...(productLine ? [productLine] : []),
     '',
     'REFERENCE IMAGES'
   ].join('\n'));
@@ -93,7 +97,14 @@ function buildPrompt(job) {
     const usedFor = f.appliesTo
       ? `Used for: ${f.appliesTo.map((a) => `${a} (${areaName(job.garmentId, a)})`).join(', ')} only.`
       : 'Used for: the main fabric of the whole garment, meaning every part that has no fabric of its own.';
-    const lines = [`[Image ${n}] FABRIC: ${label}`, usedFor];
+    const lines = [`[Image ${n}] FABRIC: ${label}${f.itemCode ? ` [${clean(f.itemCode)}]` : ''}`, usedFor];
+    if (f.material) lines.push(`Material: ${clean(f.material)}. Show this material's real weave, weight and surface finish.`);
+    // The stated colour is the customer's stock record. A fabric photo can be shot
+    // in warm or cool light, so the words and the hex decide the base colour.
+    if (f.color || f.colorHex) {
+      const stated = [f.color ? clean(f.color) : null, f.colorHex ? `hex ${f.colorHex}` : null].filter(Boolean).join(', ');
+      lines.push(`Colour: ${stated}. That is this fabric's exact colour: match it precisely, and use the photograph for the weave, motifs and metallic zari rather than for the shade.`);
+    }
     if (f.note) lines.push(`Customer note for this fabric: ${clean(f.note)}`);
     addText(lines.join('\n'));
     addImage(f.image, `fabric ${label}`);
@@ -145,6 +156,12 @@ function buildPrompt(job) {
       'Designs sit on the fabric they belong to and respect its texture: woven zari looks woven into the cloth, prints look printed into the weave, and embroidery sits slightly raised on the surface.',
       'Where a design\'s motif colours differ from its fabric, keep the design\'s own colours for the motifs and the fabric\'s colour for the ground.'
     ];
+    if (job.fabrics.some((f) => f.color || f.colorHex)) {
+      fabricRules.push('Where a fabric states a colour or a hex code, that colour is the truth: reproduce it exactly, even if its photograph looks a slightly different shade because of the light it was shot in.');
+    }
+    if (job.fabrics.some((f) => f.material)) {
+      fabricRules.push('Where a fabric states a material, build that part of the garment from that material: its drape, stiffness and sheen must read as that cloth - pure silk falls and shines differently from art silk, net or velvet.');
+    }
     const hasMain = job.fabrics.some((f) => !f.appliesTo);
     if (!hasMain) {
       fabricRules.push('Any part of the outfit not covered by a fabric reference uses the most closely related referenced fabric, so the whole outfit reads as one coordinated set.');

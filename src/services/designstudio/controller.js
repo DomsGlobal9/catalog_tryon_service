@@ -87,7 +87,9 @@ async function generate(req, res, next) {
       jobId: admitted.job.id,
       garment: job.garmentId,
       designs: job.designs.map((d) => ({ index: d.index, area: d.areaId, areaName: d.areaName })),
-      fabrics: job.fabrics.map((f) => ({ index: f.index, name: f.name, appliesTo: f.appliesTo || 'MAIN' })),
+      // itemCode is echoed back so the caller can match the photo to their stock.
+      fabrics: job.fabrics.map((f) => ({ index: f.index, name: f.name, itemCode: f.itemCode, color: f.colorHex || f.color, appliesTo: f.appliesTo || 'MAIN' })),
+      productName: job.productName,
       model: job.model.kind,
       pose: prompt.pose,
       aspectRatio: config.gemini.aspectRatio,

@@ -75,6 +75,32 @@ async function runAll({ check, eq, section, SRC }) {
     [{ kind: 'generated', gender: 'female' }, 'male', 'reference']);
   check('error details name the exact field', (() => { try { resolveRequest(body({ fabrics: [{ image: IMG, appliesTo: ['NOPE'] }] })); } catch (e) { return e.details[0].field === 'fabrics[0].appliesTo[0]'; } })());
 
+  section('DESIGN STUDIO: THE CATALOGUE-STYLE PAYLOAD  (product/parts/fabric details)');
+  const catalogue = {
+    clientId: 'shop-42', productType: 'saree', productName: 'Bridal Banarasi Saree',
+    instructions: 'luxury boutique look',
+    parts: [
+      { type: 'pallu', label: 'Pallu', description: 'gold zari peacock motif', designImageUrl: IMG },
+      { type: 'border', label: 'Border', description: 'wide temple border', designImageUrl: IMG }
+    ],
+    fabrics: [
+      { imageUrl: IMG, appliesTo: ['body'], details: { itemCode: 'FAB-0003', name: 'Banarasi Brocade', material: 'Silk blend with zari', color: 'Wine', colorHex: '722f37', quantityMeters: 5.5 } },
+      { imageUrl: IMG, appliesTo: ['pallu'], details: { itemCode: 'FAB-0011', name: 'Katan Silk', colour: 'Crimson Red', colorHex: '#DC143C', quantityMeters: 1.2 } }
+    ]
+  };
+  const cat = resolveRequest(catalogue);
+  eq('a catalogue-style payload resolves: productType/parts/type/designImageUrl/instructions',
+    [cat.garmentId, cat.productName, cat.designs.map((d) => d.areaId), cat.designs[0].note, cat.notes],
+    ['SAREE', 'Bridal Banarasi Saree', ['PALLU', 'BORDER'], 'gold zari peacock motif', 'luxury boutique look']);
+  eq('fabric details are flattened, colour spelled either way, hex normalised, quantity and label ignored',
+    cat.fabrics.map((f) => [f.itemCode, f.name, f.material, f.color, f.colorHex, f.appliesTo]),
+    [['FAB-0003', 'Banarasi Brocade', 'Silk blend with zari', 'Wine', '#722F37', ['BODY']], ['FAB-0011', 'Katan Silk', null, 'Crimson Red', '#DC143C', ['PALLU']]]);
+  eq('both spellings of the same request give the same job',
+    JSON.stringify(resolveRequest({ clientId: 'shop-42', garment: 'SAREE', designs: [{ area: 'PALLU', image: IMG }] })),
+    JSON.stringify(resolveRequest({ clientId: 'shop-42', productType: 'saree', parts: [{ type: 'pallu', designImageUrl: IMG }] })));
+  eq('a bad hex colour is refused', code(() => resolveRequest(body({ fabrics: [{ image: IMG, colorHex: 'reddish' }] }))), 'INVALID_FIELD');
+  eq('an unknown key inside details is still refused', code(() => resolveRequest({ clientId: 'c', productType: 'saree', parts: [{ type: 'pallu', designImageUrl: IMG }], fabrics: [{ imageUrl: IMG, details: { weirdField: 1 } }] })), 'INVALID_FIELD');
+
   // ── IMAGES ─────────────────────────────────────────────────────────────────
   section('DESIGN STUDIO: IMAGE PREPARATION  (real image decoding; Cloudinary faked)');
   const cloud = (p) => `https://res.cloudinary.com/demo/image/upload/${p}`;
@@ -201,6 +227,22 @@ async function runAll({ check, eq, section, SRC }) {
     /always wins inside that area/.test(full.text) && !/always wins inside that area/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   check('customer notes come last, flattened, and cannot break out of their quotes', /The customer also asked: "make it 'festive' and rich"/.test(full.text) && full.text.indexOf('CUSTOMER NOTES') > full.text.indexOf('QUALITY BAR'));
   check('portrait 3:4, head to toe, plain studio backdrop', /in 3:4, showing the model from head to toe/.test(full.text) && /plain studio backdrop/.test(full.text));
+
+  const detailed = fakeJob('SAREE', ['PALLU', 'BODY'], {
+    productName: 'Bridal Banarasi Saree',
+    fabrics: [
+      { image: IMG, name: 'Banarasi Brocade', material: 'Silk blend with zari work', color: 'Wine', colorHex: '#722F37', itemCode: 'FAB-0003', appliesTo: ['BODY'] },
+      { image: IMG, name: 'Katan Silk', colorHex: '#DC143C', appliesTo: ['PALLU'] }
+    ]
+  });
+  const detailedText = buildPrompt(detailed).text;
+  check('the fabric label carries its code, material and stated colour',
+    /FABRIC: Banarasi Brocade \[FAB-0003\]/.test(detailedText) && /Material: Silk blend with zari work/.test(detailedText) && /Colour: Wine, hex #722F37\. That is this fabric's exact colour/.test(detailedText), detailedText.split('[Image 3]')[1].split('\n\n')[0]);
+  check('a hex-only fabric still states its colour', /Colour: hex #DC143C/.test(detailedText));
+  check('stated colour and material become rules, and the product name is a style hint only',
+    /that colour is the truth/.test(detailedText) && /build that part of the garment from that material/.test(detailedText)
+    && /sold as "Bridal Banarasi Saree"/.test(detailedText) && /never draw any text into the image/.test(detailedText));
+  check('without colours or materials those rules are not added', !/that colour is the truth/.test(full.text) && !/build that part of the garment from that material/.test(full.text));
 
   const back = buildPrompt(fakeJob('BLOUSE', ['BACK']));
   eq('a BACK design turns the model so the back is visible', [back.pose, /looking back over the shoulder/.test(back.text)], ['back', true]);

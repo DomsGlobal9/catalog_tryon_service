@@ -2,9 +2,13 @@
 // validate.js — turn a request body into a clean, fully resolved job, or refuse.
 // =============================================================================
 //
-// Two layers:
-//   1. shape (zod): types, lengths, counts, no unknown fields;
-//   2. meaning: the garment exists, every design area belongs to that garment,
+// Three layers:
+//   1. field names: two spellings of the same request are accepted, so a caller
+//      built around a product catalogue ("productType", "parts",
+//      "designImageUrl", "fabrics[].details") works as well as the short form
+//      ("garment", "designs", "image"). See canonicaliseFields below.
+//   2. shape (zod): types, lengths, counts, no unknown fields;
+//   3. meaning: the garment exists, every design area belongs to that garment,
 //      fabric assignments do not overlap, every image is base64 or an allowed link.
 //
 // Nothing is downloaded or decoded here - that is imageInput.js, after this has
@@ -18,22 +22,92 @@ const { taxonomy, garmentGuide } = require('./garmentGuide');
 const MODEL_GENDERS = ['female', 'male'];
 
 const text = (max) => z.string().trim().max(max);
-
 const imageField = z.string({ error: 'must be a base64 image or an https link' }).trim().min(1, 'must not be empty');
 
+// ── 1. Field names ───────────────────────────────────────────────────────────
+//
+// Accepted spelling -> what the service calls it:
+//   productType | garmentType -> garment     instructions -> notes
+//   parts -> designs                         parts[].type -> area
+//   parts[].designImageUrl | imageUrl -> image        parts[].description -> note
+//   fabrics[].imageUrl -> image              fabrics[].details.* -> flattened
+//   colour -> color                          modelImageUrl -> modelImage
+//
+// Accepted and then ignored, because they cannot change a photograph:
+//   quantityMeters (stock), parts[].label (a caller's own display name).
+//
+const pick = (obj, from, to) => {
+  if (obj[from] !== undefined && obj[to] === undefined) obj[to] = obj[from];
+  if (from !== to) delete obj[from];
+};
+
+function canonicaliseFields(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const body = { ...raw };
+  pick(body, 'productType', 'garment');
+  pick(body, 'garmentType', 'garment');
+  pick(body, 'instructions', 'notes');
+  pick(body, 'parts', 'designs');
+  pick(body, 'modelImageUrl', 'modelImage');
+
+  if (Array.isArray(body.designs)) {
+    body.designs = body.designs.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const design = { ...entry };
+      pick(design, 'type', 'area');
+      pick(design, 'designImageUrl', 'image');
+      pick(design, 'imageUrl', 'image');
+      pick(design, 'description', 'note');
+      return design;
+    });
+  }
+
+  if (Array.isArray(body.fabrics)) {
+    body.fabrics = body.fabrics.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const fabric = { ...entry };
+      pick(fabric, 'imageUrl', 'image');
+      pick(fabric, 'fabricImageUrl', 'image');
+      if (fabric.details && typeof fabric.details === 'object' && !Array.isArray(fabric.details)) {
+        const details = fabric.details;
+        delete fabric.details;
+        // Every key is lifted out, not just the ones we use: a typo inside
+        // details (colourHex, materail) then fails the strict check below with
+        // the field named, instead of being silently ignored.
+        for (const key of Object.keys(details)) {
+          if (details[key] !== undefined && fabric[key] === undefined) fabric[key] = details[key];
+        }
+      }
+      pick(fabric, 'colour', 'color');
+      pick(fabric, 'description', 'note');
+      return fabric;
+    });
+  }
+  return body;
+}
+
+// ── 2. Shape ─────────────────────────────────────────────────────────────────
 const schema = z.object({
   clientId: z.string().trim().min(1).max(128),
   garment: z.string().trim().min(1).max(40),
+  // A style hint only ("Bridal Banarasi Saree"). No text is ever drawn into the photo.
+  productName: text(120).optional(),
   designs: z.array(z.object({
     area: z.string().trim().min(1).max(40),
     image: imageField,
-    note: text(config.limits.maxNoteChars).optional()
+    note: text(config.limits.maxNoteChars).optional(),
+    label: text(80).optional() // the caller's display name; not used in the prompt
   }).strict()).min(1, 'at least one design is required').max(config.limits.maxDesigns, `at most ${config.limits.maxDesigns} designs`),
   fabrics: z.array(z.object({
     image: imageField,
     name: text(80).optional(),
+    material: text(120).optional(),
+    color: text(60).optional(),
+    colorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #722F37').optional(),
+    itemCode: text(40).optional(),
     appliesTo: z.array(z.string().trim().min(1).max(40)).min(1).max(20).optional(),
-    note: text(config.limits.maxNoteChars).optional()
+    note: text(config.limits.maxNoteChars).optional(),
+    quantityMeters: z.number().nonnegative().optional() // stock information; ignored
   }).strict()).max(config.limits.maxFabrics, `at most ${config.limits.maxFabrics} fabrics`).default([]),
   modelImage: imageField.optional(),
   modelGender: z.enum(MODEL_GENDERS).optional(),
@@ -97,8 +171,8 @@ function formatZodIssues(error) {
  * @returns {Object} a resolved job: canonical garment, resolved areas, classified images.
  * @throws StudioError 400
  */
-function resolveRequest(body) {
-  const parsed = schema.safeParse(body === undefined ? {} : body);
+function resolveRequest(rawBody) {
+  const parsed = schema.safeParse(canonicaliseFields(rawBody === undefined ? {} : rawBody));
   if (!parsed.success) {
     const issues = formatZodIssues(parsed.error);
     throw validation(`Invalid request: ${issues.map((i) => `${i.field} ${i.message}`).join('; ')}`, issues);
@@ -153,22 +227,31 @@ function resolveRequest(body) {
       }
       mainFabric = i;
     }
-    return { index: i, name: f.name || null, appliesTo, note: f.note || null, source: classifyImage(f.image, `${field}.image`) };
+    return {
+      index: i,
+      name: f.name || null,
+      material: f.material || null,
+      color: f.color || null,
+      colorHex: f.colorHex ? `#${f.colorHex.replace('#', '').toUpperCase()}` : null,
+      itemCode: f.itemCode || null,
+      appliesTo,
+      note: f.note || null,
+      source: classifyImage(f.image, `${field}.image`)
+    };
   });
-
-  const guideWearer = garmentGuide(garment.id).wearer;
 
   return {
     clientId: input.clientId,
+    productName: input.productName || null,
     garmentId: garment.id,
     garmentName: garment.name,
     designs,
     fabrics,
     model: input.modelImage
       ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
-      : { kind: 'generated', gender: input.modelGender || guideWearer },
+      : { kind: 'generated', gender: input.modelGender || garmentGuide(garment.id).wearer },
     notes: input.notes || null
   };
 }
 
-module.exports = { resolveRequest, classifyImage, hostAllowed, MODEL_GENDERS, schema };
+module.exports = { resolveRequest, canonicaliseFields, classifyImage, hostAllowed, MODEL_GENDERS, schema };
