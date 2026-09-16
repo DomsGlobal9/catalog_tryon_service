@@ -69,6 +69,32 @@ const config = {
   // built from the order, and one failed check buys one regeneration with that
   // fault named. Never required: if the check itself fails, the photograph is
   // returned unchecked.
+  // Crop each design reference to the part it is for, using the box the describe
+  // step returns (cropReferences.js). Never required.
+  crop: {
+    enabled: String(process.env.DESIGNSTUDIO_CROP || 'on').toLowerCase() !== 'off',
+    // One small call per design picture, in parallel with the describe step.
+    // Measured: boxes asked for inside the multi-picture describe call were loose
+    // and changed between runs (a pallu box that missed the pallu).
+    model: process.env.DESIGNSTUDIO_CROP_MODEL || 'gemini-2.5-flash',
+    timeoutMs: int('DESIGNSTUDIO_CROP_TIMEOUT_MS', 20000, { min: 100 }),
+    // A box already covering this much of the picture is a close-up: use it whole.
+    skipIfBoxCovers: 0.6,
+    // Margin around the box, relative to its size, so a part keeps its context.
+    margin: 0.25,
+    // Every crop keeps at least this share of the picture's width and height.
+    // Measured: 0.4 kept a sequinned bodice under a neckline; 0.28 still keeps the shoulders.
+    minShare: 0.28,
+    // A crop shorter than this on its short side is enlarged to it.
+    minSidePx: 768,
+    // ...but never beyond this on its long side (a tall pallu strip became 2780px).
+    maxSidePx: 1600,
+    // When the inspector finds decoration spread beyond the designed parts, the one
+    // regeneration crops the references this much tighter: the picture itself was
+    // the cause, so the retry must see less of it, not the same picture again.
+    tightMargin: 0.08,
+    tightMinShare: 0.15
+  },
   qa: {
     enabled: String(process.env.DESIGNSTUDIO_QA || 'on').toLowerCase() !== 'off',
     model: process.env.DESIGNSTUDIO_QA_MODEL || 'gemini-2.5-flash',

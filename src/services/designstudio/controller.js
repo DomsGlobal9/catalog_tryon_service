@@ -23,6 +23,7 @@ const { resolveRequest } = require('./validate');
 const { prepareImages } = require('./imageInput');
 const { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
+const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
 const { reviewImage, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
@@ -107,12 +108,21 @@ async function generate(req, res, next) {
 
     // Step one: put the references into words, so the image model cannot quietly
     // simplify a temple border into plain bands. Optional and never fatal.
+    let descriptions = new Map();
+    let boxes = new Map();
     if (config.describe.enabled) {
       send({ type: 'status', stage: 'reading-references', message: 'Reading the designs and fabrics.' });
       const describeStarted = Date.now();
-      const descriptions = await describeReferences(referenceList(job), { signal: abort.signal });
+      // The part each design is for is found at the same time, so it costs no wait.
+      [descriptions, boxes] = await Promise.all([
+        describeReferences(referenceList(job), { signal: abort.signal }),
+        locateParts(job, { signal: abort.signal })
+      ]);
       job.describeMs = Date.now() - describeStarted;
-      if (descriptions.size) {
+      // Show the image model only the part each design reference is for.
+      const crops = await cropReferences(job, boxes);
+      if (crops.length) console.log(`[DesignStudio] requestId=${requestId} cropped to the part: ${crops.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
+      if (descriptions.size || crops.length) {
         const before = prompt.warnings;
         prompt = buildPrompt(job, { descriptions });
         send({
@@ -152,9 +162,20 @@ async function generate(req, res, next) {
         && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
         regenerations++;
         console.log(`[DesignStudio] requestId=${requestId} inspection failed: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
+        // Measured: a NECK photo of a kurta sequinned all over kept sequinning the new
+        // kurta through the rules and a correction. When decoration spread beyond the
+        // designed parts, the retry is shown tighter crops of the references.
+        let retryParts = prompt.parts;
+        if (verdict.failures.some((f) => f.id === 'plain_rest' || f.id === 'plain_sleeves') && boxes.size) {
+          const tight = await cropReferences(job, boxes, { tight: true });
+          if (tight.length) {
+            retryParts = buildPrompt(job, { descriptions }).parts;
+            console.log(`[DesignStudio] requestId=${requestId} retry uses tighter crops: ${tight.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
+          }
+        }
         let retry;
         try {
-          retry = await generate([...prompt.parts, { text: correctionsText(verdict.failures) }], 'regenerating');
+          retry = await generate([...retryParts, { text: correctionsText(verdict.failures) }], 'regenerating');
         } catch (err) {
           if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
           break; // keep the first photograph rather than fail the request

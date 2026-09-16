@@ -42,6 +42,10 @@ async function runAll({ check, eq, section, SRC }) {
   const { buildPrompt, referenceList } = S('promptBuilder');
   const describe = S('describeReferences');
   const qa = S('qualityCheck');
+  const crop = S('cropReferences');
+  // The part finder answers "close-up" unless a test says otherwise: no test may reach the network.
+  const locateAnswer = (view, box = []) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ view, box_2d: box }) }] } }] }), { status: 200 });
+  crop._setFetch(locateAnswer('close-up of the part'));
   const gemini = S('geminiImage');
   const { GUIDE, taxonomy, GLOBAL_AREAS } = S('garmentGuide');
   const routes = S('routes');
@@ -678,6 +682,49 @@ async function runAll({ check, eq, section, SRC }) {
     /Judge ONLY the flare of the bottom wear \(/.test((qa.buildChecklist(buildPrompt(fakeJob('BOTTOM_WEAR', ['FLARE', 'BOTTOM_ANKLE']), { descriptions: new Map([[1, { motifs: 'buttis', technique: 'Block print, matte' }]]) }).review).find((c) => c.id === 'print_flare') || {}).question || ''));
   check('a button is not colour-checked (amber gemstone buttons failed as "not ivory")',
     !qa.buildChecklist(buildPrompt(fakeJob('SHERWANI', ['BUTTON'], { fabrics: [{ image: IMG, color: 'ivory', colorHex: '#EDE3CC' }] }), { descriptions: new Map([[1, { motifs: 'gemstone', colours: 'background: dark blue', technique: 'metal button', groundType: 'garment fabric', groundColour: 'dark blue' }]]) }).review).some((c) => c.id === 'colour_button'));
+  // Round 8: crop each design reference to its part (a neck photo sequinned a whole kurta through every rule).
+  const cfgCrop = S('config').config.crop;
+  const rect = crop.cropRect(crop.readBox([180, 340, 230, 410]), 1000, 1500);
+  check('a tight box (a neckline alone) keeps at least 28% of each side, centred on it, so the part keeps its shoulders',
+    rect && rect.width >= 280 && rect.height >= 420 && rect.left <= 340 && rect.left + rect.width >= 410 && rect.top <= 270 && rect.top + rect.height >= 345, JSON.stringify(rect));
+  eq('a box that is most of the picture, a nonsense box and a 1%-wide box all mean: use the picture whole',
+    [crop.cropRect(crop.readBox([0, 0, 900, 900]), 1000, 1000), crop.readBox([10, 20, 5]), crop.readBox([100, 100, 110, 800])], [null, null, null]);
+  const cropJob = fakeJob('SHARARA', ['NECK', 'OVERALL']);
+  const bigImage = { mimeType: 'image/png', base64: await png(800, 1200), original: { width: 800, height: 1200 } };
+  cropJob.designs[0].image = { ...bigImage };
+  cropJob.designs[1].image = { ...bigImage };
+  let located = 0;
+  crop._setFetch(async (...args) => { located++; return locateAnswer('part in a larger picture', [180, 340, 230, 410])(...args); });
+  const boxes = await crop.locateParts(cropJob);
+  const cropped = await crop.cropReferences(cropJob, boxes);
+  const croppedMeta = await sharp(Buffer.from(cropJob.designs[0].image.base64, 'base64')).metadata();
+  check('the neck photo is cropped to the neckline (and enlarged to a readable size); an OVERALL photo is never cropped or even located',
+    located === 1 && cropped.length === 1 && cropped[0].area === 'NECK' && Math.min(croppedMeta.width, croppedMeta.height) >= cfgCrop.minSidePx
+    && croppedMeta.width < croppedMeta.height * 1.5 && !cropJob.designs[1].image.cropped, JSON.stringify({ located, cropped, w: croppedMeta.width, h: croppedMeta.height }));
+  check('the prompt says the picture was cropped and that what is cut off is not the design',
+    /This picture has been cropped from a larger photograph to show the neck of the sharara set\. Anything cut off at its edges - the rest of that garment, its colour, its other decoration - is not part of this design/.test(buildPrompt(cropJob).text));
+  crop._setFetch(locateAnswer('not visible'));
+  const rackJob = fakeJob('DUPATTA', ['CORNER']);
+  rackJob.designs[0].image = { ...bigImage };
+  eq('a part that is not visible, a close-up, a failed call: no crop', [
+    (await crop.cropReferences(rackJob, await crop.locateParts(rackJob))).length,
+    (crop._setFetch(locateAnswer('close-up of the part')), (await crop.cropReferences(rackJob, await crop.locateParts(rackJob))).length),
+    (crop._setFetch(async () => { throw new Error('fetch failed'); }), (await crop.cropReferences(rackJob, await crop.locateParts(rackJob))).length)
+  ], [0, 0, 0]);
+  crop._setFetch(locateAnswer('close-up of the part'));
+  const normalRect = crop.cropRect(crop.readBox([180, 340, 230, 410]), 1000, 1500);
+  const tightRect = crop.cropRect(crop.readBox([180, 340, 230, 410]), 1000, 1500, { tight: true });
+  check('a retry after spread decoration gets a much tighter crop (a sequinned kurta kept coming back)',
+    tightRect && tightRect.width * tightRect.height < normalRect.width * normalRect.height * 0.5, JSON.stringify({ normalRect, tightRect }));
+  crop._setFetch(locateAnswer('part in a larger picture', [180, 340, 230, 410]));
+  const tightJob = fakeJob('SHARARA', ['NECK']);
+  tightJob.designs[0].image = { ...bigImage };
+  const tightBoxes = await crop.locateParts(tightJob);
+  const first = await crop.cropReferences(tightJob, tightBoxes);
+  const second = await crop.cropReferences(tightJob, tightBoxes, { tight: true });
+  check('...cut from the picture as sent, not from the first crop', first.length === 1 && second.length === 1 && second[0].from === '800x1200' && tightJob.designs[0].sourceImage === bigImage || (second[0] && second[0].from === '800x1200'), JSON.stringify({ first, second }));
+  crop._setFetch(locateAnswer('close-up of the part'));
+  eq('the part finder schema defines every field it requires', undefinedRequired(crop.LOCATE_SCHEMA, 'locate'), []);
   check('the describe step is asked for the problem and for the ground colour of every design',
     describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
 

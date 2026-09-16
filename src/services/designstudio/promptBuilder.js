@@ -364,6 +364,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     if (!GLOBAL_AREAS.has(d.areaId)) {
       lines.push(`If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the ${partWords(d.areaId, g.product)}. If it shows a whole garment or outfit, take ONLY its ${areaWords(d.areaId)}: every other part of it - ${otherParts(d.areaId)}, and any other garment worn with it - is NOT part of this reference and must not appear anywhere on the new ${g.product} - not on its sleeves, cuffs, neckline, hem or any other part without a design of its own - and no embellishment from those other parts is moved onto this part.`);
     }
+    if (d.image && d.image.cropped) {
+      lines.push(`This picture has been cropped from a larger photograph to show the ${partWords(d.areaId, g.product)}. Anything cut off at its edges - the rest of that garment, its colour, its other decoration - is not part of this design.`);
+    }
     lines.push('This picture decides the design. Where a customer note describes something different from the picture, follow the picture.');
     // Measured twice: a PALLU_END photo of a whole dupatta with purple tassels put
     // those tassels on the new dupatta, even with a general "no tassels" rule.

@@ -196,13 +196,19 @@ describes it", a saree's pallu design came out on the blouse instead.
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
    actually contains — "temple (mandir) spires in gold zari on teal", "small multi-coloured floral
    butis, red, green, orange, white", "block print, matte". You get this back as the `brief` event.
+   At the same time, each design picture is searched for the part it is for, and the picture is
+   **cropped to that part** (with a margin, so a neckline keeps its shoulders). A neck photo of a kurta
+   sequinned all over shows the image model the neckline, not the sequinned body. A close-up, swatch
+   or `OVERALL` design is never cropped.
 2. **The garment is generated.** Those words go to the image model **alongside** your pictures.
 3. **The photograph is inspected.** A vision model checks the finished photograph against a checklist
    built from your order: one person with the whole head in frame, the right framing, the supporting
    piece (a saree's blouse, a kurti's churidar) completely plain, no colour from a reference photo's
    background on the garment, printed designs still looking printed, no dupatta or tassels you did not
    ask for, one pallu, no text. **If a check fails, the garment is generated once more with that exact
-   fault named**, inspected again, and the better photograph is returned. The `done` event reports the
+   fault named**, inspected again, and the better photograph is returned. If the fault was decoration
+   spreading beyond the parts you sent designs for, the regeneration also sees much tighter crops of
+   your pictures. The `done` event reports the
    result in `quality`.
 
 Step 1 exists because pictures alone were not enough: a border full of temple motifs came back as

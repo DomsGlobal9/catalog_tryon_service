@@ -59,6 +59,12 @@ DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET=4096  # at 1024 a block print was read as 
 # built from the order, and one failed check buys one regeneration with that fault
 # named. Measured: it caught a stray reference-colour stripe that prompts alone
 # let through 1 run in 3. Adds ~10s, or ~50s when it regenerates.
+# Crop each design picture to the part it is for (found by one small vision call per
+# picture, in parallel with the describe step). A whole-outfit photo then cannot leak
+# its other parts. Never required: no part found means the picture is used whole.
+DESIGNSTUDIO_CROP=on
+DESIGNSTUDIO_CROP_MODEL=gemini-2.5-flash
+DESIGNSTUDIO_CROP_TIMEOUT_MS=20000
 DESIGNSTUDIO_QA=on
 DESIGNSTUDIO_QA_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_QA_REGENERATE_UNDER_MS=120000  # only regenerate if the request is younger than this
