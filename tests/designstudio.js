@@ -227,6 +227,15 @@ async function runAll({ check, eq, section, SRC }) {
     /always wins inside that area/.test(full.text) && !/always wins inside that area/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   check('customer notes come last, flattened, and cannot break out of their quotes', /The customer also asked: "make it 'festive' and rich"/.test(full.text) && full.text.indexOf('CUSTOMER NOTES') > full.text.indexOf('QUALITY BAR'));
   check('portrait 3:4, head to toe, plain studio backdrop', /in 3:4, showing the model from head to toe/.test(full.text) && /plain studio backdrop/.test(full.text));
+  // Each of these pins a flaw seen in a real generated photograph.
+  check('no part may appear twice (a real saree came back with two pallus)',
+    /Exactly one complete saree, with exactly one of each of its parts/.test(full.text) && /exactly ONE pallu/.test(full.text) && /Do not show a pallu on the right side/.test(full.text));
+  check('recognisable motifs must survive (a temple border became plain zari bands)',
+    /temple or mandir outlines, peacocks, paisleys/.test(full.text) && /Never replace them with generic zari stripes/.test(full.text));
+  check('a reference\'s background colour must not become the garment\'s colour (a pink pallu photo beat a crimson fabric)',
+    /colours OF THE MOTIFS only/.test(full.text) && /never from the design reference's own background/.test(full.text));
+  check('a brocade or jaal fabric must not flatten into plain cloth', /that texture must still read across that part of the garment/.test(full.text));
+  check('a mannequin in a reference is ignored like a person or watermark', /a person, a mannequin, another garment, a background, hands, text or a watermark/.test(full.text));
 
   const detailed = fakeJob('SAREE', ['PALLU', 'BODY'], {
     productName: 'Bridal Banarasi Saree',

@@ -142,8 +142,14 @@ function buildPrompt(job) {
 
   // ── 4. DESIGN RULES ────────────────────────────────────────────────────────
   const designRules = [
-    'Copy each design exactly, as if following a technical tech-pack: the same motifs, shapes and proportions, the same number and spacing of repeats, the same colours, and the same technique (woven zari, thread embroidery, mirror work, sequins, stone work, block or digital print) with its real texture and sheen.',
-    'A reference image may also show a person, another garment, a background, hands, text or a watermark. Take ONLY the design from it and ignore everything else in that image.',
+    'Copy each design exactly, as if following a technical tech-pack: the same motifs, shapes and proportions, the same number and spacing of repeats, and the same technique (woven zari, thread embroidery, mirror work, sequins, stone work, block or digital print) with its real texture and sheen.',
+    // Measured: a border reference full of temple (mandir) motifs came back as
+    // plain zari stripes. Naming the kinds of motif stops that flattening.
+    'Where a reference contains recognisable motifs - temple or mandir outlines, peacocks, paisleys, flowers, vines, animals, figures, geometric jaal or a named weave - those exact motifs must appear in the finished garment at the same scale. Never replace them with generic zari stripes, plain bands or invented filler.',
+    // Measured: a pink pallu reference turned the crimson pallu pink, and a navy
+    // collar reference turned an ivory collar navy.
+    'A design reference supplies the motifs, their layout and the colours OF THE MOTIFS only. The background or ground colour of each part of the garment always comes from that part\'s fabric, never from the design reference\'s own background. If the reference is photographed on a different coloured cloth, reproduce its motifs on the specified fabric colour instead.',
+    'A reference image may also show a person, a mannequin, another garment, a background, hands, text or a watermark. Take ONLY the design from it and ignore everything else in that image.',
     'Put each design only in the area it is assigned to, at a realistic scale for that area. Do not enlarge motifs to fill space, and do not spread one area\'s design into other areas unless the garment\'s construction naturally continues it.'
   ];
   if (hasGlobal && hasZone) {
@@ -160,6 +166,9 @@ function buildPrompt(job) {
       'Tailor the garment from these exact materials. Match each fabric\'s base colour precisely (never warm, cool, brighten or desaturate it), its weave and texture, its surface finish (matte cotton, lustrous silk, satin shine, velvet pile, sheer georgette or chiffon), its transparency, and its weight and the way it falls.',
       'A fabric photo may be a flat swatch, a folded piece or a roll. Show that same material cut and sewn into the garment, with natural folds and drape.',
       'Designs sit on the fabric they belong to and respect its texture: woven zari looks woven into the cloth, prints look printed into the weave, and embroidery sits slightly raised on the surface.',
+      // Measured: a dense brocade jaal swatch came back as plain silk once the
+      // design (small butis) was applied over it.
+      'The fabric\'s own weave stays visible wherever the design does not cover it: if a fabric reference is a brocade, jaal, jacquard, textured or slubbed cloth, that texture must still read across that part of the garment, not be flattened into plain cloth.',
       'Where a design\'s motif colours differ from its fabric, keep the design\'s own colours for the motifs and the fabric\'s colour for the ground.'
     ];
     if (job.fabrics.some((f) => f.color || f.colorHex)) {
@@ -204,6 +213,7 @@ function buildPrompt(job) {
   // ── 8. QUALITY BAR ─────────────────────────────────────────────────────────
   addText(['QUALITY BAR', bullets([
     'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
+    `Exactly one complete ${g.product}, with exactly one of each of its parts. Never show a part twice, never mirror a decorated panel onto the other side, and never add an extra drape, shawl, stole or dupatta that this garment does not have.`,
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     'Anatomically correct face, hands, fingers and feet. Exactly one person in the frame.',
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'

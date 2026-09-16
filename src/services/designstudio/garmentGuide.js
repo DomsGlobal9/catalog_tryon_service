@@ -50,10 +50,12 @@ const GUIDE = {
     construction: [
       'Drape it in the classic Nivi style.',
       'Make 7 to 9 crisp, evenly spaced front pleats tucked at the navel and falling straight to the ankles, so the border runs down the edge of every pleat and along the hem.',
-      'Take the pallu across the chest and over the left shoulder, then bring its decorated end forward over the left forearm so the entire pallu faces the camera instead of hiding behind the back.'
+      // Measured: asking for the pallu over the shoulder AND forward over the
+      // forearm produced TWO pallus, one on each arm. One sentence, one pallu.
+      'The saree has exactly ONE pallu: a single continuous length that crosses the chest, passes over the LEFT shoulder and hangs down the front of the left side, fully open and facing the camera so all of its design is visible. Do not show a pallu on the right side, over the right arm, or anywhere twice.'
     ],
     styling: 'The blouse is a fitted, elbow-length blouse in the saree\'s main colour or its border colour, plain unless a design reference describes it.',
-    poseHint: 'The left arm is bent slightly to hold the pallu forward and open.',
+    poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
       PALLU: 'the pallu: the loose decorated end of the saree, about the last metre, that falls from the left shoulder. Reproduce this design across the pallu\'s full width and length, including its cross-bands and end border',
       BORDER: 'the saree borders: the continuous bands along both long edges of the saree. They show along the hem at the feet, down the edge of every front pleat and along the edge of the pallu. Keep the band width in the same proportion to the saree as in the reference',
