@@ -78,7 +78,7 @@ function buildChecklist(review) {
     // checked, and motif colours are explicitly allowed.
     if (part.ground && !part.contrast && part.referenceBackground && !sameColourFamily(part.referenceBackground, part.ground)) {
       add(`colour_${part.area.toLowerCase()}`,
-        `On the ${part.part} (${part.where}) - and only there, not on other parts of the garment - the ground (background) colour must be ${part.ground}. The design reference was photographed on ${part.referenceBackground}. Judge ONLY the ground: the base cloth and any wide stripes, bands, checks or blocks. Motifs, buttis, zari, gold or metallic work and coloured decoration are allowed in any colour. Is it true that ${part.referenceBackground} - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the ${part.part}?`,
+        `On the ${part.part} (${part.where}) - and only there, not on other parts of the garment - the ground (background) colour must be ${part.ground}. The design reference was photographed on ${part.referenceBackground}. Judge ONLY the ground: the base cloth and any wide stripes, bands, checks or blocks. Motifs, buttis, zari, gold or metallic work (including a solid gold or zari panel or band) and coloured decoration are allowed in any colour, and skin seen through sheer or net fabric is not a ground colour. Is it true that ${part.referenceBackground} - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the ${part.part}?`,
         `On the ${part.part}, ${part.referenceBackground} and every shade or tint of it is replaced by ${part.ground}. No ${part.referenceBackground} stripes, bands or blocks.`);
     }
     if (part.printed) {
@@ -91,7 +91,7 @@ function buildChecklist(review) {
   if (review.plainRest && review.plainRest.length) {
     const designed = review.plainRest.join(', ');
     add('plain_rest',
-      `The ${product}'s cloth is plain and only these parts carry a design: ${designed}. Apart from those parts and the seams right next to them, is the rest of the ${product} plain cloth - with NO scattered flowers, buttis, motifs, embroidery or all-over pattern?`,
+      `The ${product}'s cloth is plain and only these parts carry a design: ${designed}. Apart from those parts and what naturally belongs with them (the yoke around a neckline, a sleeve's own cuff, the edge next to a border), is the rest of the ${product} plain cloth - with NO scattered flowers, buttis, motifs, embroidery or all-over pattern?`,
       `Only these parts of the ${product} carry a design: ${designed}. Everywhere else the ${product} is plain cloth in its fabric colour - no scattered flowers, buttis, motifs, embroidery or pattern copied from any reference photograph.`);
   }
 
