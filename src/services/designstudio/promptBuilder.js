@@ -34,6 +34,31 @@ function areaName(garmentId, areaId) {
   return area ? area.name : areaId;
 }
 
+/** "SLEEVE" on a blouse -> "sleeve of the blouse"; OVERALL -> "whole saree". */
+function partWords(areaId, product) {
+  if (areaId === 'OVERALL') return `whole ${product}`;
+  return `${areaId.toLowerCase().replace(/_/g, ' ')} of the ${product}`;
+}
+
+/** The parts of a photographed garment that are NOT this area, in plain words. */
+// A BACK design owns the back neckline ("back neck shape"), and a FRONT design
+// runs "from the neckline down to the hem", so neither is told to ignore those.
+const PART_WORDS = [
+  ['neckline', /NECK|COLLAR|FRONT|BACK/],
+  ['sleeves', /SLEEVE|HAND/],
+  ['body', /^BODY$|FRONT|BACK|SKIRT|FLARE|PLEAT/],
+  ['all-over print', /PRINT/],
+  ['borders', /BORDER|PALLU|WAIST/],
+  ['hem', /HEM|FRONT/]
+];
+/** "SLEEVE" -> "sleeve"; for a photo of a whole garment: "take ONLY its sleeve". */
+function areaWords(areaId) {
+  return areaId.toLowerCase().replace(/_/g, ' ');
+}
+function otherParts(areaId) {
+  return `its ${PART_WORDS.filter(([, owns]) => !owns.test(areaId)).map(([word]) => word).join(', ')}`;
+}
+
 /**
  * The references in the order the image model sees them. Used both for numbering
  * the labels and for the describe step, so [Image 3] means the same thing to both.
@@ -42,7 +67,10 @@ function areaName(garmentId, areaId) {
 function referenceList(job) {
   const items = [];
   let ref = 0;
-  for (const d of job.designs) items.push({ ref: ++ref, kind: 'design', label: `${d.areaId} (${d.areaName})`, image: d.image });
+  const product = garmentGuide(job.garmentId).product;
+  for (const d of job.designs) {
+    items.push({ ref: ++ref, kind: 'design', label: `${d.areaId} (${d.areaName})`, part: partWords(d.areaId, product), image: d.image });
+  }
   for (const f of job.fabrics) items.push({ ref: ++ref, kind: 'fabric', label: f.name || `fabric ${f.index + 1}`, image: f.image });
   if (job.model.kind === 'reference') items.push({ ref: ++ref, kind: 'model', label: 'the model to dress', image: job.model.image });
   return items;
@@ -212,6 +240,14 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       `Goes on: ${describeArea(job.garmentId, d.areaId)}.`,
       ...described(n)
     ];
+    // Measured: a SLEEVE reference that was a photo of a whole printed kurti gave
+    // the new blouse that kurti's neckline embroidery and all-over rose print too.
+    // Measured the other way: flat artwork (a dot pattern, a photo of flowers) was
+    // then read as "does not show a border" and the notes replaced the pictures.
+    if (!GLOBAL_AREAS.has(d.areaId)) {
+      lines.push(`If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the ${partWords(d.areaId, g.product)}. If it shows a whole garment or outfit, take ONLY its ${areaWords(d.areaId)}: every other part of it - ${otherParts(d.areaId)}, and any other garment worn with it - is NOT part of this reference and must not appear anywhere on the new ${g.product}, and no embellishment from those other parts is moved onto this part.`);
+    }
+    lines.push('This picture decides the design. Where a customer note describes something different from the picture, follow the picture.');
     if (clash) {
       const fabricName = clash.name ? clean(clash.name) : `fabric ${clash.index + 1}`;
       lines.push(`IMPORTANT for this part: its fabric (${fabricName}) carries its own all-over woven pattern. That pattern must stay a quiet ground here - THIS design's motifs are what must be seen on ${d.areaId}, at their own size and colours. Do not let the fabric's pattern replace them.`);
@@ -299,7 +335,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       `The ${pair.pieces}: ${pair.looks}.`,
       `Colour of the ${pair.pieces}: ${pair.colour}${pair.exact ? ` (from ${pair.from}) - match it exactly` : ''}.`,
       // Measured: a pallu design ended up on the blouse.
-      `No design reference applies to the ${pair.pieces}. None of the references' motifs, borders, buttis, prints, embroidery, mirror work or zari may appear on ${it}.`
+      // Measured: a thin band of the saree's floral border still showed at the
+      // blouse's sleeve edges after the blouse itself came out plain.
+      `No design reference applies to the ${pair.pieces}. None of the references' motifs, borders, buttis, prints, embroidery, mirror work or zari may appear on ${it} - not even a narrow band or trim at a sleeve edge, neckline or hem.`
     ];
     lines.push(pair.note
       ? `Customer note for the ${pair.pieces}: ${pair.note}. Follow it, but still put no design reference on ${it}.`
@@ -317,7 +355,11 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // collar reference turned an ivory collar navy.
     'A design reference supplies the motifs, their layout and the colours OF THE MOTIFS only. The background or ground colour of each part of the garment always comes from that part\'s fabric, never from the design reference\'s own background. If the reference is photographed on a different coloured cloth, reproduce its motifs on the specified fabric colour instead.',
     'A reference image may also show a person, a mannequin, another garment, a background, hands, text or a watermark. Take ONLY the design from it and ignore everything else in that image.',
-    'Put each design only in the area it is assigned to, at a realistic scale for that area. Do not enlarge motifs to fill space, and do not spread one area\'s design into other areas unless the garment\'s construction naturally continues it.'
+    'Put each design only in the area it is assigned to, at a realistic scale for that area. Do not enlarge motifs to fill space, and do not spread one area\'s design into other areas unless the garment\'s construction naturally continues it.',
+    // Measured: a sleeve reference's roses appeared around the neckline and along
+    // the hem of the blouse front, which had its own (white chikankari) reference.
+    'Each part shows only its own reference\'s motifs, right up to its seam. Where two parts have different references (a sleeve and a neckline, a border and a body), their motifs, colours and embellishments are never borrowed from one part into the other.',
+    'Add nothing that a reference does not show on that part: no extra butis, flowers, pearl or bead drops, fringes, tassels, latkans, lace, piping, sequins or stones.'
   ];
   if (hasGlobal && hasZone) {
     designRules.push('A design assigned to a specific area always wins inside that area. The overall, print or embroidery references apply everywhere else.');
@@ -368,6 +410,8 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   } else {
     modelLines.push(`Pose: standing tall, facing the camera at a slight three-quarter angle, weight on one leg. ${g.poseHint}`);
   }
+  // Measured: the jasmine gajra and roses in a reference model's hair were copied.
+  modelLines.push('Nothing from the people in the design or fabric reference photographs is copied: not their hairstyle, hair flowers or gajra, jewellery, bindi or makeup. No flowers or accessories in the hair.');
   modelLines.push('Nothing (hair, hands, jewellery or other clothing) may cover any area that has a design reference.');
   addText(['THE MODEL', bullets(modelLines)].join('\n'));
 

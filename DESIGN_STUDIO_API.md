@@ -332,6 +332,14 @@ Inside the stream (`error` event):
 ## Getting the best results
 
 - **Crop each design to the design itself** — a close-up of the pallu, not a whole person wearing a saree.
+  A photo of a whole garment still works: **only the named part is used**. A `SLEEVE` design taken from
+  a photo of a printed kurti gives the sleeve alone — not that kurti's neckline or print — and nothing
+  from the person in the photo (hair flowers, jewellery) is copied. A close-up, flat swatch, trim or
+  artwork is used whole as that part's design.
+- **Keep each note consistent with its picture.** The picture decides the design, but a note that
+  describes something different can still pull that part toward the note. Measured: a border note
+  saying "gold zari temple border" on a picture of dahlias gave a gold zari border; the same request
+  with no notes gave the dahlia border exactly.
 - **One clear design per area.** Six sharp references beat ten blurry ones.
 - **Photograph fabrics flat, in daylight**, filling the frame, so the colour and weave are true.
 - **Name your fabrics** (`"Banarasi silk"`, `"georgette"`): it helps the model get the sheen and drape right.
@@ -349,5 +357,7 @@ Inside the stream (`error` event):
   multi-coloured butis disappeared; with a plain wine silk on the body, they came through exactly.
 - **Very fine motifs are approximate.** Large areas, drape, fabric colour and texture are dependable;
   a tiny repeated motif may be simplified. Naming it in `designs[].note` helps.
+- **Send a design for every part you want decorated.** A `BACK` design is the back only; its photo's
+  sleeves are not guaranteed to carry over. For decorated sleeves, send a `SLEEVE` design too.
 - **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
   request are then hidden, and `start.warnings` says so.

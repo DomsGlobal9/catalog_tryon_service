@@ -50,7 +50,12 @@ const config = {
     enabled: String(process.env.DESIGNSTUDIO_DESCRIBE || 'on').toLowerCase() !== 'off',
     model: process.env.DESIGNSTUDIO_DESCRIBE_MODEL || 'gemini-2.5-flash',
     timeoutMs: int('DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS', 25000, { min: 1000 }),
-    maxOutputTokens: int('DESIGNSTUDIO_DESCRIBE_MAX_TOKENS', 2048, { min: 256 })
+    // gemini-2.5-flash is a thinking model and its thinking counts against this
+    // cap. Measured: ~550 thinking + ~360-540 answer tokens for four references,
+    // so 2048 left too little room on an unlucky run. Thinking is capped
+    // separately so it can never eat the answer.
+    maxOutputTokens: int('DESIGNSTUDIO_DESCRIBE_MAX_TOKENS', 6144, { min: 256 }),
+    thinkingBudget: int('DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET', 1024, { min: 0, max: 8192 })
   },
 
   limits: {

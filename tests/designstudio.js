@@ -314,6 +314,91 @@ async function runAll({ check, eq, section, SRC }) {
   check('and those words go to the image model next to the picture',
     /Motifs in this reference: temple \(mandir\) spires, 14 across the band/.test(withWords) && /Must not be missed: hexagonal jaal/.test(withWords));
 
+  section('DESIGN STUDIO: ONLY THE NAMED PART OF A REFERENCE, AND EVERY REFERENCE DESCRIBED');
+  // Measured: a SLEEVE reference that was a whole printed kurti gave the blouse
+  // its neckline embroidery and rose print too; the describe step had written
+  // "neckline has tiny dots" for it. And one real run described only the fabric.
+  const refsOf = referenceList(fakeJob('BLOUSE', ['SLEEVE', 'OVERALL'], { fabrics: [{ image: IMG, name: 'Rust silk' }], modelImage: IMG }));
+  eq('each design reference names its one part in words', refsOf.map((r) => r.part), ['sleeve of the blouse', 'whole blouse', undefined, undefined]);
+  check('the describe label says to describe only that part',
+    /Reference 1 - DESIGN for sleeve of the blouse\. Describe ONLY the sleeve of the blouse in this photograph:/.test(describe.labelFor(refsOf[0]))
+    && /Reference 3 - FABRIC \(Rust silk\)\. Describe the cloth itself:/.test(describe.labelFor(refsOf[2])));
+
+  let asked = [];
+  const recordingFetch = (answers) => async (url, opts) => {
+    const request = JSON.parse(opts.body);
+    asked.push(request);
+    const next = answers[Math.min(asked.length - 1, answers.length - 1)];
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(next) }] }, finishReason: 'STOP' }] }), { status: 200 });
+  };
+  const one = (ref, motifs) => ({ ref, motifs, layout: '', colours: '', technique: '', notes: '' });
+  describe._setFetch(recordingFetch([{ references: [one(1, 'roses'), one(2, 'paisley'), one(3, 'plain')] }]));
+  asked = [];
+  await describe.describeReferences(refsOf);
+  const askText = asked[0].contents[0].parts.filter((p) => p.text).map((p) => p.text).join('\n');
+  eq('a model photo is never asked to the describe step (a person is not a design)',
+    asked[0].contents[0].parts.filter((p) => p.inlineData).length, 3);
+  check('the describe instructions forbid describing other parts, other garments, or the person\'s hair and jewellery',
+    /describe ONLY the named part/.test(askText) && /its neckline, body, print, border, hem/.test(askText)
+    && /a saree, dupatta, skirt or trousers worn with it/.test(askText) && /their hair, hair flowers, jewellery or makeup/.test(askText));
+  check('the answer shape is enforced with a response schema, and thinking is capped so it cannot eat the answer',
+    asked[0].generationConfig.responseSchema.properties.references.items.required.includes('ref')
+    && asked[0].generationConfig.thinkingConfig.thinkingBudget === 1024 && asked[0].generationConfig.maxOutputTokens === 6144);
+
+  eq('ref numbers are read leniently ("Reference 2", "3")',
+    [...describe.readAnswer({ references: [one('Reference 2', 'a'), one('3', 'b')] }, [{ ref: 1 }, { ref: 2 }, { ref: 3 }]).keys()], [2, 3]);
+  eq('entries with no usable ref are matched by position only when there is one per reference',
+    [[...describe.readAnswer({ references: [one(null, 'a'), one('x', 'b')] }, [{ ref: 4 }, { ref: 5 }]).keys()],
+      [...describe.readAnswer({ references: [one(null, 'a')] }, [{ ref: 4 }, { ref: 5 }]).keys()]],
+    [[4, 5], []]);
+  eq('a retry of one reference that the model renumbers "1" still lands on the right reference',
+    [...describe.readAnswer({ references: [one(1, 'a')] }, [{ ref: 3 }]).keys()], [3]);
+  eq('a ref that was not asked about is ignored when positions cannot be trusted',
+    [...describe.readAnswer({ references: [one(9, 'a'), one(2, 'b')] }, [{ ref: 1 }]).keys()], []);
+
+  describe._setFetch(recordingFetch([{ references: [one(3, 'plain crimson')] }, { references: [one(1, 'border vines'), one(2, 'brocade end')] }]));
+  asked = [];
+  const refsDupatta = referenceList(fakeJob('DUPATTA', ['BORDER', 'PALLU_END'], { fabrics: [{ image: IMG, name: 'Crimson organza' }] }));
+  const recovered = await describe.describeReferences(refsDupatta);
+  eq('references missing from the answer are asked about once more, on their own (the "only the fabric" run)',
+    [[...recovered.keys()].sort(), asked.length, asked[1].contents[0].parts.filter((p) => p.inlineData).length], [[1, 2, 3], 2, 2]);
+  describe._setFetch(recordingFetch([{ references: [one(1, 'a'), one(2, 'b'), one(3, 'c')] }]));
+  asked = [];
+  await describe.describeReferences(refsDupatta);
+  eq('a complete answer is not asked twice', asked.length, 1);
+
+  const sleeveText = buildPrompt(fakeJob('BLOUSE', ['SLEEVE', 'NECK'])).text;
+  check('a whole-garment photo: take only the named part, never listing that part as one to ignore, and move no embellishment across',
+    /If it shows a whole garment or outfit, take ONLY its sleeve: every other part of it - its neckline, body, all-over print, borders, hem, and any other garment worn with it - is NOT part of this reference/.test(sleeveText)
+    && /take ONLY its neck: every other part of it - its sleeves, body, all-over print, borders, hem,/.test(sleeveText)
+    && /no embellishment from those other parts is moved onto this part/.test(sleeveText));
+  // Measured the other way: flat artwork was read as "does not show a border",
+  // and the notes (peacocks) replaced the pictures (dots).
+  check('flat artwork, a swatch or a close-up is the whole design for that part',
+    /If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the sleeve of the blouse/.test(sleeveText));
+  check('the picture outranks its own customer note', /This picture decides the design\. Where a customer note describes something different from the picture, follow the picture\./.test(sleeveText));
+  check('a BACK design owns the back neckline, a FRONT design its neckline and hem',
+    /take ONLY its back: every other part of it - its sleeves, all-over print, borders, hem,/.test(buildPrompt(fakeJob('BLOUSE', ['BACK'])).text)
+    && /take ONLY its front: every other part of it - its sleeves, all-over print, borders,/.test(buildPrompt(fakeJob('KURTHI', ['FRONT'])).text)
+    && !/take ONLY its front: every other part of it - [^:]*\bhem\b/.test(buildPrompt(fakeJob('KURTHI', ['FRONT'])).text));
+  check('the describe step is told a non-garment picture IS the design, never "does not show the part"',
+    /If the photograph is NOT a garment - a close-up, a flat swatch, a strip of trim, a piece of artwork/.test(askText) && /Never answer that the photograph does not show the part/.test(askText));
+  eq('an answer that only says the part is not in the photo is not a description (so it gets asked again)',
+    [...describe.readAnswer({ references: [{ ref: 1, motifs: '', layout: '', colours: '', technique: '', notes: 'The photograph does not depict a saree border.' }, one(2, 'dots')] }, [{ ref: 1 }, { ref: 2 }]).keys()], [2]);
+  check('an OVERALL or PRINT reference is the whole garment, so it gets no "only this part" line',
+    !/take ONLY/.test(buildPrompt(fakeJob('SAREE', ['OVERALL'])).text) && !/take ONLY/.test(buildPrompt(fakeJob('KURTHI', ['PRINT'])).text));
+  check('motifs stay inside their own part, and nothing is added that a reference does not show',
+    /their motifs, colours and embellishments are never borrowed from one part into the other/.test(sleeveText)
+    && /no extra butis, flowers, pearl or bead drops, fringes, tassels, latkans, lace, piping, sequins or stones/.test(sleeveText));
+  check('nothing is copied from the people in the reference photos (the gajra case)',
+    /not their hairstyle, hair flowers or gajra, jewellery, bindi or makeup\. No flowers or accessories in the hair/.test(sleeveText));
+  check('a dupatta\'s two ends are identical (one came out gold, the other red on red)',
+    /two ends are identical: the same end design in the same colours and metallic finish, with the same tassels/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'TASSEL'])).text)
+    && /Both ends carry this same design/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text));
+  check('a supporting piece gets no band or trim either (a saree border showed at the blouse sleeve edges)',
+    /not even a narrow band or trim at a sleeve edge, neckline or hem/.test(buildPrompt(fakeJob('SAREE', ['BORDER'])).text));
+  describe._setFetch(describeAnswer(goodDescription));
+
   // A patterned fabric on a part that also has a design: warn, and tell the model
   // which one wins. Measured: a brocade jaal erased the body's butis.
   const clashJob = fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, name: 'Banarasi Brocade', appliesTo: ['BODY'] }] });

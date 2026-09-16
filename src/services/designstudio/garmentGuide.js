@@ -68,7 +68,8 @@ const GUIDE = {
     // Measured: "plain unless a design reference describes it" let a pallu design
     // move onto the blouse. A saree has no blouse areas, so nothing describes it.
     styling: null,
-    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse', colour: 'match' },
+    // Measured twice: a zari band from the saree border appeared at the sleeve ends.
+    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse whose sleeves end in a plain, clean hem and whose neckline is plain, with no border band anywhere', colour: 'match' },
     poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
       // Measured: the pallu ended in a large panel of plain crimson with no design.
@@ -105,7 +106,11 @@ const GUIDE = {
     product: 'dupatta',
     top: 'dupatta',
     outfit: 'A full-length dupatta. The dupatta is the product.',
-    construction: ['Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, one decorated end and its tassels are all clearly visible.'],
+    construction: [
+      'Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, one decorated end and its tassels are all clearly visible.',
+      // Measured: one end came out gold zari brocade and the other tonal red on red.
+      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, with the same tassels. Wherever both ends are visible, they match exactly.'
+    ],
     styling: null,
     // Not waist-up: the dupatta's ends and tassels hang to about the knee.
     framing: 'three-quarter',
@@ -113,10 +118,10 @@ const GUIDE = {
     poseHint: 'One hand lightly holds the dupatta edge to spread it open towards the camera.',
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',
-      PALLU_END: 'the two short decorated ends of the dupatta (the pallu ends), including their cross-bands',
+      PALLU_END: 'the two short decorated ends of the dupatta (the pallu ends), including their cross-bands. Both ends carry this same design in the same colours and the same metallic finish',
       BODY: 'the main body of the dupatta: the field between the borders, with motifs at the reference\'s size and spacing',
       CORNER: 'the four corners of the dupatta, where the borders meet: the corner motif',
-      TASSEL: 'the tassels (latkans) hanging from the dupatta ends: copy their shape, beads, colours, length and spacing'
+      TASSEL: 'the tassels (latkans) hanging from both dupatta ends: copy their shape, beads, colours, length and spacing, identical on both ends'
     }
   },
 
