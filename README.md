@@ -54,6 +54,15 @@ DESIGNSTUDIO_OUTPUT_FORMAT=jpeg         # jpeg (re-encoded, ~10x smaller) | orig
 DESIGNSTUDIO_DESCRIBE=on
 DESIGNSTUDIO_DESCRIBE_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS=25000
+DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET=4096  # at 1024 a block print was read as woven about half the time
+# Step three: a vision model inspects the finished photograph against a checklist
+# built from the order, and one failed check buys one regeneration with that fault
+# named. Measured: it caught a stray reference-colour stripe that prompts alone
+# let through 1 run in 3. Adds ~10s, or ~50s when it regenerates.
+DESIGNSTUDIO_QA=on
+DESIGNSTUDIO_QA_MODEL=gemini-2.5-flash
+DESIGNSTUDIO_QA_REGENERATE_UNDER_MS=120000  # only regenerate if the request is younger than this
+DESIGNSTUDIO_QA_MAX_REGENERATIONS=1
 DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=100000  # real runs took 25-60s; one hung past 120s
 DESIGNSTUDIO_TIMEOUT_RETRIES=1          # a slow attempt is cut off and tried once more
 DESIGNSTUDIO_DEADLINE_MS=220000         # whole generation including retries

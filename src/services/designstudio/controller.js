@@ -24,6 +24,7 @@ const { prepareImages } = require('./imageInput');
 const { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
 const { generateImage } = require('./geminiImage');
+const { reviewImage, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -125,17 +126,56 @@ async function generate(req, res, next) {
     }
 
     const generationStarted = Date.now();
-    const result = await generateImage(prompt.parts, {
+    const generate = (parts, label) => generateImage(parts, {
       signal: abort.signal,
       onAttempt: ({ attempt, reason }) => send({
         type: 'status',
-        stage: 'generating',
+        stage: label,
         attempt,
-        message: attempt === 1 ? 'Generating the garment.' : `Retrying (${reason === 'no_image' ? 'no image was returned' : 'the image model was busy'}).`
+        message: attempt === 1
+          ? (label === 'regenerating' ? 'Regenerating with the inspector\'s corrections.' : 'Generating the garment.')
+          : `Retrying (${reason === 'no_image' ? 'no image was returned' : 'the image model was busy'}).`
       })
     });
+    let result = await generate(prompt.parts, 'generating');
     attempts = result.attempts;
     usage = result.usage;
+
+    // Step three: inspect the photograph, and regenerate once with any fault named.
+    const quality = { checked: false, passed: null, regenerated: false, failures: [] };
+    if (config.qa.enabled && prompt.review) {
+      send({ type: 'status', stage: 'checking', message: 'Inspecting the photograph.' });
+      let verdict = await reviewImage(prompt.review, result.image, { signal: abort.signal });
+      let regenerations = 0;
+      while (verdict.checked && verdict.failures.length
+        && regenerations < config.qa.maxRegenerations
+        && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
+        regenerations++;
+        console.log(`[DesignStudio] requestId=${requestId} inspection failed: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
+        let retry;
+        try {
+          retry = await generate([...prompt.parts, { text: correctionsText(verdict.failures) }], 'regenerating');
+        } catch (err) {
+          if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
+          break; // keep the first photograph rather than fail the request
+        }
+        attempts += retry.attempts;
+        quality.regenerated = true;
+        send({ type: 'status', stage: 'checking', message: 'Inspecting the corrected photograph.' });
+        const second = await reviewImage(prompt.review, retry.image, { signal: abort.signal });
+        // Keep the corrected photograph unless the inspection shows it is worse.
+        // If the second inspection could not run, the corrected photograph is
+        // kept but reported unchecked - its faults are not known.
+        if (!second.checked || second.failures.length <= verdict.failures.length) {
+          result = retry;
+          usage = retry.usage;
+          verdict = second;
+        }
+      }
+      quality.checked = verdict.checked;
+      quality.passed = verdict.checked ? verdict.failures.length === 0 : null;
+      quality.failures = verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence }));
+    }
 
     send({
       type: 'image',
@@ -151,6 +191,7 @@ async function generate(req, res, next) {
       jobId: admitted.job.id,
       status: 'ok',
       attempts,
+      quality,
       timings: { prepareMs: job.prepareMs, describeMs: job.describeMs || 0, generateMs: Date.now() - generationStarted, totalMs: Date.now() - startedAt }
     });
     outcome = 'OK';

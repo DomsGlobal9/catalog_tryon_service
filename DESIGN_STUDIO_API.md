@@ -144,7 +144,7 @@ and the supporting pieces mostly out of it.
 | :--- | :--- | :--- | :--- |
 | `BLOUSE` | **waist-up** — head to upper thighs | a plain skirt, only its waistband in frame. **No saree, no pallu, no drape.** | a quiet neutral that sets the blouse off |
 | `DUPATTA` | full length, so both hanging ends and any tassels show | a plain straight kurta with no drape or border | a quiet neutral |
-| `SAREE` | full length | a fitted, elbow-length blouse | the saree's main fabric colour |
+| `SAREE` | full length | a plain **sleeveless** blouse | the saree's main fabric colour |
 | `LEHANGA` | full length | a fitted short choli and a light dupatta | the lehenga's main fabric colour |
 | `ANARKALI` | full length | a fitted churidar | the Anarkali's main fabric colour |
 | `PETTICOAT` | full length | a short fitted blouse ending at the waist | a quiet neutral |
@@ -186,16 +186,25 @@ supporting pieces and default colour for every garment.
 Why this exists, measured: when the blouse was only described as "plain unless a design reference
 describes it", a saree's pallu design came out on the blouse instead.
 
-### How a request is answered, in two steps
+### How a request is answered, in three steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
    actually contains — "temple (mandir) spires in gold zari on teal", "small multi-coloured floral
-   butis, red, green, orange, white". You get this back as the `brief` event.
+   butis, red, green, orange, white", "block print, matte". You get this back as the `brief` event.
 2. **The garment is generated.** Those words go to the image model **alongside** your pictures.
+3. **The photograph is inspected.** A vision model checks the finished photograph against a checklist
+   built from your order: one person with the whole head in frame, the right framing, the supporting
+   piece (a saree's blouse, a kurti's churidar) completely plain, no colour from a reference photo's
+   background on the garment, printed designs still looking printed, no dupatta or tassels you did not
+   ask for, one pallu, no text. **If a check fails, the garment is generated once more with that exact
+   fault named**, inspected again, and the better photograph is returned. The `done` event reports the
+   result in `quality`.
 
 Step 1 exists because pictures alone were not enough: a border full of temple motifs came back as
-plain gold bands until the motifs were named in words. It adds roughly 2–8 seconds, and if it fails
-for any reason the generation simply continues from the pictures.
+plain gold bands until the motifs were named in words. Step 3 exists because the image model is not
+deterministic: with the right instructions, a small fault still appeared in some runs and not others
+(measured: a stray light-blue stripe from a reference in 1 run of 3). Steps 1 and 3 never fail a
+request: if either cannot run, generation carries on and `quality.checked` is `false`.
 
 ### What "exact" means
 
@@ -217,13 +226,13 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 | `type` | When | Contents |
 | :--- | :--- | :--- |
 | `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `framing` (`full`/`waist-up`), `aspectRatio`, `warnings` |
-| `status` | Twice | `stage: "reading-references"` first, then `stage: "generating"` with `attempt` |
+| `status` | Several | `stage`: `reading-references`, then `generating` (with `attempt`), then `checking`; if a check failed, `regenerating` and `checking` again |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
-| `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`) |
+| `done` | After `image` | `status: "ok"`, `attempts`, `quality`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`). `quality` is `{ checked, passed, regenerated, failures: [{ check, evidence }] }`: whether the photograph was inspected, whether it passed, whether it was regenerated, and any check it still fails |
 | `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`. Useful for showing your user, and for spotting a misread reference. |
 | `error` | Instead of `image` | `code`, `message`, `retryable` |
 
-Every stream ends with either `image` + `done`, or `error`. Measured on real runs: **25–60 seconds**, plus 2–8s for reading the references. A slow attempt is cut off at 100s and tried once more.
+Every stream ends with either `image` + `done`, or `error`. Measured on real runs: **45–55 seconds** when the photograph passes inspection first time, **90–110 seconds** when it is regenerated. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more.
 
 ```text
 data: {"type":"start","jobId":"6c1f…","garment":"SAREE","designs":[{"index":0,"area":"PALLU","areaName":"Pallu Design"},{"index":1,"area":"BORDER","areaName":"Border Design"}],"fabrics":[{"index":0,"name":"Kanjivaram silk","appliesTo":"MAIN"},{"index":1,"name":"Gold tissue","appliesTo":["PALLU"]}],"model":"generated","pose":"front","aspectRatio":"3:4","warnings":[]}

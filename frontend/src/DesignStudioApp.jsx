@@ -877,6 +877,18 @@ export default function DesignStudioApp() {
             </div>
           )}
 
+          {done && done.quality && (
+            <div className={'ds-quality ' + (done.quality.passed ? 'ok' : done.quality.checked ? 'bad' : 'unknown')}>
+              <strong>
+                Inspection: {done.quality.checked ? (done.quality.passed ? 'passed' : 'still has faults') : 'not run'}
+                {done.quality.regenerated ? ' · regenerated once with corrections' : ''}
+              </strong>
+              {done.quality.failures && done.quality.failures.length > 0 && (
+                <ul>{done.quality.failures.map((f, i) => <li key={i}><code>{f.check}</code> {f.evidence}</li>)}</ul>
+              )}
+            </div>
+          )}
+
           {events.length > 0 && (
             <details className="ds-payload">
               <summary>Raw events (image bytes left out)</summary>

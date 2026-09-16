@@ -60,6 +60,20 @@ const EDGE_AREAS = new Set(['BORDER', 'BORDER_HEM', 'HEMLINE', 'HEM_BOTTOM', 'BO
 /** Areas that ARE the garment's main cloth, so they always take the fabric colour. */
 const MAIN_PANEL_AREAS = new Set(['FRONT', 'BACK', 'BODY', 'SKIRT', 'FLARE', 'SKIRT_FLARE', 'FLARE_PANTS', 'LEG', 'BOTTOM_SALWAR', 'PLEAT', 'PALLU', 'OVERALL', 'PRINT', 'PRINT_PATTERN']);
 
+/** "Motifs in gold. Background is deep maroon red." -> "deep maroon red". */
+function backgroundColourOf(colours) {
+  if (!colours) return null;
+  const m = String(colours).match(/background(?:\s+stripes?)?(?:\s+colou?r)?\s*(?:is|are|:)?\s*([a-z][a-z ,/-]{2,40}?)(?:[.;]|$)/i);
+  return m ? m[1].trim() : null;
+}
+
+/** Where a supporting piece most often picks up a stray band. */
+function edgesOf(pieces, garmentId) {
+  if (garmentId === 'SAREE') return 'armholes and neckline';
+  if (/blouse|choli/.test(pieces)) return 'sleeve ends, cuffs and neckline';
+  return 'edges and hems';
+}
+
 /** Attached trims, not cut from the garment's fabric. */
 const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
 
@@ -286,6 +300,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     return PATTERNED.test(words) || hasMotifs ? fabric : null;
   };
 
+  // What the quality gate checks the finished photograph against (qualityCheck.js).
+  const review = { parts: [] };
+
   let n = 0;
   for (const d of job.designs) {
     n += 1;
@@ -339,6 +356,17 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
         : (partFabric && (partFabric.color || partFabric.colorHex))
           ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
           : null;
+    const referenceBackground = backgroundColourOf(info.colours);
+    const printed = /print|ajrakh|kalamkari|bagru|dabu/i.test(info.technique || '') && !/woven|brocade|jacquard|zari/i.test(info.technique || '');
+    review.parts.push({
+      area: d.areaId,
+      part: partWords(d.areaId, g.product),
+      where: describeArea(job.garmentId, d.areaId).split(/\.\s/)[0],
+      ground: ground ? (ground.contrast ? ground.words : [ground.words, ground.hex].filter(Boolean).join(' ')) : null,
+      contrast: !!(ground && ground.contrast),
+      referenceBackground: ground && !ground.contrast ? referenceBackground : null,
+      printed
+    });
     if (ground && ground.contrast) {
       lines.push(`Ground colour for this part: ${ground.words}. In its reference this part is a separately coloured contrast panel, so it keeps that panel colour instead of the fabric's colour; the rest of the garment stays in its fabric colour.`);
       warnings.push(`${d.areaId} is a contrast panel in its reference, so it keeps its own colour (${ground.words}) instead of the fabric colour. To choose its colour, send designs[${d.index}].groundColorHex.`);
@@ -347,7 +375,8 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       lines.push(`Ground colour for this part: ${stated} - from ${ground.from}. Reproduce the motifs on exactly this colour. The reference photo's own background colour must NOT appear on the garment.`);
       // Measured: turquoise-and-gold stripes on an emerald saree came out as gold
       // AND blue stripes - the reference's background stripes were kept as a motif.
-      lines.push(`If this design is stripes, checks, bands or blocks, the stripes or blocks in the reference's background colour are ground, not motif: they become ${stated} too. Only the decorative colours (for example gold zari stripes or coloured buttis) keep their own colour.`);
+      // Measured again in production: a lighter tint of that blue survived as stripes.
+      lines.push(`If this design is stripes, checks, bands or blocks, the stripes or blocks in the reference's background colour are ground, not motif: they become ${stated} too - and so does every lighter or darker shade or tint of that background colour (for example sky blue, light blue or teal stripes when the reference's background is blue). Only the decorative colours (for example gold zari stripes or coloured buttis) keep their own colour.`);
     }
     lines.push(d.keepMotifColors
       ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
@@ -533,10 +562,11 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Measured three times in real saree photos: the saree border repeated as gold
     // bands on the blouse sleeves, despite the blouse being described as plain.
     // The final check, right before the image is made, is where it is named.
-    ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${pair.pieces === 'blouse' || pair.pieces === 'choli and dupatta' ? 'sleeve ends, cuffs and neckline' : 'edges and hems'}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
+    ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${edgesOf(pair.pieces, job.garmentId)}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
     // Measured again with striped saree references: the band returned on both runs.
     // A perceptual test the model can check works better than naming the band.
-    ...(pair && /blouse|choli/.test(pair.pieces) ? [`The ${pair.pieces === 'blouse' ? 'blouse' : 'choli'} sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth.`] : []),
+    ...(pair && job.garmentId === 'SAREE' ? ['The blouse is sleeveless: its armholes and neckline are finished only with a narrow folded edge of the same plain cloth - no trim, piping, edge line or border of any width or colour.'] : []),
+    ...(pair && job.garmentId === 'LEHANGA' ? ['The choli sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth - no trim, piping, edge line or border of any width or colour.'] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
@@ -549,7 +579,19 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
 
   addText('Return only the finished photograph.');
 
-  return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n };
+  const areasSent = new Set(job.designs.map((d) => d.areaId));
+  Object.assign(review, {
+    product: g.product,
+    garmentId: job.garmentId,
+    framing: g.framing,
+    pose,
+    pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId) } : null,
+    noDupatta: !areasSent.has('DUPATTA') && job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA',
+    noTassels: job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL'),
+    onePallu: job.garmentId === 'SAREE',
+    fabricColours: job.fabrics.filter((f) => f.color || f.colorHex).map((f) => ({ name: f.name, colour: [f.color, f.colorHex].filter(Boolean).join(' '), appliesTo: f.appliesTo || 'MAIN' }))
+  });
+  return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review };
 }
 
-module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR };
+module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR, backgroundColourOf };

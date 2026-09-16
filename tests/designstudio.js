@@ -41,6 +41,7 @@ async function runAll({ check, eq, section, SRC }) {
   const imageInput = S('imageInput');
   const { buildPrompt, referenceList } = S('promptBuilder');
   const describe = S('describeReferences');
+  const qa = S('qualityCheck');
   const gemini = S('geminiImage');
   const { GUIDE, taxonomy, GLOBAL_AREAS } = S('garmentGuide');
   const routes = S('routes');
@@ -531,8 +532,8 @@ async function runAll({ check, eq, section, SRC }) {
 
   const sareeBand = buildPrompt(fakeJob('SAREE', ['BORDER'])).text;
   check('the saree border belongs to the saree only, and the final check names the blouse sleeve ends (bands came back three times)',
-    /never repeated on the blouse, not as sleeve cuffs, not around the neckline/.test(sareeBand)
-    && /Final check on the blouse: it is one solid colour from edge to edge\. Look at the sleeve ends, cuffs and neckline: there is NO gold, zari, metallic or patterned band there/.test(sareeBand)
+    /never repeated on the blouse, not as sleeve cuffs, not around the neckline/.test(sareeBand) && /a fitted SLEEVELESS blouse/.test(sareeBand)
+    && /Final check on the blouse: it is one solid colour from edge to edge\. Look at the armholes and neckline: there is NO gold, zari, metallic or patterned band there/.test(sareeBand)
     && sareeBand.indexOf('Final check on the blouse') > sareeBand.indexOf('QUALITY BAR')
     && !/Final check on/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
 
@@ -546,9 +547,36 @@ async function runAll({ check, eq, section, SRC }) {
     /the stripes or blocks in the reference's background colour are ground, not motif: they become emerald green, hex #0B6E4F too/.test(stripes));
 
   check('the blouse sleeve ends are tested perceptually, and the blouse is not a matching blouse piece',
-    /The blouse sleeve ends look exactly like the middle of the sleeve/.test(sareeBand) && /NOT a matching blouse piece cut from the saree/.test(sareeBand)
+    /The blouse is sleeveless: its armholes and neckline are finished only with a narrow folded edge/.test(sareeBand) && /NOT a matching blouse piece cut from the saree/.test(sareeBand)
     && /The choli sleeve ends look exactly like the middle of the sleeve/.test(buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text)
     && !/sleeve ends look exactly like/.test(buildPrompt(fakeJob('KURTHI', ['NECK'])).text));
+
+  section('DESIGN STUDIO: THE QUALITY GATE CHECKLIST');
+  const stripeReview = buildPrompt(fakeJob('SAREE', ['BODY', 'PALLU'], { fabrics: [{ image: IMG, color: 'emerald green', colorHex: '#0B6E4F' }] }), { descriptions: new Map([
+    [1, { motifs: 'stripes', colours: 'Background stripes: blue. Decorative stripes: gold zari.', technique: 'woven zari', groundType: 'garment fabric' }],
+    [2, { motifs: 'buttis', colours: 'Motifs gold. Background is deep maroon red.', technique: 'Block print, matte', groundType: 'garment fabric' }]
+  ]) }).review;
+  const checklist = qa.buildChecklist(stripeReview);
+  eq('a saree order is checked for: one person, framing, a plain blouse, no dupatta, one pallu, reference colours, the print, no text',
+    checklist.map((c) => c.id), ['one_person', 'framing', 'supporting_plain', 'no_dupatta', 'one_pallu', 'colour_body', 'colour_pallu', 'print_pallu', 'no_text']);
+  check('the colour check names the reference background and its shades (light-blue stripes survived once)',
+    /The design reference was photographed on blue\. Judge ONLY the ground[\s\S]*Is it true that blue - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the body of the saree/.test(checklist.find((c) => c.id === 'colour_body').question));
+  check('a blouse is checked waist-up, a dupatta for tassels only without a TASSEL design, a gown for no supporting piece',
+    qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['BACK'])).review).some((c) => c.id === 'framing' && /waist-up/.test(c.question))
+    && qa.buildChecklist(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).review).some((c) => c.id === 'no_tassels')
+    && !qa.buildChecklist(buildPrompt(fakeJob('DUPATTA', ['TASSEL'])).review).some((c) => c.id === 'no_tassels')
+    && !qa.buildChecklist(buildPrompt(fakeJob('GOWN', ['NECK'])).review).some((c) => c.id === 'supporting_plain'));
+  eq('colour families: a gold background on a gold ground is not checked; blue on emerald is',
+    [qa.sameColourFamily('golden beige', 'antique gold #C9A227'), qa.sameColourFamily('deep maroon red', 'red #B3202A'), qa.sameColourFamily('blue', 'emerald green #0B6E4F')],
+    [true, true, false]);
+  check('the colour check says where the part is, so another part is not judged (the gold pallu was blamed on the border once)',
+    /On the body of the saree \(the main body of the saree: the large field between the borders, seen on the pleats and wrapped around the hips\) - and only there, not on other parts of the garment/.test(checklist.find((c) => c.id === 'colour_body').question), checklist.find((c) => c.id === 'colour_body').question);
+  check('the colour check allows motif, zari and gold colours and judges only the ground (gold zari was flagged once)',
+    /Motifs, buttis, zari, gold or metallic work and coloured decoration are allowed in any colour/.test(checklist.find((c) => c.id === 'colour_body').question));
+  check('a contrast panel is not colour-checked against its own panel colour',
+    !qa.buildChecklist(buildPrompt(fakeJob('SUIT', ['NECK'], { fabrics: [{ image: IMG, color: 'indigo' }] }), { descriptions: new Map([[1, { colours: 'Background is red.', groundType: 'contrast panel', groundColour: 'red' }]]) }).review).some((c) => c.id === 'colour_neck'));
+  check('a lighter tint of the background colour is named as ground in the prompt too',
+    /every lighter or darker shade or tint of that background colour/.test(buildPrompt(fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, color: 'emerald' }] })).text));
 
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
@@ -774,6 +802,15 @@ async function runAll({ check, eq, section, SRC }) {
 
   // The describe step runs before every generation; give it a fake too.
   describe._setFetch(describeAnswer(goodDescription));
+  // And the inspector: passes every check unless told which ids to fail.
+  const qaAnswer = (failIds = []) => async (url, opts) => {
+    const request = JSON.parse(opts.body);
+    const ids = [...request.contents[0].parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]);
+    const checks = ids.map((id) => ({ id, pass: !failIds.includes(id), evidence: failIds.includes(id) ? 'thin gold band at both sleeve ends' : 'ok' }));
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ checks }) }] } }] }), { status: 200 });
+  };
+  const qaSequence = (...answers) => { let n = 0; return (url, opts) => answers[Math.min(n++, answers.length - 1)](url, opts); };
+  qa._setFetch(qaAnswer());
   const app = express();
   app.use(identify);
   app.use('/ds', routes);
@@ -822,8 +859,9 @@ async function runAll({ check, eq, section, SRC }) {
     });
     eq('a good request opens an event stream', [res.status, res.headers.get('content-type')], [200, 'text/event-stream; charset=utf-8']);
     let { events } = await readEvents(res);
-    eq('events: start, reading references, brief, generating, retry, image, done',
-      events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'status', 'image', 'done']);
+    eq('events: start, reading references, brief, generating, retry, checking, image, done',
+      [events.map((e) => e.type), events.filter((e) => e.type === 'status').map((e) => e.stage)],
+      [['start', 'status', 'brief', 'status', 'status', 'status', 'image', 'done'], ['reading-references', 'generating', 'generating', 'checking']]);
     eq('the brief event tells the caller what was understood from each reference',
       events[2].references.map((r) => r.ref), [1, 2]);
     eq('the first status is the describe step', events[1].stage, 'reading-references');
@@ -846,7 +884,7 @@ async function runAll({ check, eq, section, SRC }) {
     script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'no-brief' }))));
     eq('if the describe step fails there is no brief, and the image still arrives',
-      [events.map((e) => e.type), events.some((e) => e.type === 'brief')], [['start', 'status', 'status', 'image', 'done'], false]);
+      [events.map((e) => e.type), events.some((e) => e.type === 'brief')], [['start', 'status', 'status', 'status', 'image', 'done'], false]);
     describe._setFetch(describeAnswer(goodDescription));
 
     // A refusal inside the stream.
@@ -888,7 +926,48 @@ async function runAll({ check, eq, section, SRC }) {
     eq('cancel without clientId is 400', res.status, 400);
     script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'after' }))));
-    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'image', 'done']);
+    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'status', 'image', 'done']);
+
+    // ── The quality gate ──
+    const SECOND = (await sharp({ create: { width: 768, height: 1024, channels: 3, background: '#113355' } }).png().toBuffer()).toString('base64');
+    const blueOf = async (e) => Math.round((await sharp(Buffer.from(e.image.split(',')[1], 'base64')).stats()).channels[2].mean);
+    eq('an inspected photograph that passes is reported as checked and passed, not regenerated',
+      events[events.length - 1].quality, { checked: true, passed: true, regenerated: false, failures: [] });
+
+    qa._setFetch(qaSequence(qaAnswer(['supporting_plain']), qaAnswer()));
+    calls = script([() => answer([imagePart(FINAL)]), () => answer([imagePart(SECOND)])]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-regen' }))));
+    const regenDone = events[events.length - 1];
+    const firstBlue = await blueOf({ image: `data:image/png;base64,${FINAL}` });
+    eq('a failed inspection regenerates once with the fault named, and the corrected photograph is returned',
+      [events.filter((e) => e.type === 'status').map((e) => e.stage), regenDone.quality, calls.length, (await blueOf(events.find((e) => e.type === 'image'))) !== firstBlue],
+      [['reading-references', 'generating', 'checking', 'regenerating', 'checking'], { checked: true, passed: true, regenerated: true, failures: [] }, 2, true]);
+    const regenParts = calls[1].body.contents[0].parts;
+    const correctionPart = regenParts[regenParts.length - 1].text;
+    check('the regeneration carries the inspector\'s correction as the last instruction',
+      /^CORRECTIONS - IMPORTANT/.test(correctionPart) && /The blouse is completely plain, one solid colour everywhere/.test(correctionPart), correctionPart);
+    check('the failed inspection is logged with its evidence', logs.some((l) => /inspection failed: supporting_plain \(thin gold band at both sleeve ends\) - regenerating/.test(l)));
+
+    qa._setFetch(qaSequence(qaAnswer(['supporting_plain']), qaAnswer(['supporting_plain', 'no_text'])));
+    calls = script([() => answer([imagePart(FINAL)]), () => answer([imagePart(SECOND)])]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-worse' }))));
+    eq('a regeneration that inspects worse is discarded: the first photograph is returned with its fault reported',
+      [events[events.length - 1].quality.failures.map((f) => f.check), events[events.length - 1].quality.regenerated, (await blueOf(events.find((e) => e.type === 'image'))) === firstBlue],
+      [['supporting_plain'], true, true]);
+
+    qa._setFetch(async () => new Response('inspector down', { status: 500 }));
+    calls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-down' }))));
+    eq('if the inspection itself fails, the photograph is still returned, reported unchecked, with no regeneration',
+      [events.some((e) => e.type === 'image'), events[events.length - 1].quality, calls.length], [true, { checked: false, passed: null, regenerated: false, failures: [] }, 1]);
+
+    qa._setFetch(qaAnswer(['supporting_plain']));
+    calls = script([() => answer([imagePart(FINAL)]), () => new Response(JSON.stringify({ error: { message: 'Request contains an invalid argument.' } }), { status: 400 })]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-regen-fails' }))));
+    eq('if the regeneration itself fails, the first photograph is returned instead of an error',
+      [events.some((e) => e.type === 'image'), events.some((e) => e.type === 'error'), events[events.length - 1].quality.failures.map((f) => f.check)],
+      [true, false, ['supporting_plain']]);
+    qa._setFetch(qaAnswer());
 
     check('no log line contains the API key or raw base64', !logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);

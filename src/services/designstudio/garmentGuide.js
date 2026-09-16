@@ -60,7 +60,7 @@ const GUIDE = {
     outfit: 'A complete six-yard saree worn over a fitted blouse, with the petticoat hidden underneath.',
     construction: [
       'Drape it in the classic Nivi style.',
-      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain blouse with no border on its sleeves or neckline.',
+      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain sleeveless blouse with no border at its armholes or neckline.',
       'Make 7 to 9 crisp, evenly spaced front pleats tucked at the navel and falling straight to the ankles, so the border runs down the edge of every pleat and along the hem.',
       // Measured: asking for the pallu over the shoulder AND forward over the
       // forearm produced TWO pallus, one on each arm. One sentence, one pallu.
@@ -70,7 +70,11 @@ const GUIDE = {
     // move onto the blouse. A saree has no blouse areas, so nothing describes it.
     styling: null,
     // Measured twice: a zari band from the saree border appeared at the sleeve ends.
-    pairedWith: { pieces: 'blouse', plural: false, looks: 'a fitted, elbow-length blouse cut from plain solid fabric - never from the saree\'s woven border, pallu or body fabric - whose sleeves end in a plain, clean hem and whose neckline is plain, with no zari band, border or trim anywhere on it', colour: 'match' },
+    pairedWith: { pieces: 'blouse', plural: false, // Measured with a quality inspector on real photographs: an elbow-length blouse
+    // came back with a gold trim at the sleeve ends in 3 of 3 first attempts and
+    // 2 of 3 corrected ones - no wording removed it. Sleeveless removes the cuff
+    // the model keeps decorating. A caller can still ask for sleeves via pairWith.note.
+    looks: 'a fitted SLEEVELESS blouse cut from plain solid fabric - never from the saree\'s woven border, pallu or body fabric - with a plain, clean armhole and a plain neckline, and no zari band, border, trim or piping anywhere on it', colour: 'match' },
     poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
       // Measured: the pallu ended in a large panel of plain crimson with no design.

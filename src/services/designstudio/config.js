@@ -65,6 +65,22 @@ const config = {
     thinkingBudget: int('DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET', 4096, { min: 0, max: 8192 })
   },
 
+  // Step three: a vision model inspects the finished photograph against a checklist
+  // built from the order, and one failed check buys one regeneration with that
+  // fault named. Never required: if the check itself fails, the photograph is
+  // returned unchecked.
+  qa: {
+    enabled: String(process.env.DESIGNSTUDIO_QA || 'on').toLowerCase() !== 'off',
+    model: process.env.DESIGNSTUDIO_QA_MODEL || 'gemini-2.5-flash',
+    timeoutMs: int('DESIGNSTUDIO_QA_TIMEOUT_MS', 40000, { min: 100 }),
+    maxOutputTokens: int('DESIGNSTUDIO_QA_MAX_TOKENS', 8192, { min: 256 }),
+    thinkingBudget: int('DESIGNSTUDIO_QA_THINKING_BUDGET', 4096, { min: 0, max: 8192 }),
+    // Regenerate only while the whole request is still young enough to finish
+    // inside the generation deadline.
+    regenerateIfElapsedUnderMs: int('DESIGNSTUDIO_QA_REGENERATE_UNDER_MS', 120000, { min: 0 }),
+    maxRegenerations: int('DESIGNSTUDIO_QA_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
+  },
+
   limits: {
     maxDesigns: int('DESIGNSTUDIO_MAX_DESIGNS', 6, { min: 1, max: 10 }),
     maxFabrics: int('DESIGNSTUDIO_MAX_FABRICS', 3, { min: 0, max: 5 }),
