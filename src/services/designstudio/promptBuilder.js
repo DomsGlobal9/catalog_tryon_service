@@ -421,8 +421,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // the hem of the blouse front, which had its own (white chikankari) reference.
     'Each part shows only its own reference\'s motifs, right up to its seam. Where two parts have different references (a sleeve and a neckline, a border and a body), their motifs, colours and embellishments are never borrowed from one part into the other.',
     'Add nothing that a reference does not show on that part: no extra butis, flowers, pearl or bead drops, fringes, tassels, latkans, lace, piping, sequins or stones.',
-    // Measured: red rose cutwork cuffs came out with heart shapes in them.
-    'Lace, cutwork and embroidery keep the reference\'s own motif shapes exactly. Never introduce a shape the reference does not have, such as hearts, stars, letters or animals.',
+    // Measured twice: rose cutwork came out with hearts in it, and - after this line
+    // named "hearts" as an example of what not to add - round sequin dots came out
+    // as hearts. Naming a shape invites it, so no shape is named here.
+    'Every motif keeps exactly the shape it has in its reference: a round dot stays a round dot, a rose stays a rose, a leaf stays a leaf. Lace, cutwork, sequins and embroidery never take on a new or different shape.',
     // Measured: a lilac printed kurti seen through a lace hem band came out behind
     // the lace on a black kurti.
     'Behind lace, net, cutwork, mesh or any other open or sheer work, what shows through is that part\'s own ground colour - never the cloth, print or skin seen through it in the reference photograph.'

@@ -107,9 +107,12 @@ const GUIDE = {
     top: 'dupatta',
     outfit: 'A full-length dupatta. The dupatta is the product.',
     construction: [
-      'Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, and one decorated end are all clearly visible.',
-      // Measured: one end came out gold zari brocade and the other tonal red on red.
-      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. Wherever both ends are visible, they match exactly.'
+      // Measured on 3 of 4 real dupattas: with one end in front and the other off to
+      // the side, the two ends came out different (gold brocade vs red on red; a
+      // zigzag end vs a floral panel). Both ends now hang in front, side by side,
+      // where a mismatch cannot hide.
+      'Drape the dupatta around the back of the neck so that BOTH long ends hang straight down the front of the body, one over each shoulder, side by side and at the same height, each opened out flat so its body, borders and decorated end are clearly visible.',
+      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. The two ends hanging side by side are mirror images of each other.'
     ],
     styling: null,
     // Full length. Not waist-up: its ends and tassels hang to about the knee. And
@@ -119,7 +122,7 @@ const GUIDE = {
     // reliably deliver would be the worse contract.
     framing: 'full',
     pairedWith: { pieces: 'kurta', plural: false, looks: 'a simple, solid, matte straight kurta with no drape, border or embellishment of its own, worn with slim matching churidar', colour: 'contrast' },
-    poseHint: 'One hand lightly holds the dupatta edge to spread it open towards the camera.',
+    poseHint: 'Standing straight and square to the camera, arms relaxed at the sides and clear of the dupatta, so both hanging ends are fully visible.',
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',
       PALLU_END: 'the two short decorated ends of the dupatta (the pallu ends), including their cross-bands. Both ends carry this same design in the same colours and the same metallic finish',

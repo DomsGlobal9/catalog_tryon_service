@@ -426,7 +426,7 @@ async function runAll({ check, eq, section, SRC }) {
   check('borrowing is named part by part (gota cuffs came from a neck reference photo)',
     /not on its sleeves, cuffs, neckline, hem or any other part without a design of its own/.test(suitText));
   check('lace and cutwork keep their shapes (hearts appeared) and show only their own ground (a lilac print showed through lace)',
-    /Never introduce a shape the reference does not have, such as hearts, stars, letters or animals/.test(suitText)
+    /a round dot stays a round dot, a rose stays a rose, a leaf stays a leaf/.test(suitText) && !/hearts|stars|letters/i.test(suitText)
     && /what shows through is that part's own ground colour - never the cloth, print or skin seen through it/.test(suitText));
 
   // A red embroidered yoke on a blue kurta came out indigo (the fabric). A
@@ -489,6 +489,9 @@ async function runAll({ check, eq, section, SRC }) {
   check('a neck or yoke is not squeezed into a band, and a real border reference raises no warning',
     (hem.text.match(/This is an edge area/g) || []).length === 1
     && buildPrompt(fakeJob('GOWN', ['BORDER_HEM']), { descriptions: new Map([[1, { motifs: 'floral scroll', layout: 'continuous band at the hem' }]]) }).warnings.length === 0);
+  check('a dupatta hangs both ends down the front, side by side, as mirror images (3 of 4 came out with different ends)',
+    /BOTH long ends hang straight down the front of the body, one over each shoulder, side by side and at the same height/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text)
+    && /The two ends hanging side by side are mirror images of each other/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text));
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 
