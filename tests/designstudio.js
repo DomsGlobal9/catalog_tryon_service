@@ -572,7 +572,7 @@ async function runAll({ check, eq, section, SRC }) {
   check('the colour check says where the part is, so another part is not judged (the gold pallu was blamed on the border once)',
     /On the body of the saree \(the main body of the saree: the large field between the borders, seen on the pleats and wrapped around the hips\) - and only there, not on other parts of the garment/.test(checklist.find((c) => c.id === 'colour_body').question), checklist.find((c) => c.id === 'colour_body').question);
   check('the colour check allows motif, zari and gold colours and judges only the ground (gold zari was flagged once)',
-    /Motifs, buttis, zari, gold or metallic work (including a solid gold or zari panel or band) and coloured decoration are allowed in any colour, and skin seen through sheer or net fabric is not a ground colour/.test(checklist.find((c) => c.id === 'colour_body').question));
+    /Motifs, buttis, zari, gold or metallic work \(including a solid gold or zari panel or band\) and coloured decoration are allowed in any colour, and skin seen through sheer or net fabric is not a ground colour/.test(checklist.find((c) => c.id === 'colour_body').question));
   check('a contrast panel is not colour-checked against its own panel colour',
     !qa.buildChecklist(buildPrompt(fakeJob('SUIT', ['NECK'], { fabrics: [{ image: IMG, color: 'indigo' }] }), { descriptions: new Map([[1, { colours: 'Background is red.', groundType: 'contrast panel', groundColour: 'red' }]]) }).review).some((c) => c.id === 'colour_neck'));
   check('a lighter tint of the background colour is named as ground in the prompt too',
