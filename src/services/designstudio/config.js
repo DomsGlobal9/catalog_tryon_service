@@ -26,9 +26,14 @@ const config = {
     // Unset by default: Google's own default (1.0) is recommended for Gemini 3
     // models; forcing it low can degrade them. Set to override.
     temperature: process.env.DESIGNSTUDIO_TEMPERATURE === undefined ? null : Number(process.env.DESIGNSTUDIO_TEMPERATURE),
-    attemptTimeoutMs: int('DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS', 120000, { min: 1000 }),
+    // Measured: real generations took 25-61s, but one attempt hung past 120s.
+    // A slow attempt gets cut off and tried once more; the caller is already on an
+    // open stream with keep-alives, so a longer total is safe.
+    attemptTimeoutMs: int('DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS', 100000, { min: 1000 }),
     // Hard ceiling for the whole generation including retries.
-    deadlineMs: int('DESIGNSTUDIO_DEADLINE_MS', 170000, { min: 1000 }),
+    deadlineMs: int('DESIGNSTUDIO_DEADLINE_MS', 220000, { min: 1000 }),
+    // Extra tries after an attempt that never answered in time.
+    timeoutRetries: int('DESIGNSTUDIO_TIMEOUT_RETRIES', 1, { max: 2 }),
     // Extra tries after a busy/unavailable answer (429, 5xx, dropped connection).
     retries: int('DESIGNSTUDIO_RETRIES', 2, { max: 5 }),
     // Extra tries when the model answers but returns no image.

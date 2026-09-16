@@ -105,11 +105,14 @@ async function generate(req, res, next) {
       const descriptions = await describeReferences(referenceList(job), { signal: abort.signal });
       job.describeMs = Date.now() - describeStarted;
       if (descriptions.size) {
+        const before = prompt.warnings;
         prompt = buildPrompt(job, { descriptions });
         send({
           type: 'brief',
           jobId: admitted.job.id,
-          references: [...descriptions.entries()].map(([ref, info]) => ({ ref, ...info }))
+          references: [...descriptions.entries()].map(([ref, info]) => ({ ref, ...info })),
+          // Only what reading the references revealed; start already carried the rest.
+          warnings: prompt.warnings.filter((w) => !before.includes(w))
         });
       }
     }

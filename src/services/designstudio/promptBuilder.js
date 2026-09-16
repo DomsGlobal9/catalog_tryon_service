@@ -111,14 +111,38 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     return lines;
   };
 
+  // Which fabric covers a part: its own, or the main fabric.
+  const fabricRefNumber = (fabric) => job.designs.length + fabric.index + 1;
+  const fabricFor = (areaId) => job.fabrics.find((f) => f.appliesTo && f.appliesTo.includes(areaId))
+    || job.fabrics.find((f) => !f.appliesTo)
+    || null;
+  // Measured: a brocade jaal fabric replaced the multi-coloured butis a BODY
+  // design asked for. The describe step's own words are the reliable signal -
+  // a pixel measure cannot tell an all-over pattern from a sparkly velvet.
+  const PATTERNED = /jaal|jacquard|brocade|all-?over (?:pattern|design)|self[- ]design|woven pattern|damask|trellis/i;
+  const patternedFabricFor = (areaId) => {
+    const fabric = fabricFor(areaId);
+    if (!fabric) return null;
+    const info = descriptions.get(fabricRefNumber(fabric));
+    if (!info) return null;
+    const words = `${info.motifs} ${info.technique} ${info.layout}`;
+    return PATTERNED.test(words) ? fabric : null;
+  };
+
   let n = 0;
   for (const d of job.designs) {
     n += 1;
+    const clash = patternedFabricFor(d.areaId);
     const lines = [
       `[Image ${n}] DESIGN for ${d.areaId} (${d.areaName})`,
       `Goes on: ${describeArea(job.garmentId, d.areaId)}.`,
       ...described(n)
     ];
+    if (clash) {
+      const fabricName = clash.name ? clean(clash.name) : `fabric ${clash.index + 1}`;
+      lines.push(`IMPORTANT for this part: its fabric (${fabricName}) carries its own all-over woven pattern. That pattern must stay a quiet ground here - THIS design's motifs are what must be seen on ${d.areaId}, at their own size and colours. Do not let the fabric's pattern replace them.`);
+      warnings.push(`${d.areaId} has both a design and a patterned fabric (${fabricName}, described as ${clean((descriptions.get(fabricRefNumber(clash)) || {}).technique || 'patterned')}). The fabric's own pattern can compete with the design. For the sharpest result, send a plainer fabric for ${d.areaId}.`);
+    }
     if (d.groundColor || d.groundColorHex) {
       const stated = [d.groundColor ? clean(d.groundColor) : null, d.groundColorHex ? `hex ${d.groundColorHex}` : null].filter(Boolean).join(', ');
       lines.push(`Ground colour for this part: ${stated}. Reproduce the motifs on exactly this colour, whatever colour the reference photo is on.`);

@@ -175,6 +175,7 @@ async function generateImage(parts, { signal, onAttempt } = {}) {
   const deadline = Date.now() + config.gemini.deadlineMs;
   let busyRetries = 0;
   let noImageRetries = 0;
+  let timeoutRetries = 0;
   let attempts = 0;
   let lastFailure = null;
 
@@ -193,18 +194,25 @@ async function generateImage(parts, { signal, onAttempt } = {}) {
       lastFailure = err;
       console.warn(`[DesignStudio] attempt ${attempts} failed: ${err.message}`);
 
-      const canRetry = err.kind === 'no_image'
-        ? noImageRetries++ < config.gemini.noImageRetries
+      const canRetry = err.kind === 'no_image' ? noImageRetries++ < config.gemini.noImageRetries
+        : err.kind === 'timeout' ? timeoutRetries++ < config.gemini.timeoutRetries
         : err.kind === 'busy' && busyRetries++ < config.gemini.retries;
       if (!canRetry) break;
 
-      const wait = Math.max(err.retryAfterMs, config.gemini.retryBaseMs * 2 ** (busyRetries + noImageRetries - 1)) + Math.floor(Math.random() * 500);
+      const attemptsSoFar = busyRetries + noImageRetries + timeoutRetries;
+      const wait = Math.max(err.retryAfterMs, config.gemini.retryBaseMs * 2 ** Math.max(0, attemptsSoFar - 1)) + Math.floor(Math.random() * 500);
       if (Date.now() + wait + 1000 >= deadline) break;
       await sleep(wait);
       if (signal && signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
     }
   }
 
+  if (lastFailure && lastFailure.kind === 'timeout') {
+    throw new StudioError(
+      `The image model did not answer in time (${attempts} attempt${attempts === 1 ? '' : 's'} of ${Math.round(config.gemini.attemptTimeoutMs / 1000)}s). Please retry shortly.`,
+      { status: 424, code: 'MODEL_TIMEOUT', retryable: true }
+    );
+  }
   if (lastFailure && lastFailure.kind === 'no_image') {
     throw new StudioError(`The image model did not return an image after ${attempts} attempt${attempts === 1 ? '' : 's'}. Try again, or simplify the references.`,
       { status: 422, code: 'NO_IMAGE_RETURNED', retryable: true });

@@ -54,8 +54,9 @@ DESIGNSTUDIO_OUTPUT_FORMAT=jpeg         # jpeg (re-encoded, ~10x smaller) | orig
 DESIGNSTUDIO_DESCRIBE=on
 DESIGNSTUDIO_DESCRIBE_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS=25000
-DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=120000
-DESIGNSTUDIO_DEADLINE_MS=170000         # whole generation including retries
+DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=100000  # real runs took 25-60s; one hung past 120s
+DESIGNSTUDIO_TIMEOUT_RETRIES=1          # a slow attempt is cut off and tried once more
+DESIGNSTUDIO_DEADLINE_MS=220000         # whole generation including retries
 DESIGNSTUDIO_RETRIES=2                  # after busy/unavailable answers
 DESIGNSTUDIO_NO_IMAGE_RETRIES=1         # after an answer without an image
 # DESIGNSTUDIO_TEMPERATURE=             # unset = the model's own default (recommended)

@@ -27,7 +27,10 @@ async function runAll({ check, eq, section, SRC }) {
     DESIGNSTUDIO_HEARTBEAT_MS: '60',
     DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS: '400',
     DESIGNSTUDIO_MAX_BODY_MB: '3',
-    DESIGNSTUDIO_MAX_IMAGE_MB: '2'
+    DESIGNSTUDIO_MAX_IMAGE_MB: '2',
+    // Short, so the "it hangs" cases finish in milliseconds instead of minutes.
+    DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS: '1000',
+    DESIGNSTUDIO_DEADLINE_MS: '5000'
   });
   const express = require('express');
   const sharp = require('sharp');
@@ -302,6 +305,18 @@ async function runAll({ check, eq, section, SRC }) {
   check('and those words go to the image model next to the picture',
     /Motifs in this reference: temple \(mandir\) spires, 14 across the band/.test(withWords) && /Must not be missed: hexagonal jaal/.test(withWords));
 
+  // A patterned fabric on a part that also has a design: warn, and tell the model
+  // which one wins. Measured: a brocade jaal erased the body's butis.
+  const clashJob = fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, name: 'Banarasi Brocade', appliesTo: ['BODY'] }] });
+  const clashPrompt = buildPrompt(clashJob, { descriptions: new Map([[2, { motifs: 'floral jaal', technique: 'woven zari brocade, all-over jaal design' }]]) });
+  check('a patterned fabric over a designed part is flagged to the caller and settled in the prompt',
+    clashPrompt.warnings.length === 1 && /BODY has both a design and a patterned fabric \(Banarasi Brocade/.test(clashPrompt.warnings[0])
+    && /send a plainer fabric for BODY/.test(clashPrompt.warnings[0]) && /THIS design's motifs are what must be seen on BODY/.test(clashPrompt.text),
+    clashPrompt.warnings[0]);
+  const calmJob = fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, name: 'Plain wine silk', appliesTo: ['BODY'] }] });
+  eq('a plain fabric on the same part raises nothing (a sparkly velvet must not cry wolf)',
+    buildPrompt(calmJob, { descriptions: new Map([[2, { motifs: 'none, plain cloth', technique: 'plain silk with a soft sheen' }]]) }).warnings, []);
+
   describe._setFetch(describeAnswer({ candidates: [{ content: { parts: [{ text: '```json\n{"references":[{"ref":1,"motifs":"paisley"}]}\n```' }] } }] }));
   eq('an answer wrapped in code fences is still read', (await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])))).get(1).motifs, 'paisley');
   describe._setFetch(describeAnswer({ candidates: [{ content: { parts: [{ text: 'thinking...', thought: true }, { text: '{"references":[{"ref":1,"colours":"wine"}]}' }] } }] }));
@@ -399,6 +414,19 @@ async function runAll({ check, eq, section, SRC }) {
   calls = script([() => new Response(JSON.stringify({ error: { message: 'API key not valid. key=AIzaSyLEAKLEAKLEAKLEAKLEAKLEAK' } }), { status: 403 })]);
   out = await run();
   check('a bad key is 424 and the caller never sees the provider\'s message', out.error.code === 'MODEL_UNAVAILABLE' && out.error.status === 424 && !/AIza|key/i.test(out.error.message), out.error.message);
+  // Measured in a real run: one attempt hung past 120s while others took 25-61s.
+  let slowCalls = 0;
+  gemini._setFetch(async (url, opts) => {
+    slowCalls++;
+    if (slowCalls === 1) return new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(opts.signal.reason)));
+    return answer([imagePart(FINAL)]);
+  });
+  out = await run();
+  eq('a slow attempt is cut off and tried once more, and then succeeds', [!!out.image, slowCalls, out.attempts], [true, 2, 2]);
+  gemini._setFetch(async (url, opts) => new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(opts.signal.reason))));
+  out = await run();
+  eq('if it hangs every time: MODEL_TIMEOUT, marked retryable, not an endless wait', [out.error.code, out.error.status, out.error.retryable], ['MODEL_TIMEOUT', 424, true]);
+
   const ac = new AbortController();
   calls = script([(opts) => new Promise((_, reject) => { opts.signal.addEventListener('abort', () => reject(opts.signal.reason)); setTimeout(() => ac.abort(), 20); })]);
   try { out = await gemini.generateImage([{ text: 'x' }], { signal: ac.signal }); } catch (e) { out = { error: e }; }

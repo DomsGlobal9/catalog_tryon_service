@@ -154,7 +154,7 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 | `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`. Useful for showing your user, and for spotting a misread reference. |
 | `error` | Instead of `image` | `code`, `message`, `retryable` |
 
-Every stream ends with either `image` + `done`, or `error`. A generation usually takes **20–60 seconds**.
+Every stream ends with either `image` + `done`, or `error`. Measured on real runs: **25–60 seconds**, plus 2–8s for reading the references. A slow attempt is cut off at 100s and tried once more.
 
 ```text
 data: {"type":"start","jobId":"6c1f…","garment":"SAREE","designs":[{"index":0,"area":"PALLU","areaName":"Pallu Design"},{"index":1,"area":"BORDER","areaName":"Border Design"}],"fabrics":[{"index":0,"name":"Kanjivaram silk","appliesTo":"MAIN"},{"index":1,"name":"Gold tissue","appliesTo":["PALLU"]}],"model":"generated","pose":"front","aspectRatio":"3:4","warnings":[]}
@@ -262,6 +262,7 @@ Inside the stream (`error` event):
 | `GENERATION_REJECTED` | The image model could not process this input. | No — change the request. |
 | `NO_IMAGE_RETURNED` | The model answered without an image, even after a second try. | Yes |
 | `MODEL_UNAVAILABLE` | The image model is busy or down (already retried for you). | Yes, shortly |
+| `MODEL_TIMEOUT` | The image model did not answer in time, twice. Measured: normal runs take 25-60s, a rare one hangs. | Yes |
 | `MODEL_QUOTA_EXCEEDED` | The image model has reached its spending cap or quota on this deployment. | No - an operator must raise it |
 | `CANCELLED` | You cancelled, or started a new generation with the same `clientId`. | — |
 | `INTERNAL_ERROR` | Unexpected failure. | Yes |
@@ -282,8 +283,10 @@ Inside the stream (`error` event):
 
 - **A busy fabric can out-shout a design.** If a fabric swatch is itself a dense brocade or jaal and
   the same part also has a design reference, the fabric's woven pattern tends to dominate that part.
-  For parts where the design must read clearly, send a plainer fabric for that part (or leave that
-  part to the main fabric).
+  **The service now tells you**: when the references are read, a warning in the `brief` event names the
+  part and the fabric ("BODY has both a design and a patterned fabric … send a plainer fabric for BODY").
+  Verified both ways on the same saree: with a brocade jaal on the body, the body design's
+  multi-coloured butis disappeared; with a plain wine silk on the body, they came through exactly.
 - **Very fine motifs are approximate.** Large areas, drape, fabric colour and texture are dependable;
   a tiny repeated motif may be simplified. Naming it in `designs[].note` helps.
 - **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
