@@ -36,7 +36,7 @@ let fetchImpl = (...args) => fetch(...args);
 const FIELDS = ['motifs', 'layout', 'colours', 'technique', 'notes'];
 // Whether a design part's background is its own contrast colour or just the cloth
 // of the garment it was photographed on. Read by the prompt to decide its colour.
-const GROUND_FIELDS = ['groundType', 'groundColour', 'problem'];
+const GROUND_FIELDS = ['groundType', 'groundColour', 'garmentColour', 'problem'];
 const GROUND_TYPES = ['contrast panel', 'garment fabric', 'not applicable'];
 
 const INSTRUCTIONS = [
@@ -56,6 +56,10 @@ const INSTRUCTIONS = [
   '- technique: printed (block print, ajrakh, kalamkari, screen or digital print) / woven (zari, brocade, jacquard) / thread embroidery / sequins / mirror work, and the sheen. Look closely before you choose: flat, matte colour lying ON the cloth with no raised threads and no metallic glint is a PRINT, even when the motifs are gold-coloured and look like buttis. Say "woven" only when you can see the motif built from threads in the weave or a real metallic sheen.',
   '- notes:     anything a tailor copying this part must not miss, including trims, drops or plain areas at an edge. 25 words maximum.',
   '- groundType: for a DESIGN only. "contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour from the rest of the garment in the photograph (for example a red embroidered yoke on a blue kurta). "garment fabric" when the part\'s background is the same colour as the rest of the garment - even if it is a separately cut or stitched panel (for example an ivory gota yoke on an ivory kurta, or embroidery on a kurti that is mustard all over) - and for lace, net, sheer trims and close-ups where the rest of the garment cannot be seen. "not applicable" for a FABRIC.',
+  // Measured: white gota lace on a turquoise sharara was called a contrast panel,
+  // and a pink sharara came back with aqua bands. The two colours side by side
+  // let the service check that call itself.
+  '- garmentColour: for a DESIGN photographed on a garment, the main colour of the REST of that garment (not the named part) in plain words; empty for close-ups, swatches and artwork where the rest of the garment cannot be seen.',
   '- groundColour: for a DESIGN, the colour of the cloth under the motifs of the named part in plain words (for example "deep red", or "navy blue and white" for tiers or blocks of two colours); for a FABRIC, the base colour of the cloth.',
   // Measured: a shop rack of a dozen dupattas sent as a CORNER design.
   '- problem: empty when the named part can be seen clearly. Otherwise one short sentence saying why it cannot - for example the picture shows many different garments side by side (a shop rack, a pile, a collage) so no single design can be picked out, the part is hidden, cropped or far too small, or the picture is not clothing at all. A design shown on a DIFFERENT kind of garment (a border on a dupatta used for a lehenga, a sleeve from a kurti used for a blouse) is normal and is NOT a problem.',
@@ -79,6 +83,7 @@ const RESPONSE_SCHEMA = {
           notes: { type: 'STRING' },
           groundType: { type: 'STRING', enum: GROUND_TYPES },
           groundColour: { type: 'STRING' },
+          garmentColour: { type: 'STRING' },
           problem: { type: 'STRING' }
         },
         required: ['ref', ...FIELDS, ...GROUND_FIELDS],

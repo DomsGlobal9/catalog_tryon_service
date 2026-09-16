@@ -557,8 +557,8 @@ async function runAll({ check, eq, section, SRC }) {
     [2, { motifs: 'buttis', colours: 'Motifs gold. Background is deep maroon red.', technique: 'Block print, matte', groundType: 'garment fabric' }]
   ]) }).review;
   const checklist = qa.buildChecklist(stripeReview);
-  eq('a saree order is checked for: one person, framing, a plain blouse, no dupatta, one pallu, reference colours, the print, no text',
-    checklist.map((c) => c.id), ['one_person', 'framing', 'supporting_plain', 'no_dupatta', 'one_pallu', 'colour_body', 'colour_pallu', 'print_pallu', 'no_text']);
+  eq('a saree order is checked for: one person, framing, a plain blouse, no dupatta, no tassels, one pallu, reference colours, the print, no text',
+    checklist.map((c) => c.id), ['one_person', 'framing', 'supporting_plain', 'no_dupatta', 'no_tassels', 'one_pallu', 'colour_body', 'colour_pallu', 'print_pallu', 'no_text']);
   check('the colour check names the reference background and its shades (light-blue stripes survived once)',
     /The design reference was photographed on blue\. Judge ONLY the ground[\s\S]*Is it true that blue - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the body of the saree/.test(checklist.find((c) => c.id === 'colour_body').question));
   check('a blouse is checked waist-up, a dupatta for tassels only without a TASSEL design, a gown for no supporting piece',
@@ -648,6 +648,25 @@ async function runAll({ check, eq, section, SRC }) {
     !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['NECK'], { fabrics: [{ image: IMG }] }), { descriptions: new Map([[1, { motifs: 'lace' }], [2, { motifs: 'woven jaal trellis', technique: 'jacquard' }]]) }).review).some((c) => c.id === 'plain_rest')
     && !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['OVERALL'], { fabrics: [{ image: IMG }] }), { descriptions: new Map([[1, { motifs: 'lace' }], [2, plainFabric[1]]]) }).review).some((c) => c.id === 'plain_rest')
     && !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['NECK'], { fabrics: [{ image: IMG }] })).review).some((c) => c.id === 'plain_rest'));
+  // Round 6 (production, all 12 garments).
+  const shararaTrim = buildPrompt(fakeJob('SHARARA', ['BORDER'], { fabrics: [{ image: IMG, color: 'pink', colorHex: '#E0307A' }] }), { descriptions: new Map([[1, { motifs: 'triangle lace', technique: 'gota lace', groundType: 'contrast panel', groundColour: 'aqua blue', garmentColour: 'turquoise' }]]) });
+  check('a trim the same colour as the rest of its photographed garment is not a contrast panel (a pink sharara got aqua bands)',
+    !shararaTrim.warnings.some((w) => /contrast panel/.test(w)) && /Ground colour for this part: pink, hex #E0307A/.test(shararaTrim.text), shararaTrim.warnings);
+  check('...while a truly different panel colour still is',
+    buildPrompt(fakeJob('SUIT', ['NECK'], { fabrics: [{ image: IMG, color: 'indigo' }] }), { descriptions: new Map([[1, { motifs: 'mirrors', groundType: 'contrast panel', groundColour: 'red', garmentColour: 'blue' }]]) }).warnings.some((w) => /NECK is a contrast panel/.test(w)));
+  const zariSaree = buildPrompt(fakeJob('SAREE', ['BORDER', 'BODY'], { fabrics: [{ image: IMG, color: 'wine', colorHex: '#6D1A36' }] }), { descriptions: new Map([
+    [1, { motifs: 'floral scrolls', colours: 'motifs: gold zari; background: mustard yellow', technique: 'woven zari brocade with metallic sheen', groundType: 'garment fabric' }],
+    [2, { motifs: 'buttis', colours: 'background: mustard yellow', technique: 'thread embroidery', groundType: 'garment fabric' }]
+  ]) });
+  eq('a gold zari reference on mustard is not colour-checked as a leak (a correct wine saree was regenerated), a plain embroidery on mustard still is',
+    qa.buildChecklist(zariSaree.review).filter((c) => c.id.startsWith('colour_')).map((c) => c.id), ['colour_body']);
+  const noSleeve = (garment, areas) => /has NO sleeve design: its sleeves are plain fabric from shoulder to wrist/.test(buildPrompt(fakeJob(garment, areas)).text);
+  eq('sleeves stay plain without a sleeve design (printed sleeves copied from a neck photo), only on garments that have sleeves',
+    [noSleeve('ANARKALI', ['NECK']), noSleeve('SUIT', ['FRONT']), noSleeve('KURTHI', ['SLEEVE']), noSleeve('KURTHI', ['OVERALL']), noSleeve('SAREE', ['PALLU']), noSleeve('BLOUSE', ['HAND'])],
+    [true, true, false, false, false, false]);
+  check('a saree never gets tassels nobody sent (multi-coloured tassels appeared on a pallu), and a full-length photo keeps floor below the feet',
+    /No tassels, latkans, pom-poms or fringe on the pallu end or anywhere on the saree/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text)
+    && /both feet stand on visible floor with a clear strip of floor below them/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   check('the describe step is asked for the problem and for the ground colour of every design',
     describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
 

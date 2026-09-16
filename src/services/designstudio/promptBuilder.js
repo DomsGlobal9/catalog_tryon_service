@@ -155,6 +155,10 @@ function extrasLines(job, g) {
     // Measured: a PALLU_END photo of a whole dupatta with tassels still produced tassels.
     lines.push('No tassels, latkans or pom-poms on the dupatta ends - even if a reference photograph of a whole dupatta shows them - and no fringe unless a design reference shows one.');
   }
+  if (job.garmentId === 'SAREE') {
+    // Measured: multi-coloured tassels appeared on a pallu no reference showed with any.
+    lines.push('No tassels, latkans, pom-poms or fringe on the pallu end or anywhere on the saree: the pallu ends in a neat woven or hemmed edge.');
+  }
   if (job.garmentId === 'DUPATTA' && !areas.has('BODY') && !areas.has('OVERALL') && !areas.has('PRINT')) {
     // Measured: the same photo's body buttis appeared on a dupatta with no BODY design.
     lines.push('The body of the dupatta between its borders and ends is plain fabric: no buttis, motifs or print from any reference photograph (the fabric\'s own weave may show).');
@@ -174,8 +178,9 @@ function framingLine(g) {
   if (g.framing === 'three-quarter') {
     return `A three-quarter-length portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to mid-calf, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame. This is deliberately not a full-length photograph: the bottom edge of the frame cuts across the lower legs at mid-calf, and the ankles and feet are NOT in it.`;
   }
-  // Measured: bottom wear came out cropped at the chest, with no head or face.
-  return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped: the model's whole head and face are inside the frame.`;
+  // Measured: bottom wear came out cropped at the chest, with no head or face; and a
+  // saree hem and feet touched the bottom edge in both of one request's attempts.
+  return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped: the model's whole head and face are inside the frame, and both feet stand on visible floor with a clear strip of floor below them - the hem of the ${g.product} and the feet never touch the bottom edge of the photograph.`;
 }
 
 /** How /options describes each garment's default colour for its supporting pieces. */
@@ -393,7 +398,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Only a small part can be a contrast panel. Measured in production: a FRONT
     // reference with a black yoke was read as a contrast panel, and the whole front
     // of a teal kurti came out red while its back stayed teal.
-    const contrastColour = !MAIN_PANEL_AREAS.has(d.areaId) && /contrast/i.test(info.groundType || '') && clean(info.groundColour || '');
+    // And a part whose colour matches the rest of its photographed garment is not a
+    // contrast panel, whatever the describe step called it (aqua trim on turquoise).
+    const sameAsGarment = info.garmentColour && info.groundColour && sameColourFamily(info.groundColour, info.garmentColour);
+    const contrastColour = !MAIN_PANEL_AREAS.has(d.areaId) && /contrast/i.test(info.groundType || '') && !sameAsGarment && clean(info.groundColour || '');
     const ground = (d.groundColor || d.groundColorHex)
       ? { words: d.groundColor, hex: d.groundColorHex, from: 'the caller' }
       : contrastColour
@@ -405,7 +413,12 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
             : null;
     const referenceBackground = referenceGroundOf(info);
     const printed = printKind(info.technique) === 'flat' || printKind(info.technique) === 'foil';
+    // Measured: gold zari borders and a Paithani pallu photographed on mustard and
+    // beige were failed as "gold ground, not wine" - zari is gold, that is right.
+    const zariGround = !!referenceBackground && (sameColourFamily(referenceBackground, 'gold') || sameColourFamily(referenceBackground, 'beige'))
+      && /zari|metallic|brocade|tissue|paithani|banaras|kanjiv/i.test(`${info.technique || ''} ${info.motifs || ''}`);
     review.parts.push({
+      zariGround,
       area: d.areaId,
       part: partWords(d.areaId, g.product),
       where: describeArea(job.garmentId, d.areaId).split(/\.\s/)[0],
@@ -562,6 +575,12 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   designRules.push(hasGlobal
     ? 'Do not invent any motif, embellishment, logo or pattern that is not in the references.'
     : 'Do not invent any motif, embellishment, logo or pattern that is not in the references. Parts of the garment with no design reference stay plain in their fabric, with neat, simple finishing only.');
+  // Measured in production: a NECK photo's printed sleeves and a FRONT photo's
+  // embroidered cuffs were copied onto an anarkali and a suit that had no sleeve design.
+  const hasSleeves = taxonomy.getDesignTypes(job.garmentId).some((a) => a.id === 'SLEEVE');
+  if (hasSleeves && !hasGlobal && !designAreas.some((a) => a === 'SLEEVE' || a === 'HAND')) {
+    designRules.push(`The ${g.product} has NO sleeve design: its sleeves are plain fabric from shoulder to wrist - no print, embroidery, buttis, lace or border band on them, not even at the cuff - whatever sleeves the reference photographs show.`);
+  }
   addText(['HOW TO USE THE DESIGN REFERENCES', bullets(designRules)].join('\n'));
 
   // ── 5. FABRIC RULES ────────────────────────────────────────────────────────
@@ -662,7 +681,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     pose,
     pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId) } : null,
     noDupatta: !areasSent.has('DUPATTA') && job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA',
-    noTassels: job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL'),
+    noTassels: (job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL')) || job.garmentId === 'SAREE',
     onePallu: job.garmentId === 'SAREE',
     fabricColours: job.fabrics.filter((f) => f.color || f.colorHex).map((f) => ({ name: f.name, colour: [f.color, f.colorHex].filter(Boolean).join(' '), appliesTo: f.appliesTo || 'MAIN' }))
   });

@@ -52,7 +52,7 @@ function buildChecklist(review) {
     const pieces = review.pair.pieces;
     const edges = `its ${review.pair.edges || 'edges, hem and neckline'}`;
     add('supporting_plain',
-      `The ${pieces} is not the product and must be completely plain. Is the ${pieces} one solid colour everywhere - including ${edges} - with NO border, band, stripe, zari, gold or metallic edge, trim, piping or pattern of any width?`,
+      `The ${pieces} is not the product and must be completely plain. Is the ${pieces} one solid colour everywhere - including ${edges} - with NO border, band, stripe, zari, gold or metallic edge, trim, piping or pattern of any width? Judge only the ${pieces}'s own cloth: the ${product}'s own border or pallu draped over it or lying across a shoulder does not count.`,
       `The ${pieces} is completely plain, one solid colour everywhere. There is NO border, band, zari, gold or metallic edge, trim or piping at ${edges} - not even a thin line.`);
   }
 
@@ -76,7 +76,7 @@ function buildChecklist(review) {
     // Measured: "gold" on a gold tissue pallu and gold zari motifs in a border were
     // flagged as wrong colours. Only a background clearly unlike the ground is
     // checked, and motif colours are explicitly allowed.
-    if (part.ground && !part.contrast && part.referenceBackground && !sameColourFamily(part.referenceBackground, part.ground)) {
+    if (part.ground && !part.contrast && !part.zariGround && part.referenceBackground && !sameColourFamily(part.referenceBackground, part.ground)) {
       add(`colour_${part.area.toLowerCase()}`,
         `On the ${part.part} (${part.where}) - and only there, not on other parts of the garment - the ground (background) colour must be ${part.ground}. The design reference was photographed on ${part.referenceBackground}. Judge ONLY the ground: the base cloth and any wide stripes, bands, checks or blocks. Motifs, buttis, zari, gold or metallic work (including a solid gold or zari panel or band) and coloured decoration are allowed in any colour, and skin seen through sheer or net fabric is not a ground colour. Is it true that ${part.referenceBackground} - and any lighter or darker shade or tint of it - does NOT appear as a ground, stripe, band, check or block colour on the ${part.part}?`,
         `On the ${part.part}, ${part.referenceBackground} and every shade or tint of it is replaced by ${part.ground}. No ${part.referenceBackground} stripes, bands or blocks.`);
