@@ -57,6 +57,9 @@ const PART_WORDS = [
  */
 const EDGE_AREAS = new Set(['BORDER', 'BORDER_HEM', 'HEMLINE', 'HEM_BOTTOM', 'BOTTOM_BORDER', 'BOTTOM_ANKLE', 'WAISTBAND', 'WAIST_BELT', 'HAND']);
 
+/** Areas that ARE the garment's main cloth, so they always take the fabric colour. */
+const MAIN_PANEL_AREAS = new Set(['FRONT', 'BACK', 'BODY', 'SKIRT', 'FLARE', 'SKIRT_FLARE', 'FLARE_PANTS', 'LEG', 'BOTTOM_SALWAR', 'PLEAT', 'PALLU', 'OVERALL', 'PRINT', 'PRINT_PATTERN']);
+
 /** Attached trims, not cut from the garment's fabric. */
 const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
 
@@ -321,7 +324,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // step says which it is; a contrast panel keeps its own colour and says so.
     const partFabric = fabricFor(d.areaId);
     const info = descriptions.get(n) || {};
-    const contrastColour = /contrast/i.test(info.groundType || '') && clean(info.groundColour || '');
+    // Only a small part can be a contrast panel. Measured in production: a FRONT
+    // reference with a black yoke was read as a contrast panel, and the whole front
+    // of a teal kurti came out red while its back stayed teal.
+    const contrastColour = !MAIN_PANEL_AREAS.has(d.areaId) && /contrast/i.test(info.groundType || '') && clean(info.groundColour || '');
     const ground = (d.groundColor || d.groundColorHex)
       ? { words: d.groundColor, hex: d.groundColorHex, from: 'the caller' }
       : contrastColour

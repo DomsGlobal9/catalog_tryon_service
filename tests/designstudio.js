@@ -522,6 +522,13 @@ async function runAll({ check, eq, section, SRC }) {
   eq('a patterned fabric raises no clash warning on a trim (tassels and buttons are not cut from it)',
     buildPrompt(fakeJob('DUPATTA', ['TASSEL'], { fabrics: [{ image: IMG, name: 'Olive silk' }] }), { descriptions: new Map([[2, { motifs: 'woven florets' }]]) }).warnings, []);
 
+  const frontJob = fakeJob('KURTHI', ['FRONT', 'NECK'], { fabrics: [{ image: IMG, name: 'Teal crepe', color: 'deep teal', colorHex: '#0F5E5A' }] });
+  const frontContrast = buildPrompt(frontJob, { descriptions: new Map([[1, { motifs: 'mirror yoke', groundType: 'contrast panel', groundColour: 'black' }], [2, { motifs: 'gota', groundType: 'contrast panel', groundColour: 'red' }]]) });
+  check('a FRONT is the garment itself, never a contrast panel (a teal kurti came out with a red front in production); a NECK still can be',
+    /Ground colour for this part: deep teal, hex #0F5E5A - from its fabric/.test(frontContrast.text.split('[Image 2]')[0])
+    && /Ground colour for this part: red\. In its reference this part is a separately coloured contrast panel/.test(frontContrast.text)
+    && frontContrast.warnings.filter((w) => /contrast panel/.test(w)).length === 1);
+
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 
