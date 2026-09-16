@@ -25,6 +25,7 @@
 //
 const { garmentGuide, describeArea, GLOBAL_AREAS, BACK_AREAS, taxonomy } = require('./garmentGuide');
 const { config } = require('./config');
+const { sameColourFamily } = require('./colours');
 
 const clean = (s) => String(s).replace(/\s+/g, ' ').replace(/"/g, '\'').trim();
 const bullets = (lines) => lines.map((l) => `- ${l}`).join('\n');
@@ -65,6 +66,39 @@ function backgroundColourOf(colours) {
   if (!colours) return null;
   const m = String(colours).match(/background(?:\s+stripes?)?(?:\s+colou?r)?\s*(?:is|are|:)?\s*([a-z][a-z ,/-]{2,40}?)(?:[.;]|$)/i);
   return m ? m[1].trim() : null;
+}
+
+/**
+ * The ground colour of the named part in its reference photograph. The describe
+ * step's own groundColour first; the "background: ..." phrase of its colours as a
+ * fallback. Measured: the phrase alone missed "Solid black." and "Navy blue and
+ * white tiers.", so a black waist belt and navy-and-white skirt tiers were copied
+ * onto a lilac gown with nothing telling the model they were the reference's cloth.
+ */
+function referenceGroundOf(info) {
+  if (!info) return null;
+  const said = clean(info.groundColour || '');
+  if (said) return said;
+  return backgroundColourOf(info.colours) || solidColourOf(info.colours);
+}
+
+/** "Solid bright red." -> "bright red". */
+function solidColourOf(colours) {
+  const m = String(colours || '').trim().match(/^(?:solid|plain)\s+([a-z][a-z /-]{2,30}?)\.?$/i);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * A printed design, and whether it also carries raised work on top.
+ * Measured: "Block print with mirror work" got the print lock, which forbids
+ * embroidery, and the inspector then failed the mirror work as "not printed".
+ */
+function printKind(technique) {
+  const t = String(technique || '');
+  if (!/print|ajrakh|kalamkari|bagru|dabu/i.test(t) || /woven|brocade|jacquard|zari/i.test(t)) return null;
+  if (/mirror|sequin|bead|pearl|embroider|stitch|thread|zardosi|aari|gota|appliqu|embellish|stone/i.test(t)) return 'embellished';
+  if (/foil|metallic|gold|silver|sheen|shimmer|glitter/i.test(t)) return 'foil';
+  return 'flat';
 }
 
 /** Where a supporting piece most often picks up a stray band. */
@@ -270,8 +304,13 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     if (info.colours) lines.push(`Colours in this reference: ${info.colours}`);
     if (info.technique) lines.push(`Technique: ${info.technique}`);
     // Measured: an ajrakh block print came out as gold woven zari.
-    if (/print|ajrakh|kalamkari|bagru|dabu/i.test(info.technique || '') && !/woven|brocade|jacquard|zari/i.test(info.technique || '')) {
+    const kind = printKind(info.technique);
+    if (kind === 'flat') {
       lines.push('TECHNIQUE LOCK: this design is PRINTED - flat, matte colour printed into the cloth. Reproduce it as a print: no woven zari, no brocade, no metallic thread, no embroidery, no raised texture, no metallic sheen on the motifs.');
+    } else if (kind === 'foil') {
+      lines.push('TECHNIQUE LOCK: this design is a FOIL or metallic PRINT - the motifs may shine, but they lie completely flat on the cloth. Reproduce it as a print: no woven zari, no brocade, no metallic thread, no embroidery, no raised texture.');
+    } else if (kind === 'embellished') {
+      lines.push('TECHNIQUE LOCK: the motifs of this design are PRINTED flat on the cloth, with the raised work named above (for example mirrors, sequins or embroidery) added on top of the print. Keep the printed motifs flat - never turn them into woven zari or brocade - and keep that raised work exactly where the reference shows it.');
     }
     if (info.notes) lines.push(`Must not be missed: ${info.notes}`);
     if (lines.length) lines.unshift('This is what the reference actually shows - reproduce all of it:');
@@ -345,6 +384,12 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // step says which it is; a contrast panel keeps its own colour and says so.
     const partFabric = fabricFor(d.areaId);
     const info = descriptions.get(n) || {};
+    // Measured: a real fabric photo sent without a colour gave the blouse no ground
+    // colour at all, and its sleeves and yoke came out navy and peach - the colours
+    // of the garments in the design references. The fabric photo's own reading
+    // is the fallback for its colour.
+    const fabricInfo = partFabric ? descriptions.get(fabricRefNumber(partFabric)) : null;
+    const fabricRead = fabricInfo && (clean(fabricInfo.groundColour || '') || backgroundColourOf(fabricInfo.colours) || solidColourOf(fabricInfo.colours));
     // Only a small part can be a contrast panel. Measured in production: a FRONT
     // reference with a black yoke was read as a contrast panel, and the whole front
     // of a teal kurti came out red while its back stayed teal.
@@ -355,9 +400,11 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
         ? { words: contrastColour, contrast: true }
         : (partFabric && (partFabric.color || partFabric.colorHex))
           ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
-          : null;
-    const referenceBackground = backgroundColourOf(info.colours);
-    const printed = /print|ajrakh|kalamkari|bagru|dabu/i.test(info.technique || '') && !/woven|brocade|jacquard|zari/i.test(info.technique || '');
+          : fabricRead
+            ? { words: fabricRead, from: `its fabric photograph${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
+            : null;
+    const referenceBackground = referenceGroundOf(info);
+    const printed = printKind(info.technique) === 'flat' || printKind(info.technique) === 'foil';
     review.parts.push({
       area: d.areaId,
       part: partWords(d.areaId, g.product),
@@ -373,6 +420,11 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     } else if (ground) {
       const stated = [ground.words ? clean(ground.words) : null, ground.hex ? `hex ${ground.hex}` : null].filter(Boolean).join(', ');
       lines.push(`Ground colour for this part: ${stated} - from ${ground.from}. Reproduce the motifs on exactly this colour. The reference photo's own background colour must NOT appear on the garment.`);
+      // Naming the reference's colour is what makes the model drop it: measured on a
+      // lilac gown whose skirt reference was navy-and-white tiers.
+      if (referenceBackground && !sameColourFamily(referenceBackground, stated)) {
+        lines.push(`In [Image ${n}] this part's cloth is ${referenceBackground}. That is only the colour of the garment that was photographed: on the new ${g.product} every area of ${referenceBackground} on this part - its cloth, tiers, panels, cuffs, belts, bands, piping, blocks and stripes, and any lighter or darker shade of it - is ${stated} instead. Take the shape, construction and motifs from the reference, never its cloth colour.`);
+      }
       // Measured: turquoise-and-gold stripes on an emerald saree came out as gold
       // AND blue stripes - the reference's background stripes were kept as a motif.
       // Measured again in production: a lighter tint of that blue survived as stripes.
@@ -393,6 +445,18 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
       if (/all[- ]?over|throughout|entire (?:garment|dress|gown|outfit|fabric|surface)|whole (?:garment|dress|gown|outfit|fabric|surface)|covers? the (?:whole|entire)/i.test(words)) {
         warnings.push(`The ${d.areaId} reference shows a pattern across the whole garment rather than a ${areaWords(d.areaId)} band, so it is used only as a band along the ${areaWords(d.areaId)}. A close-up of the band itself gives a closer match.`);
       }
+    }
+    // Measured: a CORNER reference that was a shop rack of a dozen dupattas; the
+    // model invented a corner motif and nobody was told.
+    // Measured twice: the describe step silently skipped a shop-rack photo and an
+    // "Eid Mubarak" poster while describing the other references, and the model
+    // invented a heavy paisley hem. A reference left out while others were read is
+    // treated as unclear too.
+    const skipped = !!(descriptions.declined && descriptions.declined.has(n));
+    const problem = info.problem ? clean(info.problem) : skipped ? `The picture could not be read as a ${areaWords(d.areaId)} design.` : '';
+    if (problem) {
+      warnings.push(`designs[${d.index}] (${d.areaId}): ${problem.replace(/\.?$/, '.')} The result for ${d.areaId} is a best guess - a close-up of that part gives an accurate match.`);
+      lines.push(`This reference is unclear (${problem.replace(/\.$/, '')}). Use only what can clearly be seen of a ${areaWords(d.areaId)} design; where nothing is clear, keep this part simple, in the garment's own colours, rather than inventing a busy design.`);
     }
     if (d.note) lines.push(`Customer note for this design: ${clean(d.note)}`);
     addText(lines.join('\n'));
@@ -580,7 +644,18 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   addText('Return only the finished photograph.');
 
   const areasSent = new Set(job.designs.map((d) => d.areaId));
+  // Measured: a NECK reference that was a whole peach blouse scattered with teal
+  // flowers put those flowers all over a red blouse. When the main fabric is known
+  // to be plain and no design covers the whole garment, everything outside the
+  // designed parts must be plain too - and that can be checked.
+  const mainFabric = job.fabrics.find((f) => !f.appliesTo) || null;
+  const mainRead = mainFabric ? descriptions.get(fabricRefNumber(mainFabric)) : null;
+  const wholeGarmentDesign = job.designs.some((d) => GLOBAL_AREAS.has(d.areaId) || MAIN_PANEL_AREAS.has(d.areaId) && ['OVERALL', 'PRINT', 'PRINT_PATTERN'].includes(d.areaId));
+  const plainRest = mainRead && !patternedFabricFor('__MAIN__') && !wholeGarmentDesign
+    ? job.designs.map((d) => partWords(d.areaId, g.product))
+    : null;
   Object.assign(review, {
+    plainRest,
     product: g.product,
     garmentId: job.garmentId,
     framing: g.framing,
@@ -594,4 +669,4 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review };
 }
 
-module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR, backgroundColourOf };
+module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind };

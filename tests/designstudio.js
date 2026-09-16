@@ -578,6 +578,79 @@ async function runAll({ check, eq, section, SRC }) {
   check('a lighter tint of the background colour is named as ground in the prompt too',
     /every lighter or darker shade or tint of that background colour/.test(buildPrompt(fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, color: 'emerald' }] })).text));
 
+  // Round 5 (all 12 garments, real run): colour leaks the gate missed, and false alarms it raised.
+  eq('colour families by closeness, not just words: cream is ivory, gold is mustard; navy-and-white is not lilac',
+    [qa.sameColourFamily('off-white/cream', 'ivory #EDE3CC'), qa.sameColourFamily('gold', 'mustard yellow #D4A017'), qa.sameColourFamily('alternating navy blue and white', 'lilac #B7A2D6'), qa.sameColourFamily('black', 'lilac #B7A2D6'), qa.sameColourFamily('beige', 'wine #6D1A36')],
+    [true, true, false, false, false]);
+  const gownPrompt = buildPrompt(fakeJob('GOWN', ['WAIST', 'SKIRT_FLARE'], { fabrics: [{ image: IMG, color: 'lilac', colorHex: '#B7A2D6' }] }), { descriptions: new Map([
+    [1, { motifs: '', colours: 'Solid black.', technique: 'woven', groundType: 'garment fabric', groundColour: 'black' }],
+    [2, { motifs: 'Solid colour blocks.', colours: 'Navy blue and white tiers.', technique: 'woven', groundType: 'garment fabric', groundColour: 'alternating navy blue and white' }]
+  ]) });
+  check('the reference\'s own cloth colour is named and replaced in the prompt (a lilac gown came back with navy-and-white tiers and a black belt)',
+    /In \[Image 2\] this part's cloth is alternating navy blue and white\. That is only the colour of the garment that was photographed: on the new gown every area of alternating navy blue and white on this part - its cloth, tiers, panels, cuffs, belts/.test(gownPrompt.text)
+    && /In \[Image 1\] this part's cloth is black\./.test(gownPrompt.text), gownPrompt.text.slice(0, 400));
+  eq('...and the gate checks both parts for it',
+    qa.buildChecklist(gownPrompt.review).filter((c) => c.id.startsWith('colour_')).map((c) => c.id), ['colour_waist', 'colour_skirt_flare']);
+  check('a reference already in the garment colour is not told to change (cream collar on an ivory sherwani)',
+    !/this part's cloth is/.test(buildPrompt(fakeJob('SHERWANI', ['COLLAR_NECK'], { fabrics: [{ image: IMG, color: 'ivory', colorHex: '#EDE3CC' }] }), { descriptions: new Map([[1, { motifs: 'paisley', colours: 'Motif colour: cream-gold; background colour: off-white/cream.', technique: 'thread embroidery', groundType: 'garment fabric', groundColour: '' }]]) }).text));
+  const photoFabric = buildPrompt(fakeJob('BLOUSE', ['SLEEVE'], { fabrics: [{ image: IMG, name: 'Real fabric' }] }), { descriptions: new Map([
+    [1, { motifs: 'leaves', colours: 'Motifs: black; Background: sheer navy blue', technique: 'thread embroidery', groundType: 'garment fabric', groundColour: 'sheer navy blue' }],
+    [2, { motifs: '', colours: 'Solid bright red', technique: 'woven', groundType: 'not applicable', groundColour: '' }]
+  ]) });
+  check('a fabric photo sent without a colour still sets the ground, from its own reading (blouse sleeves came out navy)',
+    /Ground colour for this part: bright red - from its fabric photograph \(Real fabric\)/.test(photoFabric.text) && /this part's cloth is sheer navy blue/.test(photoFabric.text)
+    && qa.buildChecklist(photoFabric.review).some((c) => c.id === 'colour_sleeve'), photoFabric.text.slice(0, 300));
+  eq('print kinds: flat, foil, print with raised work, woven',
+    ['Block print, matte', 'Printed, with a metallic sheen', 'Block print with mirror work, matte finish', 'Printed fabric base, embellished with stitched beads', 'woven zari brocade'].map((t) => S('promptBuilder').printKind(t)),
+    ['flat', 'foil', 'embellished', 'embellished', null]);
+  const mirrorPrint = buildPrompt(fakeJob('ANARKALI', ['NECK']), { descriptions: new Map([[1, { motifs: 'florals', technique: 'Block print with mirror work, matte finish', groundType: 'garment fabric' }]]) });
+  check('a print with mirror work keeps its mirrors and is not inspected as a pure print (anarkali regenerated for nothing)',
+    /PRINTED flat on the cloth, with the raised work named above/.test(mirrorPrint.text) && !/no embroidery, no raised texture/.test(mirrorPrint.text)
+    && !qa.buildChecklist(mirrorPrint.review).some((c) => c.id === 'print_neck'));
+  check('a generic "block print" gets the technique lock (a stray control character had limited it to ajrakh and kalamkari)',
+    /TECHNIQUE LOCK: this design is PRINTED - flat, matte/.test(buildPrompt(fakeJob('SAREE', ['BODY']), { descriptions: new Map([[1, { motifs: 'buttis', technique: 'Block print, matte' }]]) }).text));
+  const rack = buildPrompt(fakeJob('DUPATTA', ['CORNER']), { descriptions: new Map([[1, { motifs: 'many', technique: 'mixed', groundType: 'garment fabric', problem: 'The picture shows a shop rack of many different dupattas.' }]]) });
+  check('an unusable reference (a shop rack of dupattas) is reported to the caller and kept simple in the prompt',
+    rack.warnings.some((w) => /designs\[0\] \(CORNER\): The picture shows a shop rack of many different dupattas\. The result for CORNER is a best guess/.test(w))
+    && /This reference is unclear \(The picture shows a shop rack/.test(rack.text), rack.warnings);
+  // Measured: "problem" was added to required but not to properties; Gemini refused every
+  // describe call with HTTP 400 and, since that step never fails a request, it went quiet.
+  const undefinedRequired = (schema, path = 'schema') => {
+    if (!schema || typeof schema !== 'object') return [];
+    const own = (schema.required || []).filter((k) => !(schema.properties && k in schema.properties)).map((k) => `${path}.${k}`);
+    const order = (schema.propertyOrdering || []).filter((k) => !(schema.properties && k in schema.properties)).map((k) => `${path}.ordering.${k}`);
+    const kids = Object.entries(schema.properties || {}).flatMap(([k, v]) => undefinedRequired(v, `${path}.${k}`));
+    return [...own, ...order, ...kids, ...(schema.items ? undefinedRequired(schema.items, `${path}[]`) : [])];
+  };
+  eq('every required or ordered field in the describe and inspection schemas is defined (Gemini refuses the call otherwise)',
+    [...undefinedRequired(describe.RESPONSE_SCHEMA, 'describe'), ...undefinedRequired(qa.RESPONSE_SCHEMA, 'qa')], []);
+  const onlyFirst = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ references: [{ ref: 1, motifs: 'mirror work', layout: 'band', colours: 'gold on red', technique: 'embroidery', notes: '', groundType: 'garment fabric', groundColour: 'red', problem: '' }] }) }] } }] };
+  // The retry asks for the missing one alone; the model answers it with nothing.
+  let posterCalls = 0;
+  describe._setFetch(async (...args) => (++posterCalls === 1 ? describeAnswer(onlyFirst)(...args) : describeAnswer({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"references":[]}' }] } }] })(...args)));
+  const refsPoster = referenceList(fakeJob('SHERWANI', ['COLLAR_NECK', 'HEM_BOTTOM']));
+  const posterRead = await describe.describeReferences(refsPoster);
+  const posterPrompt = buildPrompt(fakeJob('SHERWANI', ['COLLAR_NECK', 'HEM_BOTTOM']), { descriptions: posterRead });
+  check('a reference the describe step answered around but left out is reported and kept simple (an Eid poster became a heavy paisley hem)',
+    posterRead.declined.has(2) && posterPrompt.warnings.some((w) => /designs\[1\] \(HEM_BOTTOM\): The picture could not be read as a hem bottom design\. The result for HEM_BOTTOM is a best guess/.test(w))
+    && /This reference is unclear \(The picture could not be read as a hem bottom design\)/.test(posterPrompt.text), posterPrompt.warnings);
+  describe._setFetch(async () => { throw new Error('fetch failed'); });
+  const lostRead = await describe.describeReferences(refsPoster);
+  eq('a reference lost to a network error is not called unclear', [lostRead.declined.size, buildPrompt(fakeJob('SHERWANI', ['COLLAR_NECK', 'HEM_BOTTOM']), { descriptions: lostRead }).warnings.length], [0, 0]);
+  describe._setFetch(describeAnswer(goodDescription));
+
+  const plainFabric = [3, { motifs: '', colours: 'Solid bright red', technique: 'woven', groundType: 'not applicable', groundColour: 'bright red' }];
+  const blouseRest = buildPrompt(fakeJob('BLOUSE', ['NECK', 'SLEEVE'], { fabrics: [{ image: IMG }] }), { descriptions: new Map([[1, { motifs: 'scalloped lace' }], [2, { motifs: 'leaves' }], plainFabric]) });
+  const restCheck = qa.buildChecklist(blouseRest.review).find((c) => c.id === 'plain_rest');
+  check('with a plain fabric, the rest of the garment is checked for borrowed motifs (teal flowers from a neck photo covered a red blouse)',
+    !!restCheck && /only these parts carry a design: neckline of the blouse, sleeves of the blouse|only these parts carry a design: .*neck.*sleeve/i.test(restCheck.question), restCheck && restCheck.question);
+  check('...but not with a patterned fabric, an OVERALL design, or no fabric reading',
+    !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['NECK'], { fabrics: [{ image: IMG }] }), { descriptions: new Map([[1, { motifs: 'lace' }], [2, { motifs: 'woven jaal trellis', technique: 'jacquard' }]]) }).review).some((c) => c.id === 'plain_rest')
+    && !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['OVERALL'], { fabrics: [{ image: IMG }] }), { descriptions: new Map([[1, { motifs: 'lace' }], [2, plainFabric[1]]]) }).review).some((c) => c.id === 'plain_rest')
+    && !qa.buildChecklist(buildPrompt(fakeJob('BLOUSE', ['NECK'], { fabrics: [{ image: IMG }] })).review).some((c) => c.id === 'plain_rest'));
+  check('the describe step is asked for the problem and for the ground colour of every design',
+    describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
+
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));
 

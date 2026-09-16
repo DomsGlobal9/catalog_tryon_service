@@ -36,7 +36,7 @@ let fetchImpl = (...args) => fetch(...args);
 const FIELDS = ['motifs', 'layout', 'colours', 'technique', 'notes'];
 // Whether a design part's background is its own contrast colour or just the cloth
 // of the garment it was photographed on. Read by the prompt to decide its colour.
-const GROUND_FIELDS = ['groundType', 'groundColour'];
+const GROUND_FIELDS = ['groundType', 'groundColour', 'problem'];
 const GROUND_TYPES = ['contrast panel', 'garment fabric', 'not applicable'];
 
 const INSTRUCTIONS = [
@@ -56,7 +56,9 @@ const INSTRUCTIONS = [
   '- technique: printed (block print, ajrakh, kalamkari, screen or digital print) / woven (zari, brocade, jacquard) / thread embroidery / sequins / mirror work, and the sheen. Look closely before you choose: flat, matte colour lying ON the cloth with no raised threads and no metallic glint is a PRINT, even when the motifs are gold-coloured and look like buttis. Say "woven" only when you can see the motif built from threads in the weave or a real metallic sheen.',
   '- notes:     anything a tailor copying this part must not miss, including trims, drops or plain areas at an edge. 25 words maximum.',
   '- groundType: for a DESIGN only. "contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour from the rest of the garment in the photograph (for example a red embroidered yoke on a blue kurta). "garment fabric" when the part\'s background is the same colour as the rest of the garment - even if it is a separately cut or stitched panel (for example an ivory gota yoke on an ivory kurta, or embroidery on a kurti that is mustard all over) - and for lace, net, sheer trims and close-ups where the rest of the garment cannot be seen. "not applicable" for a FABRIC.',
-  '- groundColour: the background colour of that contrast panel in plain words (for example "deep red"); empty otherwise.',
+  '- groundColour: for a DESIGN, the colour of the cloth under the motifs of the named part in plain words (for example "deep red", or "navy blue and white" for tiers or blocks of two colours); for a FABRIC, the base colour of the cloth.',
+  // Measured: a shop rack of a dozen dupattas sent as a CORNER design.
+  '- problem: empty when the named part can be seen clearly. Otherwise one short sentence saying why it cannot - for example the picture shows many different garments side by side (a shop rack, a pile, a collage) so no single design can be picked out, the part is hidden, cropped or far too small, or the picture is not clothing at all. A design shown on a DIFFERENT kind of garment (a border on a dupatta used for a lehenga, a sleeve from a kurti used for a blouse) is normal and is NOT a problem.',
   'Keep every field under 40 words.'
 ].join('\n');
 
@@ -76,7 +78,8 @@ const RESPONSE_SCHEMA = {
           technique: { type: 'STRING' },
           notes: { type: 'STRING' },
           groundType: { type: 'STRING', enum: GROUND_TYPES },
-          groundColour: { type: 'STRING' }
+          groundColour: { type: 'STRING' },
+          problem: { type: 'STRING' }
         },
         required: ['ref', ...FIELDS, ...GROUND_FIELDS],
         propertyOrdering: ['ref', ...FIELDS, ...GROUND_FIELDS]
@@ -173,7 +176,7 @@ async function ask(items, signal) {
     const finish = candidate && candidate.finishReason;
     if (!parsed) return { map: new Map(), problem: `answer was not usable JSON (finish ${finish || 'unknown'}, ${text.length} chars)` };
     const map = readAnswer(parsed, items);
-    return { map, problem: map.size < items.length ? `answer covered ${map.size} of ${items.length} (finish ${finish || 'unknown'}): ${redact(text).slice(0, 160)}` : null };
+    return { map, answered: true, problem: map.size < items.length ? `answer covered ${map.size} of ${items.length} (finish ${finish || 'unknown'}): ${redact(text).slice(0, 160)}` : null };
   } catch (err) {
     return { map: new Map(), problem: redact(err && err.message), aborted: signal && signal.aborted };
   }
@@ -182,7 +185,8 @@ async function ask(items, signal) {
 /**
  * @param {Object[]} items  [{ ref, kind: 'design'|'fabric'|'model', label, part, image }]
  * @param {Object} options  { signal }
- * @returns {Promise<Map<number, Object>>} ref number -> description (empty on any failure)
+ * @returns {Promise<Map<number, Object>>} ref number -> description (empty on any failure).
+ *   `.declined` holds the refs a real answer left out.
  */
 async function describeReferences(items, { signal } = {}) {
   const out = new Map();
@@ -208,6 +212,10 @@ async function describeReferences(items, { signal } = {}) {
     for (const [ref, info] of second.map) out.set(ref, info);
   }
   const missing = wanted.filter((i) => !out.has(i.ref));
+  // Left out of a real answer (not lost to a timeout or network error): the model
+  // looked at the picture and had nothing to say - a shop rack, a greeting poster.
+  const last = second || first;
+  out.declined = new Set(last.answered ? missing.map((i) => i.ref) : []);
   if (missing.length && !(signal && signal.aborted)) {
     console.warn(`[DesignStudio] describe step: ${out.size} of ${wanted.length} references described; missing ${missing.map((i) => i.ref).join(', ')}. `
       + `First: ${first.problem || 'ok'}. Retry: ${second ? second.problem || 'ok' : 'no time left'}.`);
@@ -215,4 +223,4 @@ async function describeReferences(items, { signal } = {}) {
   return out;
 }
 
-module.exports = { describeReferences, parseJson, readAnswer, labelFor, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { describeReferences, parseJson, readAnswer, labelFor, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

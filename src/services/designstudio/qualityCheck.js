@@ -20,6 +20,7 @@
 //
 const { config } = require('./config');
 const { redact } = require('./errors');
+const { sameColourFamily } = require('./colours');
 
 let fetchImpl = (...args) => fetch(...args);
 
@@ -82,25 +83,22 @@ function buildChecklist(review) {
     }
     if (part.printed) {
       add(`print_${part.area.toLowerCase()}`,
-        `Do the motifs on the ${part.part} look PRINTED - flat and matte on the cloth - rather than woven zari, brocade, metallic thread or embroidery?`,
+        `Do the motifs on the ${part.part} look PRINTED - lying flat on the cloth (a foil print may shine) - rather than raised woven zari, brocade or thread embroidery?`,
         `The design on the ${part.part} is a flat, matte PRINT: no woven zari, brocade, metallic thread or embroidery.`);
     }
+  }
+
+  if (review.plainRest && review.plainRest.length) {
+    const designed = review.plainRest.join(', ');
+    add('plain_rest',
+      `The ${product}'s cloth is plain and only these parts carry a design: ${designed}. Apart from those parts and the seams right next to them, is the rest of the ${product} plain cloth - with NO scattered flowers, buttis, motifs, embroidery or all-over pattern?`,
+      `Only these parts of the ${product} carry a design: ${designed}. Everywhere else the ${product} is plain cloth in its fabric colour - no scattered flowers, buttis, motifs, embroidery or pattern copied from any reference photograph.`);
   }
 
   add('no_text',
     'Is the photograph free of any text, watermark, logo, collage, split screen or inset image?',
     'No text, watermark, logo, collage or inset image anywhere.');
   return checks;
-}
-
-/** "golden beige" vs "antique gold #C9A227" -> true. Crude on purpose: a skipped check is safer than a false alarm. */
-function sameColourFamily(a, b) {
-  const stems = (s) => new Set(String(s).toLowerCase().replace(/#[0-9a-f]{6}/g, '').match(/[a-z]+/g) || []);
-  const norm = (w) => w.replace(/(en|ish|y)$/, '');
-  const ignore = new Set(['light', 'dark', 'deep', 'pale', 'bright', 'soft', 'rich', 'dull', 'muted', 'and', 'or', 'with', 'hex', 'the', 'a', 'shade', 'tone']);
-  const A = [...stems(a)].filter((w) => !ignore.has(w)).map(norm);
-  const B = new Set([...stems(b)].filter((w) => !ignore.has(w)).map(norm));
-  return A.some((w) => B.has(w));
 }
 
 const RESPONSE_SCHEMA = {
@@ -187,4 +185,4 @@ function correctionsText(failures) {
   ].join('\n');
 }
 
-module.exports = { reviewImage, buildChecklist, correctionsText, sameColourFamily, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { reviewImage, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

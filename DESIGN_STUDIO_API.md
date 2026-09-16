@@ -126,11 +126,16 @@ request up to **50 MB**. Images at least **1000 px** on their longest side give 
 
 1. `designs[].groundColorHex` / `groundColor` for that part, if you send it;
 2. otherwise the **colour of the fabric covering that part** (`fabrics[].colorHex` / `color`);
-3. the design reference supplies **motifs only** - its own background colour is never used.
+3. otherwise, if that fabric has no stated colour, **the colour read from the fabric photograph**;
+4. the design reference supplies **shape, construction and motifs** - the colour of the garment it was
+   photographed on is never used. The service names that colour to the image model and tells it what
+   replaces it, and the quality check looks for it on the finished photograph.
 
 Measured: a sleeve design photographed on mustard made mint sleeves mustard, and a
 gota border photographed on royal blue made a rust lehenga's hem blue. With the
-fabric's colour applied automatically, both came out in the intended colour.
+fabric's colour applied automatically, both came out in the intended colour. Measured again:
+navy-and-white skirt tiers and a black waist belt from two gown photos were copied onto a lilac gown
+until the reference colours were named and replaced.
 
 ### The product, and what it is worn with
 
@@ -250,7 +255,10 @@ data: {"type":"done","jobId":"6c1f…","status":"ok","attempts":1,"timings":{"pr
 
 `start.warnings` tells you, in plain words, when the result may not be perfect — for example a design
 image under 512 px, or a request with both a `FRONT` and a `BACK` design (one photograph cannot show
-both fully; the model is posed to show the back).
+both fully; the model is posed to show the back). The `brief` event adds warnings found while reading
+the pictures - for example **a design picture where the part cannot be made out** (a shop rack of
+many dupattas, a collage, the part hidden or tiny): that part is kept simple rather than invented, and
+the warning asks for a close-up.
 
 ### Reading the stream (JavaScript)
 
