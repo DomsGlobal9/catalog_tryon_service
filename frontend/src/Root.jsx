@@ -2,15 +2,17 @@ import { useState } from 'react';
 import WomenApp from './WomenApp.jsx';
 import MenApp from './MenApp.jsx';
 import DiscoveryApp from './DiscoveryApp.jsx';
+import DesignStudioApp from './DesignStudioApp.jsx';
 import './discovery.css';
 
 /**
- * Test harness shell. Three capabilities live behind the same service and the
+ * Test harness shell. Four capabilities live behind the same service and the
  * same API key, so this landing screen picks which flow to exercise:
  *
  *   Women's Catalog  -> /api/v1/draping/generate-catalog  (category: women)
  *   Men's Catalog    -> /api/v1/draping/generate-catalog  (category: men)
  *   Design Discovery -> /api/v1/discovery/*
+ *   Design Studio    -> /api/v1/designstudio/*
  *
  * The men and women views are surfaced here directly rather than behind a second
  * switcher inside App.jsx, so every capability is one click from the landing
@@ -22,7 +24,10 @@ export default function Root() {
 
   if (view === 'home') return <Home onPick={setView} />;
 
-  const Current = view === 'women' ? WomenApp : view === 'men' ? MenApp : DiscoveryApp;
+  const Current = view === 'women' ? WomenApp
+    : view === 'men' ? MenApp
+    : view === 'studio' ? DesignStudioApp
+    : DiscoveryApp;
 
   return (
     <div>
@@ -37,7 +42,7 @@ function Home({ onPick }) {
     <div className="home-wrap">
       <header className="home-header">
         <h1>ScaleEasy Catalog Service</h1>
-        <p>Three capabilities behind one service. Pick one to test.</p>
+        <p>Four capabilities behind one service. Pick one to test.</p>
       </header>
 
       <div className="home-grid">
@@ -60,6 +65,13 @@ function Home({ onPick }) {
           <h2>Design Discovery</h2>
           <p>Search the web for garment design references by keyword, by garment and design area, or with one line of natural language.</p>
           <code>POST /api/v1/discovery/search</code>
+        </button>
+
+        <button className="home-card" onClick={() => onPick('studio')}>
+          <span className="home-icon">🎨</span>
+          <h2>Design Studio</h2>
+          <p>Upload the designs and fabrics a third party picked — per design area, with their colours — and generate that garment worn by a model. Returned as base64, portrait 3:4.</p>
+          <code>POST /api/v1/designstudio/generate</code>
         </button>
       </div>
 

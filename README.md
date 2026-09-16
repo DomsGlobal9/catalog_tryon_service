@@ -122,6 +122,10 @@ VITE_API_KEY="sk_live_..." # the gateway/client key
 # is rejected there. Without this the UI loads but every request returns 401.
 VITE_DEV_API_KEY="<the same value as SERVICE_API_KEY in the root .env>"
 
+# Optional. Point the Design Studio screen at a different service - a second
+# local instance, or staging - instead of http://localhost:4005.
+# VITE_DEV_DESIGNSTUDIO_URL="http://localhost:4006/api/v1/designstudio"
+
 # No key is committed to source; both live only in this gitignored file.
 ```
 
@@ -176,6 +180,17 @@ npm install
 npm run dev
 # (Frontend will start on http://localhost:5173)
 ```
+
+The landing screen is a test harness for all four capabilities: **Women's Catalog**, **Men's
+Catalog**, **Design Discovery** and **Design Studio**. The Design Studio screen builds its pickers
+from `GET /api/v1/designstudio/options`, so the 12 garments and 107 design areas are never
+hard-coded. Attach a design per area (upload, drag, paste, or an `https://res.cloudinary.com` link),
+add fabrics with their colour and `appliesTo`, optionally a model photo, then watch the exact
+payload before it is sent and every event as it arrives — `start`, the reference `brief`, `image`,
+`done` with timings. It deliberately does **not** correct a bad request: a missing image or a
+non-Cloudinary link is flagged and still sent, so `400 VALIDATION_ERROR` and `422 IMAGE_UNUSABLE`
+can be tested from the same screen. Leaving the page cancels whatever is running, so no generation
+is left holding a capacity slot.
 
 ---
 
