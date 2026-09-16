@@ -54,10 +54,16 @@ function buildPrompt(job) {
   const hasGlobal = designAreas.some((a) => GLOBAL_AREAS.has(a));
   const hasZone = designAreas.some((a) => !GLOBAL_AREAS.has(a));
   const needsBack = designAreas.some((a) => BACK_AREAS.has(a));
-  const hasFront = designAreas.includes('FRONT');
   const pose = needsBack ? 'back' : 'front';
-  if (needsBack && hasFront) {
-    warnings.push('A single photograph cannot show the FRONT and BACK designs fully at once; the model is posed turning away, so the back is clear and the front is partly visible.');
+  if (needsBack) {
+    // Measured on a real kurti (BACK + NECK): the back yoke came out perfectly and
+    // the neckline could not be seen at all. Say so rather than let a caller wonder.
+    const hiddenByBackPose = job.designs
+      .filter((d) => !BACK_AREAS.has(d.areaId) && !GLOBAL_AREAS.has(d.areaId))
+      .map((d) => d.areaId);
+    if (hiddenByBackPose.length) {
+      warnings.push(`One photograph cannot show the back and the front at once. The model is posed turning away so the BACK design is clear, which leaves ${hiddenByBackPose.join(', ')} partly or fully hidden. Send a second request without the BACK design for a front view of those.`);
+    }
   }
 
   // ── 1. TASK ────────────────────────────────────────────────────────────────

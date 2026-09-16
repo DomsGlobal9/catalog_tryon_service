@@ -248,6 +248,11 @@ async function runAll({ check, eq, section, SRC }) {
   eq('a BACK design turns the model so the back is visible', [back.pose, /looking back over the shoulder/.test(back.text)], ['back', true]);
   const both = buildPrompt(fakeJob('KURTHI', ['FRONT', 'BACK']));
   eq('FRONT and BACK together: back pose plus an honest warning', [both.pose, both.warnings.length], ['back', 1]);
+  const backAndNeck = buildPrompt(fakeJob('KURTHI', ['BACK', 'NECK', 'PRINT']));
+  check('any front-facing area behind a BACK pose is named in the warning (measured: a NECK design was invisible)',
+    backAndNeck.warnings.length === 1 && /leaves NECK partly or fully hidden/.test(backAndNeck.warnings[0]) && !/PRINT/.test(backAndNeck.warnings[0]),
+    backAndNeck.warnings[0]);
+  eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
   const ref = buildPrompt(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }));
   check('a model photo: dress that exact person, ignore their outfit', /Dress the exact person shown in \[Image 2\]/.test(ref.text) && /ignore their original outfit/.test(ref.text));
   check('a model photo without a gender is "a model", not assumed', /photograph of a model wearing/.test(ref.text));
