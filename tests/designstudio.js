@@ -345,7 +345,7 @@ async function runAll({ check, eq, section, SRC }) {
     && /a saree, dupatta, skirt or trousers worn with it/.test(askText) && /their hair, hair flowers, jewellery or makeup/.test(askText));
   check('the answer shape is enforced with a response schema, and thinking is capped so it cannot eat the answer',
     asked[0].generationConfig.responseSchema.properties.references.items.required.includes('ref')
-    && asked[0].generationConfig.thinkingConfig.thinkingBudget === 1024 && asked[0].generationConfig.maxOutputTokens === 6144);
+    && asked[0].generationConfig.thinkingConfig.thinkingBudget === 4096 && asked[0].generationConfig.maxOutputTokens === 8192);
 
   eq('ref numbers are read leniently ("Reference 2", "3")',
     [...describe.readAnswer({ references: [one('Reference 2', 'a'), one('3', 'b')] }, [{ ref: 1 }, { ref: 2 }, { ref: 3 }]).keys()], [2, 3]);
@@ -535,6 +535,20 @@ async function runAll({ check, eq, section, SRC }) {
     && /Final check on the blouse: it is one solid colour from edge to edge\. Look at the sleeve ends, cuffs and neckline: there is NO gold, zari, metallic or patterned band there/.test(sareeBand)
     && sareeBand.indexOf('Final check on the blouse') > sareeBand.indexOf('QUALITY BAR')
     && !/Final check on/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
+
+  const printed = buildPrompt(fakeJob('BLOUSE', ['BACK'], { fabrics: [{ image: IMG, color: 'navy', colorHex: '#1C2B5A' }] }), { descriptions: new Map([[1, { motifs: 'buttis', technique: 'Ajrakh block print, matte' }]]) }).text;
+  check('a printed design is locked as a print (an ajrakh print came out as woven zari in production)',
+    /TECHNIQUE LOCK: this design is PRINTED/.test(printed)
+    && !/TECHNIQUE LOCK/.test(buildPrompt(fakeJob('BLOUSE', ['BACK']), { descriptions: new Map([[1, { technique: 'Woven zari brocade' }]]) }).text));
+  check('the describe step is taught to tell a flat print from a weave', /flat, matte colour lying ON the cloth with no raised threads and no metallic glint is a PRINT/.test(askText));
+  const stripes = buildPrompt(fakeJob('SAREE', ['BODY'], { fabrics: [{ image: IMG, color: 'emerald green', colorHex: '#0B6E4F' }] })).text;
+  check('background-coloured stripes become the ground colour (blue stripes survived on an emerald saree in production)',
+    /the stripes or blocks in the reference's background colour are ground, not motif: they become emerald green, hex #0B6E4F too/.test(stripes));
+
+  check('the blouse sleeve ends are tested perceptually, and the blouse is not a matching blouse piece',
+    /The blouse sleeve ends look exactly like the middle of the sleeve/.test(sareeBand) && /NOT a matching blouse piece cut from the saree/.test(sareeBand)
+    && /The choli sleeve ends look exactly like the middle of the sleeve/.test(buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text)
+    && !/sleeve ends look exactly like/.test(buildPrompt(fakeJob('KURTHI', ['NECK'])).text));
 
   check('a full-length photograph keeps the head and face in frame (bottom wear came out cropped at the chest)',
     /Nothing is cropped: the model's whole head and face are inside the frame/.test(buildPrompt(fakeJob('BOTTOM_WEAR', ['LEG'])).text));

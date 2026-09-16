@@ -50,8 +50,10 @@ const INSTRUCTIONS = [
   'Fields for each reference:',
   '- motifs:    what the motifs actually ARE, named plainly (temple/mandir spires, peacock feathers with eyes, paisley, lotus, jaal trellis, chevron...). Say how many across a band or a metre when you can. Empty if the part is plain.',
   '- layout:    where they sit on that part and how they repeat (continuous band, scattered buttis every ~6cm, scalloped hem, vertical chains...).',
-  '- colours:   the motif colours and the background colour separately, in plain words.',
-  '- technique: woven zari / brocade jaal / thread embroidery / sequins / mirror work / block print / digital print, and the sheen.',
+  '- colours:   the motif colours and the background colour separately, in plain words. For stripes, checks or blocks, say which stripe colour is the background (for example "background stripes: blue; decorative stripes: gold zari").',
+  // Measured: a flat, matte ajrakh block print was described as "woven brocade",
+  // and the garment came out in gold woven zari.
+  '- technique: printed (block print, ajrakh, kalamkari, screen or digital print) / woven (zari, brocade, jacquard) / thread embroidery / sequins / mirror work, and the sheen. Look closely before you choose: flat, matte colour lying ON the cloth with no raised threads and no metallic glint is a PRINT, even when the motifs are gold-coloured and look like buttis. Say "woven" only when you can see the motif built from threads in the weave or a real metallic sheen.',
   '- notes:     anything a tailor copying this part must not miss, including trims, drops or plain areas at an edge. 25 words maximum.',
   '- groundType: for a DESIGN only. "contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour from the rest of the garment in the photograph (for example a red embroidered yoke on a blue kurta). "garment fabric" when the part\'s background is the same colour as the rest of the garment - even if it is a separately cut or stitched panel (for example an ivory gota yoke on an ivory kurta, or embroidery on a kurti that is mustard all over) - and for lace, net, sheer trims and close-ups where the rest of the garment cannot be seen. "not applicable" for a FABRIC.',
   '- groundColour: the background colour of that contrast panel in plain words (for example "deep red"); empty otherwise.',

@@ -255,6 +255,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     if (info.layout) lines.push(`Layout and repeat: ${info.layout}`);
     if (info.colours) lines.push(`Colours in this reference: ${info.colours}`);
     if (info.technique) lines.push(`Technique: ${info.technique}`);
+    // Measured: an ajrakh block print came out as gold woven zari.
+    if (/print|ajrakh|kalamkari|bagru|dabu/i.test(info.technique || '') && !/woven|brocade|jacquard|zari/i.test(info.technique || '')) {
+      lines.push('TECHNIQUE LOCK: this design is PRINTED - flat, matte colour printed into the cloth. Reproduce it as a print: no woven zari, no brocade, no metallic thread, no embroidery, no raised texture, no metallic sheen on the motifs.');
+    }
     if (info.notes) lines.push(`Must not be missed: ${info.notes}`);
     if (lines.length) lines.unshift('This is what the reference actually shows - reproduce all of it:');
     return lines;
@@ -341,6 +345,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     } else if (ground) {
       const stated = [ground.words ? clean(ground.words) : null, ground.hex ? `hex ${ground.hex}` : null].filter(Boolean).join(', ');
       lines.push(`Ground colour for this part: ${stated} - from ${ground.from}. Reproduce the motifs on exactly this colour. The reference photo's own background colour must NOT appear on the garment.`);
+      // Measured: turquoise-and-gold stripes on an emerald saree came out as gold
+      // AND blue stripes - the reference's background stripes were kept as a motif.
+      lines.push(`If this design is stripes, checks, bands or blocks, the stripes or blocks in the reference's background colour are ground, not motif: they become ${stated} too. Only the decorative colours (for example gold zari stripes or coloured buttis) keep their own colour.`);
     }
     lines.push(d.keepMotifColors
       ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
@@ -527,6 +534,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // bands on the blouse sleeves, despite the blouse being described as plain.
     // The final check, right before the image is made, is where it is named.
     ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${pair.pieces === 'blouse' || pair.pieces === 'choli and dupatta' ? 'sleeve ends, cuffs and neckline' : 'edges and hems'}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
+    // Measured again with striped saree references: the band returned on both runs.
+    // A perceptual test the model can check works better than naming the band.
+    ...(pair && /blouse|choli/.test(pair.pieces) ? [`The ${pair.pieces === 'blouse' ? 'blouse' : 'choli'} sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'

@@ -60,6 +60,7 @@ const GUIDE = {
     outfit: 'A complete six-yard saree worn over a fitted blouse, with the petticoat hidden underneath.',
     construction: [
       'Drape it in the classic Nivi style.',
+      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain blouse with no border on its sleeves or neckline.',
       'Make 7 to 9 crisp, evenly spaced front pleats tucked at the navel and falling straight to the ankles, so the border runs down the edge of every pleat and along the hem.',
       // Measured: asking for the pallu over the shoulder AND forward over the
       // forearm produced TWO pallus, one on each arm. One sentence, one pallu.

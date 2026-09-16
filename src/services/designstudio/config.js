@@ -58,8 +58,11 @@ const config = {
     // cap. Measured: ~550 thinking + ~360-540 answer tokens for four references,
     // so 2048 left too little room on an unlucky run. Thinking is capped
     // separately so it can never eat the answer.
-    maxOutputTokens: int('DESIGNSTUDIO_DESCRIBE_MAX_TOKENS', 6144, { min: 256 }),
-    thinkingBudget: int('DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET', 1024, { min: 0, max: 8192 })
+    maxOutputTokens: int('DESIGNSTUDIO_DESCRIBE_MAX_TOKENS', 8192, { min: 256 }),
+    // Measured: an ajrakh block print was read as "woven brocade" in about half of
+    // runs at 1024 thinking tokens, and "printed" 5 of 5 at 4096, while woven and
+    // embroidered references stayed correct. Costs roughly 5s more per request.
+    thinkingBudget: int('DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET', 4096, { min: 0, max: 8192 })
   },
 
   limits: {
