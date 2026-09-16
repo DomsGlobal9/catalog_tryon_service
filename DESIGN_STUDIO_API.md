@@ -246,6 +246,7 @@ Inside the stream (`error` event):
 | `GENERATION_REJECTED` | The image model could not process this input. | No — change the request. |
 | `NO_IMAGE_RETURNED` | The model answered without an image, even after a second try. | Yes |
 | `MODEL_UNAVAILABLE` | The image model is busy or down (already retried for you). | Yes, shortly |
+| `MODEL_QUOTA_EXCEEDED` | The image model has reached its spending cap or quota on this deployment. | No - an operator must raise it |
 | `CANCELLED` | You cancelled, or started a new generation with the same `clientId`. | — |
 | `INTERNAL_ERROR` | Unexpected failure. | Yes |
 

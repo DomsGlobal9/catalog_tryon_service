@@ -290,6 +290,14 @@ async function runAll({ check, eq, section, SRC }) {
   calls = script([() => new Response('busy', { status: 503 })]);
   out = await run();
   eq('still busy after all retries: 424 MODEL_UNAVAILABLE, 3 attempts, marked retryable', [out.error.status, out.error.code, calls.length, out.error.retryable], [424, 'MODEL_UNAVAILABLE', 3, true]);
+  // Seen for real: a spent spending cap arrives as 429, exactly like "too busy".
+  calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Your project has exceeded its monthly spending cap. Please go to AI Studio to manage your project spend cap.' } }), { status: 429 })]);
+  out = await run();
+  eq('a spending cap is reported at once, not retried three times', [out.error.code, out.error.status, calls.length, out.error.retryable], ['MODEL_QUOTA_EXCEEDED', 424, 1, false]);
+  check('and the message tells an operator what to do', /spending cap or quota/.test(out.error.message), out.error.message);
+  calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).' } }), { status: 429 }), () => answer([imagePart(FINAL)])]);
+  out = await run();
+  eq('a plain rate-limit 429 is still retried', [!!out.image, calls.length], [true, 2]);
   calls = script([() => { throw new TypeError('fetch failed: socket hang up'); }, () => answer([imagePart(FINAL)])]);
   out = await run();
   eq('a dropped connection is retried', [!!out.image, calls.length], [true, 2]);

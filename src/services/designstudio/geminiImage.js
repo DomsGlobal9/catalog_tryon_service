@@ -85,6 +85,16 @@ async function attempt(body, signal, timeoutMs) {
     if (RETRYABLE_HTTP.has(response.status)) {
       const retryAfter = Number(response.headers.get('retry-after'));
       const detail = await response.text().catch(() => '');
+      // A 429 means two very different things. "Too many requests right now" is
+      // worth retrying; a spent spending cap or exhausted billing quota never
+      // succeeds on retry, so retrying only wastes the caller's time.
+      if (/spending cap|spend cap|billing|budget|exceeded its monthly/i.test(detail)) {
+        console.error(`[DesignStudio] image model quota/spending cap reached: ${redact(detail).slice(0, 200)}`);
+        throw new StudioError(
+          'The image model has reached its spending cap or quota for this deployment. Generation is unavailable until that is raised.',
+          { status: 424, code: 'MODEL_QUOTA_EXCEEDED' }
+        );
+      }
       throw new RetryableFailure(`image model busy (HTTP ${response.status}) ${redact(detail).slice(0, 160)}`,
         { kind: 'busy', retryAfterMs: Number.isFinite(retryAfter) ? Math.min(retryAfter * 1000, 10000) : 0 });
     }
@@ -97,7 +107,9 @@ async function attempt(body, signal, timeoutMs) {
     }
   } catch (err) {
     if (signal && signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
-    if (err instanceof RetryableFailure) throw err;
+    // Decisions already made above (a spending cap, a refusal) must not be
+    // re-wrapped as a connection problem and retried.
+    if (err instanceof StudioError || err instanceof RetryableFailure) throw err;
     if (err && err.name === 'TimeoutError') {
       throw new RetryableFailure(`image model did not answer within ${Math.round(timeoutMs / 1000)}s`, { kind: 'timeout' });
     }
