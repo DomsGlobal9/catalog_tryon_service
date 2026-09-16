@@ -672,6 +672,10 @@ async function runAll({ check, eq, section, SRC }) {
     anarkaliNeck.text.indexOf('Final check on the sleeves of the Anarkali') > anarkaliNeck.text.indexOf('QUALITY BAR')
     && qa.buildChecklist(anarkaliNeck.review).some((c) => c.id === 'plain_sleeves')
     && !qa.buildChecklist(buildPrompt(fakeJob('ANARKALI', ['SLEEVE'])).review).some((c) => c.id === 'plain_sleeves'));
+  check('with a plain fabric, the prompt ends by keeping everything outside the designed parts plain (a neck photo sequinned a whole sharara kurta)',
+    blouseRest.text.indexOf('Final check on the rest of the blouse: only these parts carry a design - neck of the blouse, sleeve of the blouse') > blouseRest.text.indexOf('QUALITY BAR'), blouseRest.text.slice(blouseRest.text.indexOf('QUALITY BAR'), blouseRest.text.indexOf('QUALITY BAR') + 900));
+  check('the print check judges only its own part (an embroidered ankle band failed a printed flare)',
+    /Judge ONLY the flare of the bottom wear \(/.test((qa.buildChecklist(buildPrompt(fakeJob('BOTTOM_WEAR', ['FLARE', 'BOTTOM_ANKLE']), { descriptions: new Map([[1, { motifs: 'buttis', technique: 'Block print, matte' }]]) }).review).find((c) => c.id === 'print_flare') || {}).question || ''));
   check('a button is not colour-checked (amber gemstone buttons failed as "not ivory")',
     !qa.buildChecklist(buildPrompt(fakeJob('SHERWANI', ['BUTTON'], { fabrics: [{ image: IMG, color: 'ivory', colorHex: '#EDE3CC' }] }), { descriptions: new Map([[1, { motifs: 'gemstone', colours: 'background: dark blue', technique: 'metal button', groundType: 'garment fabric', groundColour: 'dark blue' }]]) }).review).some((c) => c.id === 'colour_button'));
   check('the describe step is asked for the problem and for the ground colour of every design',

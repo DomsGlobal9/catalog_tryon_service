@@ -640,6 +640,16 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     'Pin-sharp focus on the garment so the weave, thread work and metallic detail are crisp. Neutral white balance so every colour matches the references.'
   ])].join('\n'));
 
+  // Measured: a NECK reference that was a whole peach blouse scattered with teal
+  // flowers put those flowers all over a red blouse. When the main fabric is known
+  // to be plain and no design covers the whole garment, everything outside the
+  // designed parts must be plain too - and that can be checked.
+  const mainFabric = job.fabrics.find((f) => !f.appliesTo) || null;
+  const mainRead = mainFabric ? descriptions.get(fabricRefNumber(mainFabric)) : null;
+  const wholeGarmentDesign = job.designs.some((d) => GLOBAL_AREAS.has(d.areaId) || MAIN_PANEL_AREAS.has(d.areaId) && ['OVERALL', 'PRINT', 'PRINT_PATTERN'].includes(d.areaId));
+  const plainRest = mainRead && !patternedFabricFor('__MAIN__') && !wholeGarmentDesign
+    ? job.designs.map((d) => partWords(d.areaId, g.product))
+    : null;
   // ── 8. QUALITY BAR ─────────────────────────────────────────────────────────
   addText(['QUALITY BAR', bullets([
     'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
@@ -649,6 +659,9 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // The final check, right before the image is made, is where it is named.
     // Measured in production: printed sleeves from a NECK photo survived the rule
     // above and one correction. The last word in the prompt carries the most weight.
+    // Measured in production: a NECK photo of a kurta sequinned all over covered a
+    // whole sharara kurta, and one correction did not undo it.
+    ...(plainRest ? [`Final check on the rest of the ${g.product}: only these parts carry a design - ${plainRest.join(', ')}. Everywhere else the ${g.product} is plain fabric: no embroidery, sequins, buttis or print spread there from any reference photograph. If decoration appears outside those parts, remove it.`] : []),
     ...(plainSleeves ? [`Final check on the sleeves of the ${g.product}: if it has sleeves, they are plain ${g.product} fabric from shoulder to wrist, with no print, embroidery, band or motif anywhere on them. If a pattern appears on a sleeve, remove it.`] : []),
     ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${edgesOf(pair.pieces, job.garmentId)}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
     // Measured again with striped saree references: the band returned on both runs.
@@ -668,16 +681,6 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   addText('Return only the finished photograph.');
 
   const areasSent = new Set(job.designs.map((d) => d.areaId));
-  // Measured: a NECK reference that was a whole peach blouse scattered with teal
-  // flowers put those flowers all over a red blouse. When the main fabric is known
-  // to be plain and no design covers the whole garment, everything outside the
-  // designed parts must be plain too - and that can be checked.
-  const mainFabric = job.fabrics.find((f) => !f.appliesTo) || null;
-  const mainRead = mainFabric ? descriptions.get(fabricRefNumber(mainFabric)) : null;
-  const wholeGarmentDesign = job.designs.some((d) => GLOBAL_AREAS.has(d.areaId) || MAIN_PANEL_AREAS.has(d.areaId) && ['OVERALL', 'PRINT', 'PRINT_PATTERN'].includes(d.areaId));
-  const plainRest = mainRead && !patternedFabricFor('__MAIN__') && !wholeGarmentDesign
-    ? job.designs.map((d) => partWords(d.areaId, g.product))
-    : null;
   Object.assign(review, {
     plainRest,
     plainSleeves,

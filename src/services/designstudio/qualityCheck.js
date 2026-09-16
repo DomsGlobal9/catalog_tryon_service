@@ -85,7 +85,7 @@ function buildChecklist(review) {
     }
     if (part.printed) {
       add(`print_${part.area.toLowerCase()}`,
-        `Do the motifs on the ${part.part} look PRINTED - lying flat on the cloth (a foil print may shine) - rather than raised woven zari, brocade or thread embroidery?`,
+        `Judge ONLY the ${part.part} (${part.where}); other parts, bands and borders may use other techniques. Do the motifs on the ${part.part} look PRINTED - lying flat on the cloth (a foil print may shine) - rather than raised woven zari, brocade or thread embroidery?`,
         `The design on the ${part.part} is a flat, matte PRINT: no woven zari, brocade, metallic thread or embroidery.`);
     }
   }
