@@ -34,8 +34,12 @@ const PRESETS = [
     productName: 'Mint Chikankari Kurti', notes: 'clean daywear catalogue look' },
   { label: 'Gown', garment: 'GOWN', areas: ['NECK', 'SKIRT_FLARE', 'BORDER_HEM'],
     productName: 'Black Beaded Evening Gown', notes: 'evening wear, soft studio light' },
-  { label: 'Blouse (back pose)', garment: 'BLOUSE', areas: ['BACK', 'SLEEVE'],
-    productName: 'Zari Blouse', notes: 'shows the back-pose warning' }
+  { label: 'Blouse (waist-up)', garment: 'BLOUSE', areas: ['NECK', 'SLEEVE'],
+    productName: 'Chikankari Blouse', notes: 'clean boutique catalogue look' },
+  { label: 'Blouse back', garment: 'BLOUSE', areas: ['BACK'],
+    productName: 'Zari Back Blouse', notes: 'the back is the hero' },
+  { label: 'Dupatta (three-quarter)', garment: 'DUPATTA', areas: ['BORDER', 'PALLU_END', 'TASSEL'],
+    productName: 'Organza Dupatta', notes: 'soft, airy drape' }
 ];
 
 // Cloudinary's public demo account, so the https path can be exercised with no
@@ -530,6 +534,9 @@ export default function DesignStudioApp() {
             The <strong>{current.name.toLowerCase()}</strong> is the product. A real photo also needs a supporting{' '}
             <strong>{current.pairedWith.pieces}</strong>, kept plain — none of your designs are used there.
             Default colour when left blank: {current.pairedWith.defaultColour}.
+            {current.framing && current.framing !== 'full' && (
+              <> Photographed <strong>{current.framing}</strong>, so the {current.name.toLowerCase()} fills the frame.</>
+            )}
           </p>
         ) : (
           <p className="ds-note">
@@ -540,7 +547,7 @@ export default function DesignStudioApp() {
           <div className="ds-field">
             <label>pairWith.color</label>
             <input value={pairColor} onChange={(e) => setPairColor(e.target.value)} maxLength={60} disabled={running}
-              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'saree' ? 'cream' : 'antique gold'} />
+              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'blouse' ? 'antique gold' : 'cream'} />
           </div>
           <div className="ds-field ds-narrow">
             <label>pairWith.colorHex</label>
@@ -554,7 +561,7 @@ export default function DesignStudioApp() {
           <div className="ds-field ds-grow">
             <label>pairWith.note</label>
             <input value={pairNote} onChange={(e) => setPairNote(e.target.value)} maxLength={300} disabled={running}
-              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'saree' ? 'soft chiffon saree' : 'short puff sleeves'} />
+              placeholder={current && current.pairedWith && current.pairedWith.pieces === 'blouse' ? 'short puff sleeves' : 'matte crepe'} />
           </div>
         </div>
       </section>
@@ -799,7 +806,7 @@ export default function DesignStudioApp() {
             <div className="ds-start">
               <div className="ds-kv"><span className="ds-label">jobId</span><code>{startInfo.jobId}</code></div>
               <div className="ds-kv"><span className="ds-label">garment</span>{startInfo.garment}</div>
-              <div className="ds-kv"><span className="ds-label">model</span>{startInfo.model} · {startInfo.pose} pose</div>
+              <div className="ds-kv"><span className="ds-label">model</span>{startInfo.model} · {startInfo.pose} pose{startInfo.framing ? ` · ${startInfo.framing}` : ''}</div>
               <div className="ds-kv"><span className="ds-label">aspect</span>{startInfo.aspectRatio}</div>
               <div className="ds-kv ds-kv-wide">
                 <span className="ds-label">designs</span>

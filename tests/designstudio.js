@@ -348,7 +348,7 @@ async function runAll({ check, eq, section, SRC }) {
     taxonomy.GARMENT_IDS.filter((id) => GUIDE[id].pairedWith === undefined), []);
   eq('whole-outfit garments pair with nothing', ['GOWN', 'SUIT', 'SHARARA'].map((id) => GUIDE[id].pairedWith), [null, null, null]);
   eq('a saree is worn with a blouse, a blouse with a saree, a petticoat with a blouse',
-    ['SAREE', 'BLOUSE', 'PETTICOAT', 'LEHANGA'].map((id) => GUIDE[id].pairedWith.pieces), ['blouse', 'saree', 'blouse', 'choli and dupatta']);
+    ['SAREE', 'BLOUSE', 'PETTICOAT', 'LEHANGA'].map((id) => GUIDE[id].pairedWith.pieces), ['blouse', 'skirt', 'blouse', 'choli and dupatta']);
   eq('no garment keeps the "plain unless a design reference describes it" loophole',
     taxonomy.GARMENT_IDS.filter((id) => /unless a design reference (describes|covers)/.test(`${GUIDE[id].styling}`)), []);
 
@@ -376,15 +376,40 @@ async function runAll({ check, eq, section, SRC }) {
   eq('a bad pairWith hex is refused', code(() => resolveRequest(body({ pairWith: { colorHex: 'goldish' } }))), 'INVALID_FIELD');
   eq('an unknown key inside pairWith is refused', code(() => resolveRequest(body({ pairWith: { fabric: 'silk' } }))), 'INVALID_FIELD');
 
-  const blouseJob = fakeJob('BLOUSE', ['NECK'], { pairWith: { color: 'cream', colorHex: '#F3EAD7', note: 'soft chiffon saree' } });
-  const blousePair = buildPrompt(blouseJob).text;
-  check('blouse: the saree is the supporting piece, pallu pinned back so the whole blouse shows',
-    /The saree is NOT the product/.test(blousePair) && /pallu pinned back behind the shoulder, so the entire blouse/.test(blousePair));
-  check('blouse: the caller\'s pairWith colour and note decide the saree',
-    /Colour of the saree: cream, hex #F3EAD7 \(from the caller\) - match it exactly\./.test(blousePair)
-    && /Customer note for the saree: soft chiffon saree\. Follow it, but still put no design reference on it\./.test(blousePair));
-  check('blouse with no pairWith: a quiet neutral saree that is clearly not the blouse\'s colour',
-    /Colour of the saree: a quiet, solid neutral .* clearly different from the blouse's own colour/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+  const blouseJob = fakeJob('BLOUSE', ['NECK'], { pairWith: { color: 'cream', colorHex: '#F3EAD7', note: 'matte crepe' } });
+  const blousePrompt = buildPrompt(blouseJob);
+  const blousePair = blousePrompt.text;
+  // Measured: with a saree, its pallu covered a third of the blouse front even
+  // when told to pin it back. No saree at all now, and a close frame.
+  check('blouse: no saree - only a plain skirt edge completes the photo, and nothing drapes over the blouse',
+    /The skirt is NOT the product/.test(blousePair) && /only the waistband and a few centimetres below it are in the frame/.test(blousePair)
+    && /No saree, no pallu, no dupatta and no drape of any kind/.test(blousePair) && !/pallu pinned back/.test(blousePair));
+  check('blouse: the caller\'s pairWith colour and note decide the skirt',
+    /Colour of the skirt: cream, hex #F3EAD7 \(from the caller\) - match it exactly\./.test(blousePair)
+    && /Customer note for the skirt: matte crepe\. Follow it, but still put no design reference on it\./.test(blousePair));
+  check('blouse with no pairWith: a quiet neutral skirt that is clearly not the blouse\'s colour',
+    /Colour of the skirt: a quiet, solid neutral .* clearly different from the blouse's own colour/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+
+  section('DESIGN STUDIO: FRAMING  (the product fills the photograph)');
+  eq('framing per garment: blouse waist-up, dupatta three-quarter, the rest full length',
+    Object.fromEntries(taxonomy.GARMENT_IDS.map((id) => [id, GUIDE[id].framing])),
+    { SAREE: 'full', BLOUSE: 'waist-up', DUPATTA: 'three-quarter', KURTHI: 'full', ANARKALI: 'full', PETTICOAT: 'full', GOWN: 'full', SUIT: 'full', SHERWANI: 'full', BOTTOM_WEAR: 'full', LEHANGA: 'full', SHARARA: 'full' });
+  check('blouse: a waist-up photograph in which the blouse is never cropped, and not head to toe',
+    blousePrompt.framing === 'waist-up' && /A waist-up portrait catalogue photograph in 3:4: the frame runs from a little above the head down to the upper thighs/.test(blousePair)
+    && /The blouse itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame/.test(blousePair)
+    && !/head to toe/.test(blousePair) && !/fingers and feet/.test(blousePair));
+  const dupattaPrompt = buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL']));
+  check('dupatta: three-quarter, so its hanging ends and tassels stay in frame (waist-up would cut them)',
+    dupattaPrompt.framing === 'three-quarter' && /down to mid-calf/.test(dupattaPrompt.text)
+    && /both of its hanging ends and any tassels are fully inside the frame/.test(dupattaPrompt.text) && !/head to toe/.test(dupattaPrompt.text));
+  check('dupatta: worn over a plain kurta with no drape or border of its own',
+    /The kurta is NOT the product/.test(dupattaPrompt.text) && /no drape, border or embellishment of its own/.test(dupattaPrompt.text));
+  const backBlouse = buildPrompt(fakeJob('BLOUSE', ['BACK'])).text;
+  check('a blouse BACK design keeps the close frame: the back pose no longer says "full length"',
+    /Pose: standing, turned three-quarters away/.test(backBlouse) && /waist-up portrait/.test(backBlouse));
+  check('full-length garments are unchanged: a saree head to toe with feet, a kurti back pose still full length',
+    /head to toe/.test(full.text) && /fingers and feet/.test(full.text)
+    && /Pose: standing full length, turned three-quarters away/.test(buildPrompt(fakeJob('KURTHI', ['BACK'])).text));
   eq('the caller\'s colour beats the matching default',
     pairing(fakeJob('SAREE', ['PALLU'], { fabrics: [{ image: IMG, colorHex: '#722F37' }], pairWith: { colorHex: '#C9A227' } })).colour, 'hex #C9A227');
   check('a fabric for one area is not mistaken for the main fabric\'s colour',
@@ -529,7 +554,9 @@ async function runAll({ check, eq, section, SRC }) {
       [12, 8, 6, '3:4', 'male']);
     eq('GET /options says what each product is worn with, and the default colour',
       [opt.garments.find((g) => g.id === 'SAREE').pairedWith, opt.garments.find((g) => g.id === 'BLOUSE').pairedWith.pieces, opt.garments.find((g) => g.id === 'GOWN').pairedWith],
-      [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'saree', null]);
+      [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'skirt', null]);
+    eq('GET /options says how each garment is framed',
+      ['SAREE', 'BLOUSE', 'DUPATTA'].map((id) => opt.garments.find((g) => g.id === id).framing), ['full', 'waist-up', 'three-quarter']);
 
     let res = await post('/generate', { clientId: 'x', garment: 'SAREE', designs: [{ area: 'SLEEVE', image: IMG }] });
     let json = await res.json();
@@ -560,6 +587,7 @@ async function runAll({ check, eq, section, SRC }) {
     eq('the first status is the describe step', events[1].stage, 'reading-references');
     const start = events[0];
     eq('start says what will be made', [start.garment, start.designs.map((d) => d.area), start.fabrics[0].appliesTo, start.model, start.pose, start.aspectRatio], ['SAREE', ['PALLU', 'BORDER'], 'MAIN', 'generated', 'front', '3:4']);
+    eq('start says how the photograph is framed', start.framing, 'full');
     eq('start says what the model wears with the product, and where its colour came from',
       start.pairedWith, { pieces: 'blouse', colour: 'the same colour as the saree\'s main fabric', from: 'the default', note: null });
     const imageEvent = events.find((e) => e.type === 'image');

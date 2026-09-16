@@ -99,6 +99,7 @@ async function generate(req, res, next) {
       })(),
       model: job.model.kind,
       pose: prompt.pose,
+      framing: prompt.framing, // full | three-quarter | waist-up
       aspectRatio: config.gemini.aspectRatio,
       warnings: prompt.warnings
     });
@@ -216,6 +217,8 @@ function options(_req, res) {
       id: g.id,
       name: g.name,
       defaultModelGender: garmentGuide(g.id).wearer,
+      // How much of the model is in the photo, so the product fills the frame.
+      framing: garmentGuide(g.id).framing,
       // The supporting pieces worn with this product (never designed), or null
       // when the product is the whole outfit. Set their colour with pairWith.
       pairedWith: garmentGuide(g.id).pairedWith

@@ -48,6 +48,21 @@ function referenceList(job) {
   return items;
 }
 
+/**
+ * How much of the model the photograph shows. The product must fill the frame
+ * and never be cropped; the supporting pieces fall out of frame instead.
+ */
+function framingLine(g) {
+  const ratio = config.gemini.aspectRatio;
+  if (g.framing === 'waist-up') {
+    return `A waist-up portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to the upper thighs, so the ${g.product} fills most of the photograph and every detail of it is large and sharp. The ${g.product} itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame. This is deliberately not a full-length photograph.`;
+  }
+  if (g.framing === 'three-quarter') {
+    return `A three-quarter-length portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to mid-calf, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame. This is deliberately not a full-length photograph.`;
+  }
+  return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped.`;
+}
+
 /** How /options describes each garment's default colour for its supporting pieces. */
 const DEFAULT_PAIRING_COLOUR = {
   match: 'matches the main fabric',
@@ -349,7 +364,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
   if (pose === 'back') {
-    modelLines.push('Pose: standing full length, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.');
+    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);
   } else {
     modelLines.push(`Pose: standing tall, facing the camera at a slight three-quarter angle, weight on one leg. ${g.poseHint}`);
   }
@@ -358,7 +373,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
 
   // ── 7. THE PHOTOGRAPH ──────────────────────────────────────────────────────
   addText(['THE PHOTOGRAPH', bullets([
-    `A full-length portrait catalogue photograph in ${config.gemini.aspectRatio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped.`,
+    framingLine(g),
     'A seamless, plain studio backdrop in soft light warm grey with a smooth floor sweep. No props, furniture, plants, patterns or text.',
     'Soft, even, diffused studio lighting from a large key light with gentle fill, and a soft natural shadow at the feet.',
     'Camera at chest height with a natural 85 mm portrait perspective and no distortion.',
@@ -370,7 +385,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
     `Exactly one complete ${g.product}, with exactly one of each of its parts. Never show a part twice, never mirror a decorated panel onto the other side, and never add an extra drape, shawl, stole or dupatta that this garment does not have.`,
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
-    'Anatomically correct face, hands, fingers and feet. Exactly one person in the frame.',
+    `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
   ])].join('\n'));
 
@@ -381,7 +396,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
 
   addText('Return only the finished photograph.');
 
-  return { parts, text: textLog.join('\n\n'), warnings, pose, imageCount: n };
+  return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n };
 }
 
 module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR };

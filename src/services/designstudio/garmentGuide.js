@@ -14,6 +14,12 @@
 //              never carry a design. null when the product is the whole outfit.
 //              colour: match | coordinate | contrast - the default when the
 //              caller sends no pairWith colour.
+//   framing    full | three-quarter | waist-up. How much of the model is in the
+//              photograph. Chosen so the PRODUCT fills the frame while every
+//              part of it stays inside: a blouse ends at the waist, so a
+//              full-length shot made it a small strip above a saree; a
+//              dupatta's ends and tassels hang to the knees, so waist-up would
+//              cut them off. Everything full-length by default.
 //   pose       a pose that actually shows the product's key parts
 //   areas      for every design area: exactly where on the garment it goes
 //
@@ -79,9 +85,15 @@ const GUIDE = {
     product: 'blouse',
     top: 'blouse',
     outfit: 'A fitted saree blouse (choli). The blouse is the product.',
-    construction: ['Give the blouse a precise tailored fit with clean darts and seams.'],
+    construction: [
+      'Give the blouse a precise tailored fit with clean darts and seams.',
+      'No saree, no pallu, no dupatta and no drape of any kind: nothing crosses or covers any part of the blouse.'
+    ],
     styling: null,
-    pairedWith: { pieces: 'saree', plural: false, looks: 'a solid, matte saree draped with its pallu pinned back behind the shoulder, so the entire blouse (front, neckline and sleeves) is visible and nothing covers it', colour: 'contrast' },
+    // Measured: with a saree, its pallu hid a third of the blouse front even when
+    // told to pin it back, and the blouse was a small strip in a full-length shot.
+    framing: 'waist-up',
+    pairedWith: { pieces: 'skirt', plural: false, looks: 'a plain, high-waisted, floor-length skirt, of which only the waistband and a few centimetres below it are in the frame', colour: 'contrast' },
     poseHint: 'Arms are relaxed and held slightly away from the body so the sleeves and sides of the blouse are fully visible.',
     areas: {
       HAND: 'the sleeve ends of the blouse: the cuff, sleeve hem or armhole finishing and its detailing'
@@ -95,7 +107,9 @@ const GUIDE = {
     outfit: 'A full-length dupatta. The dupatta is the product.',
     construction: ['Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, one decorated end and its tassels are all clearly visible.'],
     styling: null,
-    pairedWith: { pieces: 'kurta and churidar', plural: true, looks: 'a solid, matte kurta and churidar', colour: 'contrast' },
+    // Not waist-up: the dupatta's ends and tassels hang to about the knee.
+    framing: 'three-quarter',
+    pairedWith: { pieces: 'kurta', plural: false, looks: 'a simple, solid, matte straight kurta with no drape, border or embellishment of its own, and slim matching churidar just visible at the bottom of the frame', colour: 'contrast' },
     poseHint: 'One hand lightly holds the dupatta edge to spread it open towards the camera.',
     areas: {
       BORDER: 'the dupatta borders: the bands along its two long edges',
@@ -256,6 +270,12 @@ const GUIDE = {
     }
   }
 };
+
+const FRAMINGS = new Set(['full', 'three-quarter', 'waist-up']);
+for (const [id, guide] of Object.entries(GUIDE)) {
+  if (guide.framing === undefined) guide.framing = 'full';
+  if (!FRAMINGS.has(guide.framing)) throw new Error(`Unknown framing "${guide.framing}" for ${id}`);
+}
 
 function garmentGuide(garmentId) {
   const guide = GUIDE[garmentId];

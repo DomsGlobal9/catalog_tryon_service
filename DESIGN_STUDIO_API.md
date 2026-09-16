@@ -14,7 +14,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
-| **Output** | One JPEG, portrait **3:4**, full length, plain studio background, as base64 |
+| **Output** | One JPEG, portrait **3:4**, plain studio background, as base64. Full length, except a blouse (waist-up) and a dupatta (three-quarter) |
 
 ---
 
@@ -63,7 +63,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
-| `pairWith.note` | string, ≤300 | No | e.g. `"short puff sleeves"`, `"soft chiffon saree"`. |
+| `pairWith.note` | string, ≤300 | No | e.g. `"short puff sleeves"`, `"matte crepe skirt"`. |
 | `notes` | string, ≤600 | No | Anything else. The reference images always take priority over notes. |
 
 Unknown fields are refused, so a typo never silently does nothing.
@@ -134,25 +134,31 @@ fabric's colour applied automatically, both came out in the intended colour.
 
 ### The product, and what it is worn with
 
-A real photograph of a saree needs a blouse, and a photograph of a blouse needs a saree — but
-**only one garment is the product**: the one named in `garment`. Every design you send belongs to
-it. Anything else the model needs to wear is a **supporting piece**: plain and solid, never carrying
-any of your designs, so the product is what the eye goes to.
+A model has to wear something besides a blouse or a dupatta — but **only one garment is the
+product**: the one named in `garment`. Every design you send belongs to it. Anything else the model
+wears is a **supporting piece**: plain and solid, never carrying any of your designs. And the
+photograph is **framed so the product fills it**, with every part of the product inside the frame
+and the supporting pieces mostly out of it.
 
-| `garment` | Worn with (never designed) | Its colour by default |
-| :--- | :--- | :--- |
-| `SAREE` | a fitted, elbow-length blouse | the saree's main fabric colour |
-| `BLOUSE` | a solid, matte saree, pallu pinned back so the whole blouse shows | a quiet neutral that sets the blouse off |
-| `PETTICOAT` | a short fitted blouse ending at the waist | a quiet neutral |
-| `DUPATTA` | a solid kurta and churidar | a quiet neutral |
-| `BOTTOM_WEAR` | a short fitted top ending at the waist | a quiet neutral |
-| `LEHANGA` | a fitted short choli and a light dupatta | the lehenga's main fabric colour |
-| `ANARKALI` | a fitted churidar | the Anarkali's main fabric colour |
-| `KURTHI` | slim churidar or leggings | coordinates with the kurti |
-| `SHERWANI` | a fitted churidar | coordinates with the sherwani |
-| `GOWN`, `SUIT`, `SHARARA` | nothing — the product is the whole outfit | — |
+| `garment` | Framing | Worn with (never designed) | Its colour by default |
+| :--- | :--- | :--- | :--- |
+| `BLOUSE` | **waist-up** — head to upper thighs | a plain skirt, only its waistband in frame. **No saree, no pallu, no drape.** | a quiet neutral that sets the blouse off |
+| `DUPATTA` | **three-quarter** — head to mid-calf, so both hanging ends and tassels show | a plain straight kurta with no drape or border | a quiet neutral |
+| `SAREE` | full length | a fitted, elbow-length blouse | the saree's main fabric colour |
+| `LEHANGA` | full length | a fitted short choli and a light dupatta | the lehenga's main fabric colour |
+| `ANARKALI` | full length | a fitted churidar | the Anarkali's main fabric colour |
+| `PETTICOAT` | full length | a short fitted blouse ending at the waist | a quiet neutral |
+| `BOTTOM_WEAR` | full length | a short fitted top ending at the waist | a quiet neutral |
+| `KURTHI` | full length | slim churidar or leggings | coordinates with the kurti |
+| `SHERWANI` | full length | a fitted churidar | coordinates with the sherwani |
+| `GOWN`, `SUIT`, `SHARARA` | full length | nothing — the product is the whole outfit | — |
 
 "Main fabric colour" is the `color` / `colorHex` of the fabric **without** `appliesTo`.
+
+Why the framing differs, measured: a blouse worn with a saree was a small strip at the top of a
+full-length photo, and the saree's pallu covered a third of the blouse even when told to pin it
+back. A dupatta is not waist-up because its decorated ends and tassels hang to about the knee.
+A `BACK` design keeps the same framing and turns the model around.
 
 To choose the supporting piece's colour or look yourself, send `pairWith`:
 
@@ -160,7 +166,7 @@ To choose the supporting piece's colour or look yourself, send `pairWith`:
 { "garment": "SAREE", "pairWith": { "color": "antique gold", "colorHex": "#C9A227", "note": "short puff sleeves" } }
 ```
 ```json
-{ "garment": "BLOUSE", "pairWith": { "color": "cream", "colorHex": "#F3EAD7", "note": "soft chiffon saree" } }
+{ "garment": "BLOUSE", "pairWith": { "color": "cream", "colorHex": "#F3EAD7", "note": "matte crepe skirt" } }
 ```
 
 Your designs still never go on the supporting piece, even with a `note`. If you send `pairWith` for
@@ -201,7 +207,7 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 
 | `type` | When | Contents |
 | :--- | :--- | :--- |
-| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
+| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `framing` (`full`/`three-quarter`/`waist-up`), `aspectRatio`, `warnings` |
 | `status` | Twice | `stage: "reading-references"` first, then `stage: "generating"` with `attempt` |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
 | `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`) |
@@ -290,7 +296,7 @@ generations. The cancelled stream ends with an `error` event whose code is `CANC
 ## `GET /api/v1/designstudio/options`
 
 Everything needed to build a valid request: the 12 garments with their design areas, default model
-gender and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
+gender, `framing`, and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
 hard-coding the lists.
 
 ---
