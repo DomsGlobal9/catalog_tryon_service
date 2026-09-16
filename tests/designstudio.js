@@ -40,7 +40,7 @@ async function runAll({ check, eq, section, SRC }) {
   const { buildPrompt, referenceList } = S('promptBuilder');
   const describe = S('describeReferences');
   const gemini = S('geminiImage');
-  const { GUIDE, taxonomy } = S('garmentGuide');
+  const { GUIDE, taxonomy, GLOBAL_AREAS } = S('garmentGuide');
   const routes = S('routes');
   const { identify } = require(path.join(SRC, 'middleware/identity'));
   const capacity = require(path.join(SRC, 'lib/capacity'));
@@ -380,7 +380,7 @@ async function runAll({ check, eq, section, SRC }) {
   check('a BACK design owns the back neckline, a FRONT design its neckline and hem',
     /take ONLY its back: every other part of it - its sleeves, all-over print, borders, hem,/.test(buildPrompt(fakeJob('BLOUSE', ['BACK'])).text)
     && /take ONLY its front: every other part of it - its sleeves, all-over print, borders,/.test(buildPrompt(fakeJob('KURTHI', ['FRONT'])).text)
-    && !/take ONLY its front: every other part of it - [^:]*\bhem\b/.test(buildPrompt(fakeJob('KURTHI', ['FRONT'])).text));
+    && !/\bhem\b/.test((buildPrompt(fakeJob('KURTHI', ['FRONT'])).text.match(/take ONLY its front: every other part of it - (.*?), and any other garment/) || [])[1] || 'hem'));
   check('the describe step is told a non-garment picture IS the design, never "does not show the part"',
     /If the photograph is NOT a garment - a close-up, a flat swatch, a strip of trim, a piece of artwork/.test(askText) && /Never answer that the photograph does not show the part/.test(askText));
   eq('an answer that only says the part is not in the photo is not a description (so it gets asked again)',
@@ -393,8 +393,56 @@ async function runAll({ check, eq, section, SRC }) {
   check('nothing is copied from the people in the reference photos (the gajra case)',
     /not their hairstyle, hair flowers or gajra, jewellery, bindi or makeup\. No flowers or accessories in the hair/.test(sleeveText));
   check('a dupatta\'s two ends are identical (one came out gold, the other red on red)',
-    /two ends are identical: the same end design in the same colours and metallic finish, with the same tassels/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'TASSEL'])).text)
+    /two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END', 'TASSEL'])).text)
     && /Both ends carry this same design/.test(buildPrompt(fakeJob('DUPATTA', ['PALLU_END'])).text));
+  section('DESIGN STUDIO: THE 9-GARMENT CHECK  (faults seen in real generations)');
+  // A suit came out with a dupatta: "only if a design reference asks for one" was
+  // not enough. Presence is decided from the designs sent.
+  const suitText = buildPrompt(fakeJob('SUIT', ['NECK', 'SLEEVE'])).text;
+  check('no DUPATTA design: an explicit "no dupatta" for every garment that could grow one, and no "only if" wording left anywhere',
+    /- No dupatta, stole, shawl or scarf of any kind\./.test(suitText)
+    && ['GOWN', 'SHARARA', 'ANARKALI', 'KURTHI', 'SAREE'].every((id) => /No dupatta, stole, shawl or scarf/.test(buildPrompt(fakeJob(id, [taxonomy.getDesignTypes(id).find((a) => !GLOBAL_AREAS.has(a.id)).id])).text))
+    && taxonomy.GARMENT_IDS.every((id) => !JSON.stringify(GUIDE[id]).includes('dupatta only if')));
+  check('a DUPATTA design adds exactly one dupatta carrying it; a lehenga keeps its own dupatta; a dupatta is not told it has no dupatta',
+    /Add one dupatta, carrying the DUPATTA design reference\./.test(buildPrompt(fakeJob('ANARKALI', ['NECK', 'DUPATTA'])).text)
+    && !/No dupatta, stole/.test(buildPrompt(fakeJob('ANARKALI', ['NECK', 'DUPATTA'])).text)
+    && !/No dupatta, stole/.test(buildPrompt(fakeJob('LEHANGA', ['SKIRT'])).text)
+    && !/No dupatta, stole/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
+  check('a dupatta gets tassels only from a TASSEL design (two dupattas grew tassels unasked)',
+    /No tassels or latkans on the dupatta, and no fringe unless a design reference shows one/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'CORNER'])).text)
+    && !/No tassels or latkans/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER', 'TASSEL'])).text)
+    && !/and its tassels are all clearly visible/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text));
+  check('the close framings say the legs and feet are out of frame (two dupattas were shot head to toe)',
+    /the ankles and feet are NOT in it/.test(buildPrompt(fakeJob('DUPATTA', ['BORDER'])).text)
+    && /the knees, legs and feet are NOT in it/.test(buildPrompt(fakeJob('BLOUSE', ['NECK'])).text));
+  check('borrowing is named part by part (gota cuffs came from a neck reference photo)',
+    /not on its sleeves, cuffs, neckline, hem or any other part without a design of its own/.test(suitText));
+  check('lace and cutwork keep their shapes (hearts appeared) and show only their own ground (a lilac print showed through lace)',
+    /Never introduce a shape the reference does not have, such as hearts, stars, letters or animals/.test(suitText)
+    && /what shows through is that part's own ground colour - never the cloth, print or skin seen through it/.test(suitText));
+
+  // A red embroidered yoke on a blue kurta came out indigo (the fabric). A
+  // contrast panel keeps its colour; a part photographed on a same-colour garment
+  // still takes the fabric colour (the mustard-sleeve case must not come back).
+  const yokeJob = fakeJob('SUIT', ['NECK', 'SLEEVE'], { fabrics: [{ image: IMG, name: 'Indigo cotton', color: 'indigo', colorHex: '#2F3E6B' }] });
+  const yoke = buildPrompt(yokeJob, { descriptions: new Map([
+    [1, { motifs: 'triangles', groundType: 'contrast panel', groundColour: 'deep red' }],
+    [2, { motifs: 'rose cutwork', groundType: 'garment fabric', groundColour: '' }]
+  ]) });
+  check('a contrast panel keeps its own colour, says so, and tells the caller how to change it',
+    /Ground colour for this part: deep red\. In its reference this part is a separately coloured contrast panel, so it keeps that panel colour instead of the fabric's colour/.test(yoke.text)
+    && yoke.warnings.some((w) => /NECK is a contrast panel in its reference, so it keeps its own colour \(deep red\) instead of the fabric colour\. To choose its colour, send designs\[0\]\.groundColorHex/.test(w)));
+  check('a part on the garment\'s own cloth still takes the fabric colour (the mustard-sleeve fix holds)',
+    /Ground colour for this part: indigo, hex #2F3E6B - from its fabric \(Indigo cotton\)\./.test(yoke.text));
+  const yokeCaller = fakeJob('SUIT', ['NECK'], { fabrics: [{ image: IMG, color: 'indigo' }] });
+  yokeCaller.designs[0].groundColorHex = '#F2E8DC';
+  check('the caller\'s ground colour still beats a contrast panel',
+    /Ground colour for this part: hex #F2E8DC - from the caller\./.test(buildPrompt(yokeCaller, { descriptions: new Map([[1, { motifs: 'x', groundType: 'contrast panel', groundColour: 'deep red' }]]) }).text));
+  check('the describe step is asked whether a part is a contrast panel, with a fixed set of answers',
+    /"contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour/.test(askText)
+    && JSON.stringify(asked[0].generationConfig.responseSchema.properties.references.items.properties.groundType.enum) === JSON.stringify(['contrast panel', 'garment fabric', 'not applicable']));
+  eq('the contrast answer survives parsing', describe.readAnswer({ references: [{ ref: 1, motifs: 'triangles', groundType: 'contrast panel', groundColour: 'deep red' }] }, [{ ref: 1 }]).get(1).groundColour, 'deep red');
+
   check('a supporting piece gets no band or trim either (a saree border showed at the blouse sleeve edges)',
     /not even a narrow band or trim at a sleeve edge, neckline or hem/.test(buildPrompt(fakeJob('SAREE', ['BORDER'])).text));
   describe._setFetch(describeAnswer(goodDescription));

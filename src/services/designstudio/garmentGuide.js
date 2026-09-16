@@ -107,9 +107,9 @@ const GUIDE = {
     top: 'dupatta',
     outfit: 'A full-length dupatta. The dupatta is the product.',
     construction: [
-      'Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, one decorated end and its tassels are all clearly visible.',
+      'Drape the dupatta over both shoulders with one long side falling in front, opened out so its body, both borders, and one decorated end are all clearly visible.',
       // Measured: one end came out gold zari brocade and the other tonal red on red.
-      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, with the same tassels. Wherever both ends are visible, they match exactly.'
+      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. Wherever both ends are visible, they match exactly.'
     ],
     styling: null,
     // Not waist-up: the dupatta's ends and tassels hang to about the knee.
@@ -144,7 +144,7 @@ const GUIDE = {
     product: 'Anarkali',
     top: 'Anarkali',
     outfit: 'A floor-length Anarkali suit with a fitted bodice, a high waist seam just under the bust, and a full flared skirt made of many panels (kalis), worn with a matching churidar.',
-    construction: ['Let the flare fall in rich, even folds to the floor, with the hem border running all the way round.', 'Add a dupatta only if a design reference is given for the dupatta.'],
+    construction: ['Let the flare fall in rich, even folds to the floor, with the hem border running all the way round.'],
     styling: 'Footwear is simple and barely visible under the flare.',
     pairedWith: { pieces: 'churidar', plural: false, looks: 'a fitted churidar', colour: 'match' },
     poseHint: 'One hand lightly lifts the side of the flare so the panels open out and show their design.',
@@ -192,7 +192,7 @@ const GUIDE = {
     product: 'salwar kameez',
     top: 'kameez',
     outfit: 'A salwar kameez: a long kameez (tunic) with matching bottoms (salwar, churidar or palazzo).',
-    construction: ['Make the kameez and bottoms a coordinated set from the specified fabrics.', 'Add a dupatta only if a design reference asks for one.'],
+    construction: ['Make the kameez and bottoms a coordinated set from the specified fabrics.'],
     styling: 'Footwear is simple flats.',
     pairedWith: null, // the product is the whole outfit
     poseHint: 'Arms are relaxed slightly away from the body so the kameez sides and sleeves are visible.',
@@ -264,7 +264,7 @@ const GUIDE = {
     product: 'sharara set',
     top: 'kurti',
     outfit: 'A sharara set: a short kurti ending at mid-thigh, over sharara pants that are fitted to the knee and then flare out dramatically to the floor.',
-    construction: ['Make the knee seam of the sharara clearly visible, with the flare falling in wide folds.', 'Add a dupatta only if a design reference is given for the dupatta.'],
+    construction: ['Make the knee seam of the sharara clearly visible, with the flare falling in wide folds.'],
     styling: 'Footwear is simple and mostly hidden by the flare.',
     pairedWith: null, // the product is the whole outfit
     poseHint: 'Standing with one foot slightly forward so the flare of the pants opens out.',

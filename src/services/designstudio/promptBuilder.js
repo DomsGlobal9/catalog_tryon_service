@@ -77,16 +77,37 @@ function referenceList(job) {
 }
 
 /**
+ * Drapes and trims that exist only if a design reference asks for them. Decided
+ * from the designs actually sent, never left to "only if" wording.
+ * Measured: "Add a dupatta only if a design reference asks for one" still put a
+ * dupatta on a suit (a suit cannot even have a DUPATTA design), and a dupatta with
+ * no TASSEL design came out with tassels on both ends.
+ */
+function extrasLines(job, g) {
+  const areas = new Set(job.designs.map((d) => d.areaId));
+  const lines = [];
+  if (areas.has('DUPATTA')) {
+    lines.push('Add one dupatta, carrying the DUPATTA design reference.');
+  } else if (job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA') {
+    lines.push('No dupatta, stole, shawl or scarf of any kind.');
+  }
+  if (job.garmentId === 'DUPATTA' && !areas.has('TASSEL')) {
+    lines.push('No tassels or latkans on the dupatta, and no fringe unless a design reference shows one.');
+  }
+  return lines;
+}
+
+/**
  * How much of the model the photograph shows. The product must fill the frame
  * and never be cropped; the supporting pieces fall out of frame instead.
  */
 function framingLine(g) {
   const ratio = config.gemini.aspectRatio;
   if (g.framing === 'waist-up') {
-    return `A waist-up portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to the upper thighs, so the ${g.product} fills most of the photograph and every detail of it is large and sharp. The ${g.product} itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame. This is deliberately not a full-length photograph.`;
+    return `A waist-up portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to the upper thighs, so the ${g.product} fills most of the photograph and every detail of it is large and sharp. The ${g.product} itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame. This is deliberately not a full-length photograph: the knees, legs and feet are NOT in it.`;
   }
   if (g.framing === 'three-quarter') {
-    return `A three-quarter-length portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to mid-calf, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame. This is deliberately not a full-length photograph.`;
+    return `A three-quarter-length portrait catalogue photograph in ${ratio}: the frame runs from a little above the head down to mid-calf, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame. This is deliberately not a full-length photograph: the bottom edge of the frame cuts across the lower legs at mid-calf, and the ankles and feet are NOT in it.`;
   }
   return `A full-length portrait catalogue photograph in ${ratio}, showing the model from head to toe with a little space above the head and below the feet. Nothing is cropped.`;
 }
@@ -245,7 +266,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Measured the other way: flat artwork (a dot pattern, a photo of flowers) was
     // then read as "does not show a border" and the notes replaced the pictures.
     if (!GLOBAL_AREAS.has(d.areaId)) {
-      lines.push(`If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the ${partWords(d.areaId, g.product)}. If it shows a whole garment or outfit, take ONLY its ${areaWords(d.areaId)}: every other part of it - ${otherParts(d.areaId)}, and any other garment worn with it - is NOT part of this reference and must not appear anywhere on the new ${g.product}, and no embellishment from those other parts is moved onto this part.`);
+      lines.push(`If this photograph is a close-up, a flat swatch, trim or artwork rather than a whole garment, the whole picture is the design for the ${partWords(d.areaId, g.product)}. If it shows a whole garment or outfit, take ONLY its ${areaWords(d.areaId)}: every other part of it - ${otherParts(d.areaId)}, and any other garment worn with it - is NOT part of this reference and must not appear anywhere on the new ${g.product} - not on its sleeves, cuffs, neckline, hem or any other part without a design of its own - and no embellishment from those other parts is moved onto this part.`);
     }
     lines.push('This picture decides the design. Where a customer note describes something different from the picture, follow the picture.');
     if (clash) {
@@ -257,13 +278,25 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // the fabric covering the part - measured: without this line a mustard sleeve
     // reference made mint sleeves mustard, and a blue gota reference made a rust
     // lehenga's hem blue. The same wording fixed an ivory collar when set by hand.
+    //
+    // But a CONTRAST PANEL is different: measured, a red embroidered yoke on a blue
+    // kurta came out indigo, because indigo was the fabric. There red is part of the
+    // design, not the colour of the garment it was photographed on. The describe
+    // step says which it is; a contrast panel keeps its own colour and says so.
     const partFabric = fabricFor(d.areaId);
+    const info = descriptions.get(n) || {};
+    const contrastColour = /contrast/i.test(info.groundType || '') && clean(info.groundColour || '');
     const ground = (d.groundColor || d.groundColorHex)
       ? { words: d.groundColor, hex: d.groundColorHex, from: 'the caller' }
-      : (partFabric && (partFabric.color || partFabric.colorHex))
-        ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
-        : null;
-    if (ground) {
+      : contrastColour
+        ? { words: contrastColour, contrast: true }
+        : (partFabric && (partFabric.color || partFabric.colorHex))
+          ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
+          : null;
+    if (ground && ground.contrast) {
+      lines.push(`Ground colour for this part: ${ground.words}. In its reference this part is a separately coloured contrast panel, so it keeps that panel colour instead of the fabric's colour; the rest of the garment stays in its fabric colour.`);
+      warnings.push(`${d.areaId} is a contrast panel in its reference, so it keeps its own colour (${ground.words}) instead of the fabric colour. To choose its colour, send designs[${d.index}].groundColorHex.`);
+    } else if (ground) {
       const stated = [ground.words ? clean(ground.words) : null, ground.hex ? `hex ${ground.hex}` : null].filter(Boolean).join(', ');
       lines.push(`Ground colour for this part: ${stated} - from ${ground.from}. Reproduce the motifs on exactly this colour. The reference photo's own background colour must NOT appear on the garment.`);
     }
@@ -323,6 +356,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     'THE GARMENT',
     g.outfit,
     bullets(g.construction),
+    ...extrasLines(job, g).map((l) => `- ${l}`),
     ...(g.styling ? [g.styling] : [])
   ].join('\n'));
 
@@ -359,7 +393,12 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     // Measured: a sleeve reference's roses appeared around the neckline and along
     // the hem of the blouse front, which had its own (white chikankari) reference.
     'Each part shows only its own reference\'s motifs, right up to its seam. Where two parts have different references (a sleeve and a neckline, a border and a body), their motifs, colours and embellishments are never borrowed from one part into the other.',
-    'Add nothing that a reference does not show on that part: no extra butis, flowers, pearl or bead drops, fringes, tassels, latkans, lace, piping, sequins or stones.'
+    'Add nothing that a reference does not show on that part: no extra butis, flowers, pearl or bead drops, fringes, tassels, latkans, lace, piping, sequins or stones.',
+    // Measured: red rose cutwork cuffs came out with heart shapes in them.
+    'Lace, cutwork and embroidery keep the reference\'s own motif shapes exactly. Never introduce a shape the reference does not have, such as hearts, stars, letters or animals.',
+    // Measured: a lilac printed kurti seen through a lace hem band came out behind
+    // the lace on a black kurti.
+    'Behind lace, net, cutwork, mesh or any other open or sheer work, what shows through is that part\'s own ground colour - never the cloth, print or skin seen through it in the reference photograph.'
   ];
   if (hasGlobal && hasZone) {
     designRules.push('A design assigned to a specific area always wins inside that area. The overall, print or embroidery references apply everywhere else.');

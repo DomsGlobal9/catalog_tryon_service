@@ -34,6 +34,10 @@ const { redact } = require('./errors');
 let fetchImpl = (...args) => fetch(...args);
 
 const FIELDS = ['motifs', 'layout', 'colours', 'technique', 'notes'];
+// Whether a design part's background is its own contrast colour or just the cloth
+// of the garment it was photographed on. Read by the prompt to decide its colour.
+const GROUND_FIELDS = ['groundType', 'groundColour'];
+const GROUND_TYPES = ['contrast panel', 'garment fabric', 'not applicable'];
 
 const INSTRUCTIONS = [
   'You are a textile technologist writing a tech-pack from photographs.',
@@ -49,6 +53,8 @@ const INSTRUCTIONS = [
   '- colours:   the motif colours and the background colour separately, in plain words.',
   '- technique: woven zari / brocade jaal / thread embroidery / sequins / mirror work / block print / digital print, and the sheen.',
   '- notes:     anything a tailor copying this part must not miss, including trims, drops or plain areas at an edge. 25 words maximum.',
+  '- groundType: for a DESIGN only. "contrast panel" ONLY when the named part is a yoke, panel, patch, band or appliqué whose background is a clearly DIFFERENT colour from the rest of the garment in the photograph (for example a red embroidered yoke on a blue kurta). "garment fabric" when the part\'s background is the same colour as the rest of the garment - even if it is a separately cut or stitched panel (for example an ivory gota yoke on an ivory kurta, or embroidery on a kurti that is mustard all over) - and for lace, net, sheer trims and close-ups where the rest of the garment cannot be seen. "not applicable" for a FABRIC.',
+  '- groundColour: the background colour of that contrast panel in plain words (for example "deep red"); empty otherwise.',
   'Keep every field under 40 words.'
 ].join('\n');
 
@@ -66,10 +72,12 @@ const RESPONSE_SCHEMA = {
           layout: { type: 'STRING' },
           colours: { type: 'STRING' },
           technique: { type: 'STRING' },
-          notes: { type: 'STRING' }
+          notes: { type: 'STRING' },
+          groundType: { type: 'STRING', enum: GROUND_TYPES },
+          groundColour: { type: 'STRING' }
         },
-        required: ['ref', ...FIELDS],
-        propertyOrdering: ['ref', ...FIELDS]
+        required: ['ref', ...FIELDS, ...GROUND_FIELDS],
+        propertyOrdering: ['ref', ...FIELDS, ...GROUND_FIELDS]
       }
     }
   },
@@ -121,7 +129,7 @@ function readAnswer(parsed, items) {
     if (!wanted.has(ref) && byPosition) ref = items[i].ref;
     if (!wanted.has(ref) || out.has(ref)) return;
     const clean = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 400) : '');
-    const described = Object.fromEntries(FIELDS.map((f) => [f, clean(entry[f])]));
+    const described = Object.fromEntries([...FIELDS, ...GROUND_FIELDS].map((f) => [f, clean(entry[f])]));
     // Measured: "The photograph does not depict a saree border" with every other
     // field empty. Notes alone are not a description - count it as missing.
     if (described.motifs || described.layout || described.colours || described.technique) out.set(ref, described);
