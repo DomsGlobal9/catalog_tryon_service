@@ -33,10 +33,26 @@ function areaName(garmentId, areaId) {
 }
 
 /**
+ * The references in the order the image model sees them. Used both for numbering
+ * the labels and for the describe step, so [Image 3] means the same thing to both.
+ * @returns {{ ref: number, kind: string, label: string, image: Object }[]}
+ */
+function referenceList(job) {
+  const items = [];
+  let ref = 0;
+  for (const d of job.designs) items.push({ ref: ++ref, kind: 'design', label: `${d.areaId} (${d.areaName})`, image: d.image });
+  for (const f of job.fabrics) items.push({ ref: ++ref, kind: 'fabric', label: f.name || `fabric ${f.index + 1}`, image: f.image });
+  if (job.model.kind === 'reference') items.push({ ref: ++ref, kind: 'model', label: 'the model to dress', image: job.model.image });
+  return items;
+}
+
+/**
  * @param {Object} job  A resolved job whose images have been prepared.
+ * @param {Object} [options]
+ * @param {Map<number, Object>} [options.descriptions]  From describeReferences.
  * @returns {{ parts: Object[], text: string, warnings: string[], pose: 'front'|'back' }}
  */
-function buildPrompt(job) {
+function buildPrompt(job, { descriptions = new Map() } = {}) {
   const g = garmentGuide(job.garmentId);
   const warnings = [];
   const parts = [];
@@ -81,13 +97,39 @@ function buildPrompt(job) {
   ].join('\n'));
 
   // ── 2. REFERENCES ──────────────────────────────────────────────────────────
+  // What the describe step saw in a reference, as lines under its label.
+  const described = (ref) => {
+    const info = descriptions.get(ref);
+    if (!info) return [];
+    const lines = [];
+    if (info.motifs) lines.push(`Motifs in this reference: ${info.motifs}`);
+    if (info.layout) lines.push(`Layout and repeat: ${info.layout}`);
+    if (info.colours) lines.push(`Colours in this reference: ${info.colours}`);
+    if (info.technique) lines.push(`Technique: ${info.technique}`);
+    if (info.notes) lines.push(`Must not be missed: ${info.notes}`);
+    if (lines.length) lines.unshift('This is what the reference actually shows - reproduce all of it:');
+    return lines;
+  };
+
   let n = 0;
   for (const d of job.designs) {
     n += 1;
     const lines = [
       `[Image ${n}] DESIGN for ${d.areaId} (${d.areaName})`,
-      `Goes on: ${describeArea(job.garmentId, d.areaId)}.`
+      `Goes on: ${describeArea(job.garmentId, d.areaId)}.`,
+      ...described(n)
     ];
+    if (d.groundColor || d.groundColorHex) {
+      const stated = [d.groundColor ? clean(d.groundColor) : null, d.groundColorHex ? `hex ${d.groundColorHex}` : null].filter(Boolean).join(', ');
+      lines.push(`Ground colour for this part: ${stated}. Reproduce the motifs on exactly this colour, whatever colour the reference photo is on.`);
+    }
+    lines.push(d.keepMotifColors
+      ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
+      : 'Recolour the motifs to suit this part\'s own fabric palette rather than copying the reference\'s motif colours.');
+    // Measured: a pallu ended in a large blank panel of plain fabric.
+    lines.push(d.coverage === 'reference'
+      ? 'Follow this reference\'s own layout exactly, including any plain areas it shows.'
+      : 'This design covers the whole of this part, edge to edge and right to its end. Do not leave any large plain panel or empty gap inside this part; only a narrow finishing edge of a few centimetres may be plain.');
     if (d.note) lines.push(`Customer note for this design: ${clean(d.note)}`);
     addText(lines.join('\n'));
     addImage(d.image, `design ${d.areaId}`);
@@ -103,7 +145,7 @@ function buildPrompt(job) {
     const usedFor = f.appliesTo
       ? `Used for: ${f.appliesTo.map((a) => `${a} (${areaName(job.garmentId, a)})`).join(', ')} only.`
       : 'Used for: the main fabric of the whole garment, meaning every part that has no fabric of its own.';
-    const lines = [`[Image ${n}] FABRIC: ${label}${f.itemCode ? ` [${clean(f.itemCode)}]` : ''}`, usedFor];
+    const lines = [`[Image ${n}] FABRIC: ${label}${f.itemCode ? ` [${clean(f.itemCode)}]` : ''}`, usedFor, ...described(n)];
     if (f.material) lines.push(`Material: ${clean(f.material)}. Show this material's real weave, weight and surface finish.`);
     // The stated colour is the customer's stock record. A fabric photo can be shot
     // in warm or cool light, so the words and the hex decide the base colour.
@@ -169,6 +211,9 @@ function buildPrompt(job) {
       // Measured: a dense brocade jaal swatch came back as plain silk once the
       // design (small butis) was applied over it.
       'The fabric\'s own weave stays visible wherever the design does not cover it: if a fabric reference is a brocade, jaal, jacquard, textured or slubbed cloth, that texture must still read across that part of the garment, not be flattened into plain cloth.',
+      // Measured the other way round too: a brocade jaal fabric then replaced the
+      // multi-coloured butis that the BODY design asked for. Design wins.
+       'Where a part has BOTH a design reference and a fabric that carries its own woven pattern, the DESIGN decides what that part looks like: its motifs must be clearly visible at their own size and colours. The fabric\'s own pattern stays behind them as a quieter ground texture and must never replace or crowd out the design\'s motifs.',
       'Where a design\'s motif colours differ from its fabric, keep the design\'s own colours for the motifs and the fabric\'s colour for the ground.'
     ];
     if (job.fabrics.some((f) => f.color || f.colorHex)) {
@@ -229,4 +274,4 @@ function buildPrompt(job) {
   return { parts, text: textLog.join('\n\n'), warnings, pose, imageCount: n };
 }
 
-module.exports = { buildPrompt };
+module.exports = { buildPrompt, referenceList };

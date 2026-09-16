@@ -34,7 +34,8 @@ async function runAll({ check, eq, section, SRC }) {
   const S = (p) => require(path.join(SRC, 'services/designstudio', p));
   const { resolveRequest } = S('validate');
   const imageInput = S('imageInput');
-  const { buildPrompt } = S('promptBuilder');
+  const { buildPrompt, referenceList } = S('promptBuilder');
+  const describe = S('describeReferences');
   const gemini = S('geminiImage');
   const { GUIDE, taxonomy } = S('garmentGuide');
   const routes = S('routes');
@@ -235,6 +236,8 @@ async function runAll({ check, eq, section, SRC }) {
   check('a reference\'s background colour must not become the garment\'s colour (a pink pallu photo beat a crimson fabric)',
     /colours OF THE MOTIFS only/.test(full.text) && /never from the design reference's own background/.test(full.text));
   check('a brocade or jaal fabric must not flatten into plain cloth', /that texture must still read across that part of the garment/.test(full.text));
+  check('...but where both exist for one part, the design wins over the fabric\'s own pattern (measured: a jaal fabric erased the body butis)',
+    /the DESIGN decides what that part looks like/.test(full.text) && /must never replace or crowd out the design's motifs/.test(full.text));
   check('a mannequin in a reference is ignored like a person or watermark', /a person, a mannequin, another garment, a background, hands, text or a watermark/.test(full.text));
 
   const detailed = fakeJob('SAREE', ['PALLU', 'BODY'], {
@@ -252,6 +255,66 @@ async function runAll({ check, eq, section, SRC }) {
     /that colour is the truth/.test(detailedText) && /build that part of the garment from that material/.test(detailedText)
     && /sold as "Bridal Banarasi Saree"/.test(detailedText) && /never draw any text into the image/.test(detailedText));
   check('without colours or materials those rules are not added', !/that colour is the truth/.test(full.text) && !/build that part of the garment from that material/.test(full.text));
+
+  section('DESIGN STUDIO: PER-PART CONTROLS AND THE DESCRIBE STEP');
+  const controlled = resolveRequest(body({
+    designs: [
+      { area: 'PALLU', image: IMG },
+      { area: 'BORDER', image: IMG, groundColourHex: 'dc143c', keepMotifColours: false, coverage: 'reference' }
+    ]
+  }));
+  eq('per-part controls resolve, British spellings included, with sensible defaults',
+    controlled.designs.map((d) => [d.groundColorHex, d.keepMotifColors, d.coverage]),
+    [[null, true, 'full'], ['#DC143C', false, 'reference']]);
+  eq('a bad ground hex is refused', code(() => resolveRequest(body({ designs: [{ area: 'PALLU', image: IMG, groundColorHex: 'ivory' }] }))), 'INVALID_FIELD');
+  eq('an unknown coverage value is refused', code(() => resolveRequest(body({ designs: [{ area: 'PALLU', image: IMG, coverage: 'partial' }] }))), 'INVALID_FIELD');
+
+  const ctrlJob = fakeJob('SAREE', ['PALLU', 'BORDER']);
+  ctrlJob.designs[1].groundColorHex = '#F2E8DC';
+  ctrlJob.designs[1].keepMotifColors = false;
+  ctrlJob.designs[1].coverage = 'reference';
+  const ctrlText = buildPrompt(ctrlJob).text;
+  check('a stated ground colour beats the reference photo\'s own colour (the navy collar case)',
+    /Ground colour for this part: hex #F2E8DC\. Reproduce the motifs on exactly this colour, whatever colour the reference photo is on\./.test(ctrlText));
+  check('motif colours are kept by default and recoloured only when asked',
+    /Keep the motif colours exactly as they are in this reference, including multi-coloured motifs/.test(ctrlText)
+    && /Recolour the motifs to suit this part's own fabric palette/.test(ctrlText));
+  check('a design covers its whole part by default (the blank pallu end case), unless the caller wants the reference layout',
+    /covers the whole of this part, edge to edge and right to its end/.test(ctrlText) && /including any plain areas it shows/.test(ctrlText));
+  check('the saree pallu itself must not end in a plain block', /The pallu must never end in a large plain block of fabric/.test(ctrlText));
+
+  eq('references are numbered once, in the order the model sees them',
+    referenceList(fakeJob('SAREE', ['PALLU', 'BORDER'], { fabrics: [{ image: IMG, name: 'silk' }], modelImage: IMG })).map((r) => `${r.ref}:${r.kind}`),
+    ['1:design', '2:design', '3:fabric', '4:model']);
+
+  const describeAnswer = (payload, status = 200) => async () => new Response(typeof payload === 'string' ? payload : JSON.stringify(payload), { status });
+  const goodDescription = {
+    candidates: [{ content: { parts: [{ text: JSON.stringify({ references: [
+      { ref: 1, motifs: 'temple (mandir) spires, 14 across the band', layout: 'continuous band', colours: 'gold on teal', technique: 'woven zari', notes: 'hexagonal jaal fills the band' },
+      { ref: 2, motifs: 'tiny multi-coloured flower butis' }
+    ] }) }] } }]
+  };
+  describe._setFetch(describeAnswer(goodDescription));
+  let described = await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU', 'BORDER'])));
+  eq('the describe step turns the references into words', [described.size, described.get(1).motifs, described.get(2).motifs],
+    [2, 'temple (mandir) spires, 14 across the band', 'tiny multi-coloured flower butis']);
+  const withWords = buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER']), { descriptions: described }).text;
+  check('and those words go to the image model next to the picture',
+    /Motifs in this reference: temple \(mandir\) spires, 14 across the band/.test(withWords) && /Must not be missed: hexagonal jaal/.test(withWords));
+
+  describe._setFetch(describeAnswer({ candidates: [{ content: { parts: [{ text: '```json\n{"references":[{"ref":1,"motifs":"paisley"}]}\n```' }] } }] }));
+  eq('an answer wrapped in code fences is still read', (await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])))).get(1).motifs, 'paisley');
+  describe._setFetch(describeAnswer({ candidates: [{ content: { parts: [{ text: 'thinking...', thought: true }, { text: '{"references":[{"ref":1,"colours":"wine"}]}' }] } }] }));
+  eq('thinking output is skipped', (await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])))).get(1).colours, 'wine');
+  for (const [name, fake] of [
+    ['the model answers with prose instead of JSON', describeAnswer({ candidates: [{ content: { parts: [{ text: 'Sure! Here is a lovely description.' }] } }] })],
+    ['the describe call fails (HTTP 500)', describeAnswer('boom', 500)],
+    ['the describe call throws', async () => { throw new TypeError('fetch failed'); }]
+  ]) {
+    describe._setFetch(fake);
+    const empty = await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])));
+    eq(`${name}: skipped, generation still goes ahead`, empty.size, 0);
+  }
 
   const back = buildPrompt(fakeJob('BLOUSE', ['BACK']));
   eq('a BACK design turns the model so the back is visible', [back.pose, /looking back over the shoulder/.test(back.text)], ['back', true]);
@@ -347,6 +410,8 @@ async function runAll({ check, eq, section, SRC }) {
   const realLog = console.log, realWarn = console.warn, realError = console.error;
   console.log = (...a) => logs.push(a.join(' ')); console.warn = console.log; console.error = console.log;
 
+  // The describe step runs before every generation; give it a fake too.
+  describe._setFetch(describeAnswer(goodDescription));
   const app = express();
   app.use(identify);
   app.use('/ds', routes);
@@ -390,7 +455,11 @@ async function runAll({ check, eq, section, SRC }) {
     });
     eq('a good request opens an event stream', [res.status, res.headers.get('content-type')], [200, 'text/event-stream; charset=utf-8']);
     let { events } = await readEvents(res);
-    eq('events: start, status (attempt 1), status (retry), image, done', events.map((e) => e.type), ['start', 'status', 'status', 'image', 'done']);
+    eq('events: start, reading references, brief, generating, retry, image, done',
+      events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'status', 'image', 'done']);
+    eq('the brief event tells the caller what was understood from each reference',
+      events[2].references.map((r) => r.ref), [1, 2]);
+    eq('the first status is the describe step', events[1].stage, 'reading-references');
     const start = events[0];
     eq('start says what will be made', [start.garment, start.designs.map((d) => d.area), start.fabrics[0].appliesTo, start.model, start.pose, start.aspectRatio], ['SAREE', ['PALLU', 'BORDER'], 'MAIN', 'generated', 'front', '3:4']);
     const imageEvent = events.find((e) => e.type === 'image');
@@ -402,10 +471,18 @@ async function runAll({ check, eq, section, SRC }) {
     eq('Gemini received 3 images (2 designs, 1 fabric) with their labels', sentParts.filter((p) => p.inlineData).length, 3);
     eq('the capacity slot is given back afterwards', capacity.stats().activeGenerations, 0);
 
+    // The describe step failing must not stop a generation.
+    describe._setFetch(describeAnswer('service down', 503));
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'no-brief' }))));
+    eq('if the describe step fails there is no brief, and the image still arrives',
+      [events.map((e) => e.type), events.some((e) => e.type === 'brief')], [['start', 'status', 'status', 'image', 'done'], false]);
+    describe._setFetch(describeAnswer(goodDescription));
+
     // A refusal inside the stream.
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
     ({ events } = await readEvents(await post('/generate', body())));
-    eq('a refusal arrives as an error event and the stream ends, no image', [events.map((e) => e.type), events[events.length - 1].code], [['start', 'status', 'error'], 'GENERATION_BLOCKED']);
+    eq('a refusal arrives as an error event and the stream ends, no image', [events.map((e) => e.type), events[events.length - 1].code], [['start', 'status', 'brief', 'status', 'error'], 'GENERATION_BLOCKED']);
 
     // Slow generation: heartbeat, capacity (1 slot in this test run), cancel.
     let geminiSignal = null;
@@ -441,7 +518,7 @@ async function runAll({ check, eq, section, SRC }) {
     eq('cancel without clientId is 400', res.status, 400);
     script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'after' }))));
-    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'image', 'done']);
+    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'image', 'done']);
 
     check('no log line contains the API key or raw base64', !logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);

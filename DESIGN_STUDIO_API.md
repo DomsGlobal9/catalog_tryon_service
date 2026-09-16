@@ -44,6 +44,10 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `designs[].area` | string | **Yes** | A design area **of that garment**, e.g. `PALLU`, `BORDER`, `BODY` for a saree. See `GET /options`. One design per area. |
 | `designs[].image` | string | **Yes** | The design picture. See *Images*. |
 | `designs[].note` | string, ≤300 | No | A short instruction for this design only. |
+| `designs[].groundColorHex` | string | No | e.g. `"#F2E8DC"`. The base colour **this part** must be, whatever colour the reference photo happens to be on. Use it when a reference is shot on a different coloured cloth. |
+| `designs[].groundColor` | string, ≤60 | No | The same in words, e.g. `"ivory"`. |
+| `designs[].keepMotifColors` | boolean | No | Default `true`: the motifs keep the reference's own colours, including multi-coloured ones. `false` recolours them to suit the part's fabric. |
+| `designs[].coverage` | `full` | `reference` | No | Default `full`: the design covers the whole part with no large plain gaps. `reference` follows the reference's own layout, including any plain areas it shows. |
 | `fabrics` | array, 0–3 | No | The fabrics to make the garment from. |
 | `fabrics[].image` | string | **Yes** | The fabric picture. |
 | `fabrics[].name` | string, ≤80 | No | e.g. `"Banarasi Brocade"`. Helps the model understand the material. |
@@ -113,6 +117,17 @@ JPEG, PNG, WebP, AVIF and HEIC are accepted. Each image may be up to **12 MB**, 
 request up to **50 MB**. Images at least **1000 px** on their longest side give the best detail; under
 512 px works but you will get a warning, and under 64 px is refused.
 
+### How a request is answered, in two steps
+
+1. **The references are read.** A text model looks at every picture you sent and writes down what it
+   actually contains — "temple (mandir) spires in gold zari on teal", "small multi-coloured floral
+   butis, red, green, orange, white". You get this back as the `brief` event.
+2. **The garment is generated.** Those words go to the image model **alongside** your pictures.
+
+Step 1 exists because pictures alone were not enough: a border full of temple motifs came back as
+plain gold bands until the motifs were named in words. It adds roughly 2–8 seconds, and if it fails
+for any reason the generation simply continues from the pictures.
+
 ### What "exact" means
 
 Designs and fabrics are treated as a **strict specification**: the same motifs, colours, spacing and
@@ -133,9 +148,10 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 | `type` | When | Contents |
 | :--- | :--- | :--- |
 | `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `model` (`generated`/`reference`), `pose`, `aspectRatio`, `warnings` |
-| `status` | Each attempt | `stage: "generating"`, `attempt`, `message` |
+| `status` | Twice | `stage: "reading-references"` first, then `stage: "generating"` with `attempt` |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
-| `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `generateMs`, `totalMs`) |
+| `done` | After `image` | `status: "ok"`, `attempts`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`) |
+| `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`. Useful for showing your user, and for spotting a misread reference. |
 | `error` | Instead of `image` | `code`, `message`, `retryable` |
 
 Every stream ends with either `image` + `done`, or `error`. A generation usually takes **20–60 seconds**.
@@ -260,3 +276,15 @@ Inside the stream (`error` event):
 - **Name your fabrics** (`"Banarasi silk"`, `"georgette"`): it helps the model get the sheen and drape right.
 - Use **`appliesTo`** when a fabric is only for part of the garment (a tissue pallu on a silk saree).
 - Reuse the same **`modelImage`** across a collection for a consistent look.
+- Use **`groundColorHex`** whenever a design photo is shot on a different colour than your product.
+
+### Known limits, measured
+
+- **A busy fabric can out-shout a design.** If a fabric swatch is itself a dense brocade or jaal and
+  the same part also has a design reference, the fabric's woven pattern tends to dominate that part.
+  For parts where the design must read clearly, send a plainer fabric for that part (or leave that
+  part to the main fabric).
+- **Very fine motifs are approximate.** Large areas, drape, fabric colour and texture are dependable;
+  a tiny repeated motif may be simplified. Naming it in `designs[].note` helps.
+- **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
+  request are then hidden, and `start.warnings` says so.

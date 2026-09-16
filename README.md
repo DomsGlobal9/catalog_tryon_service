@@ -48,6 +48,12 @@ DESIGNSTUDIO_ALLOWED_IMAGE_HOSTS=res.cloudinary.com   # the only hosts ever down
 DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS=15000
 DESIGNSTUDIO_INPUT_MAX_EDGE=1536        # longest edge sent to the model
 DESIGNSTUDIO_OUTPUT_FORMAT=jpeg         # jpeg (re-encoded, ~10x smaller) | original
+# Step one of two: a cheap text model describes each reference (motifs, colours,
+# technique) and those words go to the image model with the pictures. Measured:
+# without it, a temple-motif border came back as plain zari bands.
+DESIGNSTUDIO_DESCRIBE=on
+DESIGNSTUDIO_DESCRIBE_MODEL=gemini-2.5-flash
+DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS=25000
 DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=120000
 DESIGNSTUDIO_DEADLINE_MS=170000         # whole generation including retries
 DESIGNSTUDIO_RETRIES=2                  # after busy/unavailable answers

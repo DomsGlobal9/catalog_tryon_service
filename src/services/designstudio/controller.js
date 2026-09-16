@@ -21,7 +21,8 @@ const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
 const { resolveRequest } = require('./validate');
 const { prepareImages } = require('./imageInput');
-const { buildPrompt } = require('./promptBuilder');
+const { buildPrompt, referenceList } = require('./promptBuilder');
+const { describeReferences } = require('./describeReferences');
 const { generateImage } = require('./geminiImage');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
@@ -45,7 +46,7 @@ async function generate(req, res, next) {
     const prepStarted = Date.now();
     prepared = await prepareImages(job, abort.signal);
     job.prepareMs = Date.now() - prepStarted;
-    prompt = buildPrompt(job);
+    prompt = buildPrompt(job); // provisional: replaced below if the references get described
 
     if (abort.signal.aborted) return;
     admitted = await admitGeneration(req, res, { clientId: job.clientId, pipeline: PIPELINE });
@@ -96,6 +97,23 @@ async function generate(req, res, next) {
       warnings: prompt.warnings
     });
 
+    // Step one: put the references into words, so the image model cannot quietly
+    // simplify a temple border into plain bands. Optional and never fatal.
+    if (config.describe.enabled) {
+      send({ type: 'status', stage: 'reading-references', message: 'Reading the designs and fabrics.' });
+      const describeStarted = Date.now();
+      const descriptions = await describeReferences(referenceList(job), { signal: abort.signal });
+      job.describeMs = Date.now() - describeStarted;
+      if (descriptions.size) {
+        prompt = buildPrompt(job, { descriptions });
+        send({
+          type: 'brief',
+          jobId: admitted.job.id,
+          references: [...descriptions.entries()].map(([ref, info]) => ({ ref, ...info }))
+        });
+      }
+    }
+
     const generationStarted = Date.now();
     const result = await generateImage(prompt.parts, {
       signal: abort.signal,
@@ -123,7 +141,7 @@ async function generate(req, res, next) {
       jobId: admitted.job.id,
       status: 'ok',
       attempts,
-      timings: { prepareMs: job.prepareMs, generateMs: Date.now() - generationStarted, totalMs: Date.now() - startedAt }
+      timings: { prepareMs: job.prepareMs, describeMs: job.describeMs || 0, generateMs: Date.now() - generationStarted, totalMs: Date.now() - startedAt }
     });
     outcome = 'OK';
   } catch (err) {

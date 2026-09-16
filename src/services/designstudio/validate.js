@@ -58,6 +58,9 @@ function canonicaliseFields(raw) {
       pick(design, 'designImageUrl', 'image');
       pick(design, 'imageUrl', 'image');
       pick(design, 'description', 'note');
+      pick(design, 'groundColour', 'groundColor');
+      pick(design, 'groundColourHex', 'groundColorHex');
+      pick(design, 'keepMotifColours', 'keepMotifColors');
       return design;
     });
   }
@@ -96,7 +99,13 @@ const schema = z.object({
     area: z.string().trim().min(1).max(40),
     image: imageField,
     note: text(config.limits.maxNoteChars).optional(),
-    label: text(80).optional() // the caller's display name; not used in the prompt
+    label: text(80).optional(), // the caller's display name; not used in the prompt
+    // Per-part control, for when the reference photo and the intended product
+    // disagree. All optional; the defaults are what the earlier tests needed.
+    groundColor: text(60).optional(),
+    groundColorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #F2E8DC').optional(),
+    keepMotifColors: z.boolean().optional(), // default true: motif colours come from the reference
+    coverage: z.enum(['full', 'reference']).optional() // default full: no large bare gaps in a decorated part
   }).strict()).min(1, 'at least one design is required').max(config.limits.maxDesigns, `at most ${config.limits.maxDesigns} designs`),
   fabrics: z.array(z.object({
     image: imageField,
@@ -203,7 +212,17 @@ function resolveRequest(rawBody) {
         [{ field: `${field}.area`, code: 'DUPLICATE_DESIGN_AREA' }]);
     }
     seenAreas.set(area.id, field);
-    return { index: i, areaId: area.id, areaName: area.name, note: d.note || null, source: classifyImage(d.image, `${field}.image`) };
+    return {
+      index: i,
+      areaId: area.id,
+      areaName: area.name,
+      note: d.note || null,
+      groundColor: d.groundColor || null,
+      groundColorHex: d.groundColorHex ? `#${d.groundColorHex.replace('#', '').toUpperCase()}` : null,
+      keepMotifColors: d.keepMotifColors === undefined ? true : d.keepMotifColors,
+      coverage: d.coverage || 'full',
+      source: classifyImage(d.image, `${field}.image`)
+    };
   });
 
   let mainFabric = null;

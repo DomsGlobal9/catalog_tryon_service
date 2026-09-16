@@ -57,7 +57,8 @@ const GUIDE = {
     styling: 'The blouse is a fitted, elbow-length blouse in the saree\'s main colour or its border colour, plain unless a design reference describes it.',
     poseHint: 'Both arms hang relaxed and clear of the pallu, so nothing covers it and no second drape appears.',
     areas: {
-      PALLU: 'the pallu: the loose decorated end of the saree, about the last metre, that falls from the left shoulder. Reproduce this design across the pallu\'s full width and length, including its cross-bands and end border',
+      // Measured: the pallu ended in a large panel of plain crimson with no design.
+      PALLU: 'the pallu: the loose decorated end of the saree, about the last metre, that falls from the left shoulder. Reproduce this design across the pallu\'s full width and its whole length, including its cross-bands and end border, right down to the pallu\'s lower edge. The pallu must never end in a large plain block of fabric',
       BORDER: 'the saree borders: the continuous bands along both long edges of the saree. They show along the hem at the feet, down the edge of every front pleat and along the edge of the pallu. Keep the band width in the same proportion to the saree as in the reference',
       BODY: 'the main body of the saree: the large field between the borders, seen on the pleats and wrapped around the hips. Repeat its motifs (buttis) at the reference\'s size and spacing',
       PLEAT: 'the front pleats: the folded panel tucked at the waist. Show this design on the pleat faces so it reads correctly as the pleats fan out',

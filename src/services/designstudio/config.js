@@ -36,6 +36,18 @@ const config = {
     retryBaseMs: int('DESIGNSTUDIO_RETRY_BASE_MS', 2000)
   },
 
+  // Step one of two: a cheap text model looks at each reference and writes a
+  // precise description of it (motifs, repeat, colours, technique, weave), which
+  // is then given to the image model alongside the pictures. Measured: images
+  // alone lost temple motifs and small-motif colours. Never required - if this
+  // call fails or times out, generation continues with the images only.
+  describe: {
+    enabled: String(process.env.DESIGNSTUDIO_DESCRIBE || 'on').toLowerCase() !== 'off',
+    model: process.env.DESIGNSTUDIO_DESCRIBE_MODEL || 'gemini-2.5-flash',
+    timeoutMs: int('DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS', 25000, { min: 1000 }),
+    maxOutputTokens: int('DESIGNSTUDIO_DESCRIBE_MAX_TOKENS', 2048, { min: 256 })
+  },
+
   limits: {
     maxDesigns: int('DESIGNSTUDIO_MAX_DESIGNS', 6, { min: 1, max: 10 }),
     maxFabrics: int('DESIGNSTUDIO_MAX_FABRICS', 3, { min: 0, max: 5 }),
