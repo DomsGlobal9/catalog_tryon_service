@@ -47,7 +47,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `designs[].groundColorHex` | string | No | e.g. `"#F2E8DC"`. The base colour **this part** must be, whatever colour the reference photo happens to be on. **You rarely need it**: if the fabric covering that part states a colour, that colour is used automatically. Set this only to override. |
 | `designs[].groundColor` | string, ≤60 | No | The same in words, e.g. `"ivory"`. |
 | `designs[].keepMotifColors` | boolean | No | Default `true`: the motifs keep the reference's own colours, including multi-coloured ones. `false` recolours them to suit the part's fabric. |
-| `designs[].coverage` | `full` | `reference` | No | Default `full`: the design covers the whole part with no large plain gaps. `reference` follows the reference's own layout, including any plain areas it shows. |
+| `designs[].coverage` | `full` or `reference` | No | Default `full`: the design covers the whole part with no large plain gaps. `reference` follows the reference's own layout, including any plain areas it shows. |
 | `fabrics` | array, 0–3 | No | The fabrics to make the garment from. |
 | `fabrics[].image` | string | **Yes** | The fabric picture. |
 | `fabrics[].name` | string, ≤80 | No | e.g. `"Banarasi Brocade"`. Helps the model understand the material. |
@@ -59,7 +59,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `fabrics[].note` | string, ≤300 | No | A short instruction for this fabric only. |
 | `productName` | string, ≤120 | No | e.g. `"Bridal Banarasi Saree"`. Used as a hint to the style and occasion. No text is ever drawn into the image. |
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
-| `modelGender` | `female` \| `male` | No | Defaults to the garment's usual wearer (`male` for `SHERWANI`, `female` for the rest). |
+| `modelGender` | `female` or `male` | No | Defaults to the garment's usual wearer (`male` for `SHERWANI`, `female` for the rest). |
 | `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
