@@ -240,10 +240,10 @@ with `data: ` followed by JSON, then a blank line. Lines starting with `:` are k
 | `status` | Several | `stage`: `reading-references`, then `generating` (with `attempt`), then `checking`; if a check failed, `regenerating` and `checking` again |
 | `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
 | `done` | After `image` | `status: "ok"`, `attempts`, `quality`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`). `quality` is `{ checked, passed, regenerated, failures: [{ check, evidence }] }`: whether the photograph was inspected, whether it passed, whether it was regenerated, and any check it still fails |
-| `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`. Useful for showing your user, and for spotting a misread reference. |
+| `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`, `groundType` (`contrast panel` / `garment fabric`), `groundColour`, `garmentColour` (the rest of the photographed garment) and `problem` (why a picture could not be read, else empty). Plus `warnings`. Useful for showing your user, and for spotting a misread reference. |
 | `error` | Instead of `image` | `code`, `message`, `retryable` |
 
-Every stream ends with either `image` + `done`, or `error`. Measured on real runs: **45–55 seconds** when the photograph passes inspection first time, **90–110 seconds** when it is regenerated. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more.
+Every stream ends with either `image` + `done`, or `error`. Measured in production (all 12 garments): **30–45 seconds** when the photograph passes inspection first time, **60–95 seconds** when it is regenerated. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your user the `status` events so the wait is visible.
 
 ```text
 data: {"type":"start","jobId":"6c1f…","garment":"SAREE","designs":[{"index":0,"area":"PALLU","areaName":"Pallu Design"},{"index":1,"area":"BORDER","areaName":"Border Design"}],"fabrics":[{"index":0,"name":"Kanjivaram silk","appliesTo":"MAIN"},{"index":1,"name":"Gold tissue","appliesTo":["PALLU"]}],"model":"generated","pose":"front","aspectRatio":"3:4","warnings":[]}
@@ -254,7 +254,7 @@ data: {"type":"status","stage":"generating","attempt":1,"message":"Generating th
 
 data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":1536,"height":2048,"bytes":612345,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
 
-data: {"type":"done","jobId":"6c1f…","status":"ok","attempts":1,"timings":{"prepareMs":840,"generateMs":31200,"totalMs":32100}}
+data: {"type":"done","jobId":"6c1f…","status":"ok","attempts":1,"quality":{"checked":true,"passed":true,"regenerated":false,"failures":[]},"timings":{"prepareMs":840,"describeMs":9100,"generateMs":24300,"totalMs":34500}}
 ```
 
 ### Warnings
@@ -345,6 +345,10 @@ Before the stream (JSON body `{ "success": false, "error": { "code", "message", 
 | `413` | `PAYLOAD_TOO_LARGE` | The request is over 50 MB. Send smaller images (a few MB each is plenty). |
 | `422` | `IMAGE_UNUSABLE` | One or more images could not be used. `details[]` lists **every** failing image with its `field` and `code`: `IMAGE_NOT_FOUND`, `IMAGE_NOT_ACCESSIBLE`, `IMAGE_DOWNLOAD_FAILED`, `IMAGE_TOO_LARGE`, `IMAGE_TOO_SMALL`, `INVALID_IMAGE`, `UNSUPPORTED_IMAGE_FORMAT`, `IMAGE_SOURCE_NOT_ALLOWED`. |
 | `429` | — | Busy, or your hourly generation allowance is used up. Wait for the `Retry-After` header (seconds) and retry. |
+| `500`, `502`, `503`, `504` | `INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`, `SERVICE_BUSY`, `GATEWAY_TIMEOUT` | A momentary failure in the gateway or on the way to the service (body `{ "error": { "code", "message" } }`). Nothing was generated. **Retry once** after 2 seconds with the same request. |
+
+**A `200` that ends with no events at all** (the connection closed before `start`) is the same kind of
+momentary failure: retry once.
 
 Inside the stream (`error` event):
 
@@ -355,7 +359,7 @@ Inside the stream (`error` event):
 | `NO_IMAGE_RETURNED` | The model answered without an image, even after a second try. | Yes |
 | `MODEL_UNAVAILABLE` | The image model is busy or down (already retried for you). | Yes, shortly |
 | `MODEL_TIMEOUT` | The image model did not answer in time, twice. Measured: normal runs take 25-60s, a rare one hangs. | Yes |
-| `MODEL_QUOTA_EXCEEDED` | The image model has reached its spending cap or quota on this deployment. | No - an operator must raise it |
+| `MODEL_QUOTA_EXCEEDED` | The image model has reached its spending cap or quota on this deployment. Every generation fails until it is raised. | No - tell your operator; retrying does not help |
 | `CANCELLED` | You cancelled, or started a new generation with the same `clientId`. | — |
 | `INTERNAL_ERROR` | Unexpected failure. | Yes |
 
@@ -378,6 +382,8 @@ Inside the stream (`error` event):
 - Use **`appliesTo`** when a fabric is only for part of the garment (a tissue pallu on a silk saree).
 - Reuse the same **`modelImage`** across a collection for a consistent look.
 - Use **`groundColorHex`** whenever a design photo is shot on a different colour than your product.
+- **Read `done.quality`.** `passed: false` means the photograph is the better of two attempts but still
+  has the fault named in `failures` (for example a cuff band). Show it, or offer your user a retry.
 
 ### Known limits, measured
 
@@ -395,7 +401,11 @@ Inside the stream (`error` event):
 - **Embellishment shapes are approximate.** Measured: small cone tassels came back as round latkans
   with pearls, and a feathered gota fringe as a flat scalloped band. The placement and colours were
   right; the exact shape of a small 3D trim is the least reliable detail.
-- **Send a design for every part you want decorated.** A `BACK` design is the back only; its photo's
-  sleeves are not guaranteed to carry over. For decorated sleeves, send a `SLEEVE` design too.
+- **Send a design for every part you want decorated.** Parts without a design of their own stay plain
+  in your fabric: without a `SLEEVE` design the sleeves are plain, even when a `NECK` or `FRONT` photo
+  shows embroidered sleeves or cuffs. For decorated sleeves, send a `SLEEVE` design.
+- **A trim that is the design is kept.** A `WAISTBAND` photo whose waistband is a pearl-and-tassel
+  fringe gives a fringed waistband; tassels are only removed where they are not the named part (the
+  ends of a dupatta photographed whole, a saree pallu).
 - **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
   request are then hidden, and `start.warnings` says so.
