@@ -111,6 +111,33 @@ function edgesOf(pieces, garmentId) {
 /** Attached trims, not cut from the garment's fabric. */
 const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
 
+/**
+ * Which side of a two-sided garment each design area is seen from. Everything
+ * else (sleeves, hems, borders, collars, all-over prints) shows in both views.
+ * Measured: with all references in one prompt, a back-view photo borrowed the
+ * front's neckline embroidery onto the back yoke. Each view is shown only the
+ * references it can display.
+ */
+const FRONT_ONLY_AREAS = new Set(['FRONT', 'NECK', 'BUTTON', 'POCKET']);
+const BACK_ONLY_AREAS = new Set(['BACK']);
+function visibleIn(view, areaId) {
+  if (view === 'front') return !BACK_ONLY_AREAS.has(areaId);
+  if (view === 'back') return !FRONT_ONLY_AREAS.has(areaId);
+  return true;
+}
+
+/**
+ * The job and descriptions as one view sees them: only that view's designs, with
+ * the description map renumbered to match (refs are positions in referenceList).
+ */
+function viewOf(job, descriptions, view) {
+  const designs = job.designs.filter((d) => visibleIn(view, d.areaId));
+  const remapped = new Map();
+  designs.forEach((d, k) => { const info = descriptions.get(job.designs.indexOf(d) + 1); if (info) remapped.set(k + 1, info); });
+  job.fabrics.forEach((f, j) => { const info = descriptions.get(job.designs.length + j + 1); if (info) remapped.set(designs.length + j + 1, info); });
+  return { job: { ...job, designs, allDesigns: job.designs }, descriptions: remapped };
+}
+
 /** "SLEEVE" -> "sleeve"; for a photo of a whole garment: "take ONLY its sleeve". */
 function areaWords(areaId) {
   return areaId.toLowerCase().replace(/_/g, ' ');
@@ -248,7 +275,7 @@ function pairing(job) {
  * @param {Map<number, Object>} [options.descriptions]  From describeReferences.
  * @returns {{ parts: Object[], text: string, warnings: string[], pose: 'front'|'back' }}
  */
-function buildPrompt(job, { descriptions = new Map() } = {}) {
+function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = null } = {}) {
   const g = garmentGuide(job.garmentId);
   const warnings = [];
   const parts = [];
@@ -266,8 +293,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   const hasGlobal = designAreas.some((a) => GLOBAL_AREAS.has(a));
   const hasZone = designAreas.some((a) => !GLOBAL_AREAS.has(a));
   const needsBack = designAreas.some((a) => BACK_AREAS.has(a));
-  const pose = needsBack ? 'back' : 'front';
-  if (needsBack) {
+  // A named view decides the pose outright; otherwise (single-photo garments) a
+  // BACK design turns the model around.
+  const pose = view || (needsBack ? 'back' : 'front');
+  if (needsBack && !view) {
     // Measured on a real kurti (BACK + NECK): the back yoke came out perfectly and
     // the neckline could not be seen at all. Say so rather than let a caller wonder.
     const hiddenByBackPose = job.designs
@@ -289,7 +318,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     : null;
   addText([
     'TASK',
-    `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}, ` +
+    `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}${view === 'back' ? ', photographed FROM THE BACK' : view === 'front' ? ', photographed from the front' : ''}, ` +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
     ...(pair ? [`The ${g.product} is the only product in this photograph. Every design reference below belongs to the ${g.product} and to nothing else the model wears.`] : []),
@@ -514,6 +543,21 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
     job.model.imageNumber = n;
   }
 
+  // The back view is made from the finished front photograph, so the two are one
+  // garment on one person: same colour, cut, sleeves, hem, hair and studio.
+  let frontPhotoNumber = null;
+  if (view === 'back' && frontPhoto) {
+    n += 1;
+    frontPhotoNumber = n;
+    addText([
+      `[Image ${n}] THE FRONT VIEW of this exact ${g.product}, already photographed.`,
+      `This photograph is the ground truth for everything that must stay the same: the ${g.product}'s fabric colour and texture, its cut and fit, sleeve length and sleeve ends, hem length, ${pair ? `the ${pair.pieces} worn with it, ` : ''}the model (same person, same hair, same jewellery), the backdrop and the lighting.`,
+      `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
+      `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`
+    ].join('\n'));
+    addImage(frontPhoto, 'front view');
+  }
+
   const allImages = [...job.designs, ...job.fabrics, job.model].map((x) => x.image).filter(Boolean);
   if (allImages.some((img) => img.shrunkToFit)) {
     warnings.push('The images were very detailed, so some were compressed further to fit the image model\'s request limit; the finest detail may be slightly softer.');
@@ -586,6 +630,12 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   if (plainSleeves) {
     designRules.push(`The ${g.product} has NO sleeve design: its sleeves are plain fabric from shoulder to wrist - no print, embroidery, buttis, lace or border band on them, not even at the cuff - whatever sleeves the reference photographs show.`);
   }
+  if (view === 'front' && g.sides && g.sides.length > 1) {
+    designRules.push(`This is the FRONT view. The back of the ${g.product} is photographed separately with its own reference and is not part of this picture: do not show or invent any back design here.`);
+  }
+  if (view === 'back' && !job.designs.some((d) => BACK_AREAS.has(d.areaId))) {
+    designRules.push(`No design reference was sent for the back of the ${g.product}: its back is plain, in the ${g.product}'s own fabric, with a simple neckline that matches the front's construction and no decoration.`);
+  }
   addText(['HOW TO USE THE DESIGN REFERENCES', bullets(designRules)].join('\n'));
 
   // ── 5. FABRIC RULES ────────────────────────────────────────────────────────
@@ -624,7 +674,10 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   } else {
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
-  if (pose === 'back') {
+  if (view === 'back') {
+    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: hair is pinned up or brought forward over one shoulder, arms slightly away from the body, and nothing (hair, hands, jewellery, a dupatta) covers any part of the back.`);
+    if (frontPhotoNumber) modelLines.push(`The same person as in [Image ${frontPhotoNumber}], with the same hair and jewellery, seen from behind.`);
+  } else if (pose === 'back') {
     modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);
   } else {
     modelLines.push(`Pose: standing tall, facing the camera at a slight three-quarter angle, weight on one leg. ${g.poseHint}`);
@@ -685,6 +738,7 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
 
   const areasSent = new Set(job.designs.map((d) => d.areaId));
   Object.assign(review, {
+    view,
     plainRest,
     plainSleeves,
     product: g.product,
@@ -700,4 +754,4 @@ function buildPrompt(job, { descriptions = new Map() } = {}) {
   return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review };
 }
 
-module.exports = { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind };
+module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind };

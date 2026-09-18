@@ -139,6 +139,7 @@ export default function DesignStudioApp() {
   const [startInfo, setStartInfo] = useState(null);
   const [brief, setBrief] = useState(null);
   const [image, setImage] = useState(null);
+  const [images, setImages] = useState([]); // one per view: front, back
   const [done, setDone] = useState(null);
   const [error, setError] = useState(null);
   const [keepalives, setKeepalives] = useState(0);
@@ -383,7 +384,7 @@ export default function DesignStudioApp() {
     if (running) return;
     const myRun = ++runRef.current;
     const body = payload; // exactly what the preview above showed
-    setError(null); setImage(null); setDone(null); setBrief(null);
+    setError(null); setImage(null); setImages([]); setDone(null); setBrief(null);
     setStartInfo(null); setEvents([]); setKeepalives(0); setCancelNote(null);
     setRunning(true);
 
@@ -402,7 +403,7 @@ export default function DesignStudioApp() {
         });
         if (e.type === 'start') setStartInfo(e);
         if (e.type === 'brief') setBrief(e);
-        if (e.type === 'image') setImage(e);
+        if (e.type === 'image') { setImage(e); setImages((prev) => [...prev.filter((i) => i.view !== e.view), e]); }
         if (e.type === 'done') setDone(e);
         if (e.type === 'error') {
           setError({ status: 200, inStream: true, code: e.code, message: e.message, retryable: e.retryable, details: e.details });
@@ -433,7 +434,7 @@ export default function DesignStudioApp() {
     setDesigns([blankDesign()]); setFabrics([blankFabric()]);
     setModelKind('generated'); setModelImage(null); setModelGender('');
     setPairColor(''); setPairColorHex(''); setPairNote('');
-    setEvents([]); setStartInfo(null); setBrief(null); setImage(null);
+    setEvents([]); setStartInfo(null); setBrief(null); setImage(null); setImages([]);
     setDone(null); setError(null); setCancelNote(null); setRunning(false);
   }
 
@@ -900,7 +901,14 @@ export default function DesignStudioApp() {
 
       {image && (
         <section className="ds-card ds-result">
-          <h3>The product</h3>
+          <h3>The product{images.length > 1 ? ` - ${images.length} views` : ''}</h3>
+          {images.length > 1 && (
+            <div className="ds-views">
+              {images.map((im) => (
+                <figure key={im.view}><img src={im.image} alt={`${im.view} view`} /><figcaption>{im.view}</figcaption></figure>
+              ))}
+            </div>
+          )}
           <div className="ds-result-body">
             <img src={image.image} alt="the generated garment" />
             <div className="ds-result-meta">

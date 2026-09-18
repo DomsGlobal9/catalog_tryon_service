@@ -99,6 +99,7 @@ const GUIDE = {
     // Measured: with a saree, its pallu hid a third of the blouse front even when
     // told to pin it back, and the blouse was a small strip in a full-length shot.
     framing: 'waist-up',
+    sides: ['front', 'back'],
     pairedWith: { pieces: 'skirt', plural: false, looks: 'a plain, high-waisted, floor-length skirt, of which only the waistband and a few centimetres below it are in the frame', colour: 'contrast' },
     poseHint: 'Arms are relaxed and held slightly away from the body so the sleeves and sides of the blouse are fully visible.',
     areas: {
@@ -139,6 +140,7 @@ const GUIDE = {
 
   KURTHI: {
     wearer: 'female',
+    sides: ['front', 'back'],
     product: 'kurti',
     top: 'kurti',
     outfit: 'A knee-length kurti. The kurti is the product.',
@@ -153,6 +155,7 @@ const GUIDE = {
 
   ANARKALI: {
     wearer: 'female',
+    sides: ['front', 'back'],
     product: 'Anarkali',
     top: 'Anarkali',
     outfit: 'A floor-length Anarkali suit with a fitted bodice, a high waist seam just under the bust, and a full flared skirt made of many panels (kalis), worn with a matching churidar.',
@@ -201,6 +204,7 @@ const GUIDE = {
 
   SUIT: {
     wearer: 'female',
+    sides: ['front', 'back'],
     product: 'salwar kameez',
     top: 'kameez',
     outfit: 'A salwar kameez: a long kameez (tunic) with matching bottoms (salwar, churidar or palazzo).',
@@ -214,13 +218,15 @@ const GUIDE = {
     }
   },
 
+  // A women's garment here: the men's sherwani is made by the Catalog Try-On men pipeline.
   SHERWANI: {
-    wearer: 'male',
+    wearer: 'female',
     product: 'sherwani',
     top: 'sherwani',
-    outfit: 'A knee-length sherwani with a structured mandarin collar and a front button placket, worn with a fitted churidar.',
-    construction: ['Tailor it sharply, with a clean shoulder line and a straight fall to the knee.'],
-    styling: 'Plain mojari shoes. No stole unless a design reference asks for one.',
+    outfit: 'A women\'s knee-length sherwani-style jacket: a structured mandarin (bandhgala) collar, a front button placket and a straight, tailored fall to the knee, worn with a fitted churidar.',
+    construction: ['Tailor it sharply to a woman\'s figure: a clean shoulder line, shaped through the waist, and a straight fall to the knee.'],
+    styling: 'Plain flat mojari or juttis. No dupatta or stole unless a design reference asks for one.',
+    sides: ['front', 'back'],
     pairedWith: { pieces: 'churidar', plural: false, looks: 'a fitted churidar', colour: 'coordinate' },
     poseHint: 'Standing upright, arms relaxed at the sides, clear of the buttons and pockets.',
     areas: {

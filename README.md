@@ -69,6 +69,11 @@ DESIGNSTUDIO_CROP=off                   # off by default to save calls; 'on' cro
 DESIGNSTUDIO_STREAM_DETAIL=image
 DESIGNSTUDIO_CROP_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_CROP_TIMEOUT_MS=20000
+# Two-sided garments (blouse, kurti, anarkali, salwar suit, sherwani) give a front and a
+# back photograph; the pair check is one small vision call confirming the back matches
+# the front, regenerating the back once if not.
+DESIGNSTUDIO_PAIR_CHECK=on
+DESIGNSTUDIO_PAIR_MAX_REGENERATIONS=1
 DESIGNSTUDIO_QA=off                     # off by default to save calls and the second image; 'on' inspects each photograph
 DESIGNSTUDIO_QA_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_QA_REGENERATE_UNDER_MS=120000  # only regenerate if the request is younger than this

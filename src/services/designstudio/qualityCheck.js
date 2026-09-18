@@ -183,6 +183,87 @@ async function reviewImage(review, image, { signal } = {}) {
   }
 }
 
+/** The checks a back photograph must pass against the front photograph. */
+function pairChecklist(review) {
+  const product = review.product;
+  const checks = [
+    ['same_garment', `Is the ${product} in the BACK photograph the same garment as in the FRONT photograph - the same fabric colour and shade, the same fabric texture, the same fit and length?`,
+      `The back view shows exactly the same ${product} as the front view: identical fabric colour and shade, texture, fit and length.`],
+    ['same_sleeves', `Are the sleeves the same in both photographs - the same length, the same shape, the same sleeve-end finish?`,
+      'The sleeves are identical to the front view: same length, shape and sleeve ends.'],
+    ['same_person', 'Is it the same person in both photographs - the same build, skin tone, hair colour and hair style?',
+      'The same person as the front view, with the same hair and skin tone.'],
+    ['back_shown', `Does the BACK photograph show the back of the ${product} squarely to the camera, with the whole back visible and nothing (hair, hands, a dupatta, a bag) covering any part of it?`,
+      `The back of the ${product} faces the camera squarely and is completely visible; hair is pinned up or brought forward, and nothing covers the back.`],
+    ['no_front_on_back', `Is it true that the BACK photograph does NOT show the front neckline, front panel or placket of the ${product} (that is, it is not actually a front or three-quarter-front view)?`,
+      `The photograph is a true back view: the front of the ${product} is not visible.`],
+    ['same_studio', 'Are the backdrop, lighting and framing the same in both photographs?',
+      'The same plain studio backdrop, lighting and framing as the front view.']
+  ];
+  if (review.pair) {
+    checks.push(['same_supporting', `Is the ${review.pair.pieces} worn with the ${product} the same colour and style in both photographs?`,
+      `The ${review.pair.pieces} is the same colour and style as in the front view.`]);
+  }
+  return checks.map(([id, question, correction]) => ({ id, question, correction }));
+}
+
+/**
+ * Compare a back photograph with the front photograph it was made from.
+ * Same shape of answer as reviewImage. Never required.
+ */
+async function reviewPair(review, frontImage, backImage, { signal } = {}) {
+  const started = Date.now();
+  const checklist = pairChecklist(review);
+  const unchecked = (problem) => ({ checked: false, failures: [], problem, ms: Date.now() - started });
+  if (!config.pair.enabled || !config.gemini.apiKey()) return unchecked('disabled');
+  const text = [
+    'You are the quality inspector for a fashion catalogue. The first picture is the FRONT view of a garment on a model; the second is meant to be the BACK view of the same garment on the same model.',
+    'Answer each check strictly: pass=true only when it is clearly satisfied. When something differs, answer pass=false and say what differs in evidence (under 25 words).',
+    'Answer every check, using its id.',
+    '',
+    ...checklist.map((c) => `- ${c.id}: ${c.question}`)
+  ].join('\n');
+  const timeout = AbortSignal.timeout(config.pair.timeoutMs);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  try {
+    const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.pair.model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey() },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          { text },
+          { text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } },
+          { text: 'BACK view:' }, { inlineData: { mimeType: backImage.mimeType, data: backImage.base64 } }
+        ] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: RESPONSE_SCHEMA,
+          maxOutputTokens: 2048,
+          ...(/2\.5/.test(config.pair.model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+        }
+      }),
+      signal: combined
+    });
+    if (!response.ok) return unchecked(`HTTP ${response.status} ${redact(await response.text().catch(() => '')).slice(0, 120)}`);
+    const json = await response.json();
+    const candidate = (json.candidates || [])[0];
+    const answer = ((candidate && candidate.content && candidate.content.parts) || [])
+      .filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
+    let parsed = null;
+    try { parsed = JSON.parse(answer.replace(/```(?:json)?/gi, '').trim()); } catch { parsed = null; }
+    if (!parsed || !Array.isArray(parsed.checks)) return unchecked('answer was not usable JSON');
+    const byId = new Map(parsed.checks.filter((c) => c && typeof c.id === 'string').map((c) => [c.id.trim(), c]));
+    if (checklist.every((c) => !byId.has(c.id))) return unchecked('answer matched no check');
+    const failures = checklist
+      .filter((c) => byId.has(c.id) && byId.get(c.id).pass === false)
+      .map((c) => ({ id: c.id, evidence: String(byId.get(c.id).evidence || '').slice(0, 200), correction: c.correction }));
+    return { checked: true, failures, ms: Date.now() - started };
+  } catch (err) {
+    if (signal && signal.aborted) throw err;
+    return unchecked(redact(err && err.message));
+  }
+}
+
 /** The text appended to the prompt for the one regeneration. */
 function correctionsText(failures) {
   return [
@@ -193,4 +274,4 @@ function correctionsText(failures) {
   ].join('\n');
 }
 
-module.exports = { reviewImage, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { reviewImage, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

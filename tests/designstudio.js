@@ -62,6 +62,7 @@ async function runAll({ check, eq, section, SRC }) {
   const png = async (w, h, color = '#8a1c2b', alpha = false) =>
     (await sharp({ create: { width: w, height: h, channels: alpha ? 4 : 3, background: alpha ? { r: 200, g: 20, b: 40, alpha: 0.3 } : color } }).png().toBuffer()).toString('base64');
   const IMG = await png(900, 1200);
+  const FINAL_B64 = await png(768, 1024, '#336699');
   const code = (fn) => { try { fn(); return 'OK'; } catch (e) { return e.code === 'VALIDATION_ERROR' && e.details ? e.details[0].code : e.code || e.message; } };
   const body = (over = {}) => ({ clientId: 'c1', garment: 'SAREE', designs: [{ area: 'PALLU', image: IMG }], ...over });
 
@@ -88,9 +89,9 @@ async function runAll({ check, eq, section, SRC }) {
   eq('a base64 image over the size limit', code(() => resolveRequest(body({ designs: [{ area: 'PALLU', image: 'A'.repeat(3 * 1024 * 1024) }] }))), 'IMAGE_TOO_LARGE');
   eq('an unknown field is refused, not silently ignored', code(() => resolveRequest(body({ colour: 'red' }))), 'INVALID_FIELD');
   eq('modelGender must be female or male', code(() => resolveRequest(body({ modelGender: 'robot' }))), 'INVALID_FIELD');
-  eq('model defaults: saree -> woman, sherwani -> man, modelImage -> that person',
+  eq('model defaults: saree -> woman, sherwani -> woman too (a womens garment here; the mens one is in Catalog Try-On), modelImage -> that person',
     [resolveRequest(body()).model, resolveRequest(body({ garment: 'SHERWANI', designs: [{ area: 'BUTTON', image: IMG }] })).model.gender, resolveRequest(body({ modelImage: IMG })).model.kind],
-    [{ kind: 'generated', gender: 'female' }, 'male', 'reference']);
+    [{ kind: 'generated', gender: 'female' }, 'female', 'reference']);
   check('error details name the exact field', (() => { try { resolveRequest(body({ fabrics: [{ image: IMG, appliesTo: ['NOPE'] }] })); } catch (e) { return e.details[0].field === 'fabrics[0].appliesTo[0]'; } })());
 
   section('DESIGN STUDIO: THE CATALOGUE-STYLE PAYLOAD  (product/parts/fabric details)');
@@ -732,6 +733,62 @@ async function runAll({ check, eq, section, SRC }) {
   check('...cut from the picture as sent, not from the first crop', first.length === 1 && second.length === 1 && second[0].from === '800x1200' && tightJob.designs[0].sourceImage === bigImage || (second[0] && second[0].from === '800x1200'), JSON.stringify({ first, second }));
   crop._setFetch(locateAnswer('close-up of the part'));
   eq('the part finder schema defines every field it requires', undefinedRequired(crop.LOCATE_SCHEMA, 'locate'), []);
+  // Round 9: front and back photographs for two-sided garments; the design-library payload.
+  const { viewOf, visibleIn } = S('promptBuilder');
+  const libraryPayload = {
+    garment_key: 'blouse', product_name: 'Blouse', notes: '', part_refs: {},
+    parts: {
+      back_design: { id: 'a', part: 'back_design', caption: '', sequence: 1, design_id: 'd1', image_url: cloud('ok.png'), part_label: 'Back Design', design_title: 'x', designer_name: '' },
+      hand_design: { id: 'b', part: 'hand_design', caption: 'keep the tassels', sequence: 2, design_id: 'd2', image_url: cloud('ok.png'), part_label: 'Hand Design' },
+      neck_design: { id: 'c', part: 'neck_design', caption: '', sequence: 4, design_id: 'd1', image_url: cloud('ok.png'), part_label: 'Neck Design' },
+      front_design: { id: 'd', part: 'front_design', caption: '', sequence: 0, design_id: 'd1', image_url: cloud('ok.png'), part_label: 'Front Design' }
+    },
+    fabrics: { BORDER: [cloud('ok.png')], LINING: ['eeedba61-3b50-48ad-942b-a68a7d342f47'], MAIN_FABRIC: [cloud('ok.png')], BACKING_FABRIC: ['639c8187-eb4c-4287-a09e-eea363334a32'] },
+    model_image: IMG, client_id: 'lib-1'
+  };
+  const libJob = resolveRequest(libraryPayload);
+  eq('the design-library payload is accepted as sent: parts keyed by "<area>_design" in sequence order, fabrics by role, model_image',
+    [libJob.garmentId, libJob.designs.map((d) => d.areaId), libJob.designs[2].note, libJob.designs[2].areaId, libJob.fabrics.map((f) => f.appliesTo || 'MAIN'), libJob.model.kind, libJob.productName, libJob.views],
+    ['BLOUSE', ['FRONT', 'BACK', 'HAND', 'NECK'], 'keep the tassels', 'HAND', ['MAIN'], 'reference', 'Blouse', ['front', 'back']]);
+  eq('lining, backing and a BORDER fabric on a garment with no border area are ignored; a main-fabric id instead of a picture is refused with the fix named',
+    [libJob.fabrics.length + resolveRequest({ ...libraryPayload, garment_key: 'saree', parts: { pallu_design: { image_url: cloud('ok.png') } } }).fabrics.length, code(() => resolveRequest({ ...libraryPayload, fabrics: { MAIN_FABRIC: ['639c8187-eb4c-4287-a09e-eea363334a32'] } }))],
+    [3, 'FABRIC_ID_NOT_IMAGE']);
+  eq('views: a blouse gives both by default, can be limited to one, always front before back; a saree cannot give a back',
+    [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
+      resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
+      resolveRequest(body({ garment: 'KURTHI', designs: [{ area: 'NECK', image: IMG }], views: ['back', 'front'] })).views,
+      resolveRequest(body()).views, code(() => resolveRequest(body({ views: ['back'] })))],
+    [['front', 'back'], ['front'], ['front', 'back'], null, 'VIEW_NOT_AVAILABLE']);
+  eq('each view is shown only what it can display: FRONT, NECK, BUTTON, POCKET are front-only, BACK is back-only, sleeves/hems/borders/prints show in both',
+    [['FRONT', 'NECK', 'BUTTON', 'BACK', 'SLEEVE', 'HAND', 'HEMLINE', 'PRINT', 'COLLAR_NECK'].map((a) => (visibleIn('front', a) ? 'F' : '-') + (visibleIn('back', a) ? 'B' : '-')).join(' ')],
+    ['F- F- F- -B FB FB FB FB FB']);
+  const twoSided = fakeJob('BLOUSE', ['FRONT', 'BACK', 'NECK', 'HAND'], { fabrics: [{ image: IMG, color: 'red', colorHex: '#C8102E' }] });
+  const descAll = new Map([[1, { motifs: 'front flowers' }], [2, { motifs: 'back keyhole' }], [3, { motifs: 'neck lace' }], [4, { motifs: 'cuff tassels' }], [5, { motifs: '', colours: 'Solid red' }]]);
+  const fv = viewOf(twoSided, descAll, 'front');
+  const bv = viewOf(twoSided, descAll, 'back');
+  eq('viewOf keeps each view\'s designs and renumbers the descriptions to match',
+    [fv.job.designs.map((d) => d.areaId), [...fv.descriptions.entries()].map(([k, v]) => `${k}:${v.motifs || v.colours}`),
+      bv.job.designs.map((d) => d.areaId), [...bv.descriptions.entries()].map(([k, v]) => `${k}:${v.motifs || v.colours}`)],
+    [['FRONT', 'NECK', 'HAND'], ['1:front flowers', '2:neck lace', '3:cuff tassels', '4:Solid red'],
+      ['BACK', 'HAND'], ['1:back keyhole', '2:cuff tassels', '3:Solid red']]);
+  const frontPrompt = buildPrompt(fv.job, { descriptions: fv.descriptions, view: 'front' });
+  const frontPhoto = { mimeType: 'image/jpeg', base64: FINAL_B64 };
+  const backPrompt = buildPrompt(bv.job, { descriptions: bv.descriptions, view: 'back', frontPhoto });
+  check('the front view faces the camera and says the back is photographed separately',
+    frontPrompt.pose === 'front' && /photographed from the front/.test(frontPrompt.text) && /This is the FRONT view\. The back of the blouse is photographed separately/.test(frontPrompt.text)
+    && !/back keyhole/.test(frontPrompt.text) && frontPrompt.parts.filter((p) => p.inlineData).length === 4, frontPrompt.text.slice(0, 200));
+  check('the back view is made from the front photograph: it is sent as ground truth, the pose is back-to-camera looking over the shoulder, and no front design is shown',
+    backPrompt.pose === 'back' && /photographed FROM THE BACK/.test(backPrompt.text) && /THE FRONT VIEW of this exact blouse, already photographed/.test(backPrompt.text)
+    && /back squarely to the camera, head turned to look back over one shoulder/.test(backPrompt.text) && /hair is pinned up or brought forward/.test(backPrompt.text)
+    && !/front flowers|neck lace/.test(backPrompt.text) && /back keyhole/.test(backPrompt.text)
+    && backPrompt.parts.filter((p) => p.inlineData).length === 4 && backPrompt.review.view === 'back', backPrompt.text.slice(0, 200));
+  check('a back view with no BACK design is plain, in the garment fabric',
+    /No design reference was sent for the back of the blouse: its back is plain/.test(buildPrompt(viewOf(fakeJob('BLOUSE', ['NECK']), new Map(), 'back').job, { view: 'back' }).text));
+  check('the old single-photo behaviour is unchanged for a saree (no view named)',
+    buildPrompt(fakeJob('SAREE', ['PALLU'])).pose === 'front' && !/photographed from the front/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
+  eq('the pair check compares garment, sleeves, person, a true back view, studio and the supporting piece',
+    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting']);
+
   check('the describe step is asked for the problem and for the ground colour of every design',
     describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
 
@@ -862,7 +919,7 @@ async function runAll({ check, eq, section, SRC }) {
   const ref = buildPrompt(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }));
   check('a model photo: dress that exact person, ignore their outfit', /Dress the exact person shown in \[Image 2\]/.test(ref.text) && /ignore their original outfit/.test(ref.text));
   check('a model photo without a gender is "a model", not assumed', /photograph of a model wearing/.test(ref.text));
-  check('sherwani: a man, his mid-twenties', /a man in his mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
+  check('sherwani: a woman (a womens sherwani-style jacket), her mid-twenties', /a woman in her mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text) && /Tailor it sharply to a woman's figure/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
   check('no fabric given: the model is told to choose one, not left to guess', /No fabric reference was given/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
   const low = fakeJob('SAREE', ['PALLU']);
   low.designs[0].image = { ...prepared, lowResolution: true, original: { width: 330, height: 440 } };
@@ -987,7 +1044,10 @@ async function runAll({ check, eq, section, SRC }) {
   try {
     const opt = await (await fetch(base + '/options')).json();
     eq('GET /options lists 12 garments with their areas, limits and 3:4', [opt.garments.length, opt.garments.find((g) => g.id === 'SAREE').designAreas.length, opt.limits.maxDesigns, opt.model.aspectRatio, opt.garments.find((g) => g.id === 'SHERWANI').defaultModelGender],
-      [12, 8, 6, '3:4', 'male']);
+      [12, 8, 6, '3:4', 'female']);
+    eq('GET /options says which garments give a back view too',
+      ['BLOUSE', 'KURTHI', 'ANARKALI', 'SUIT', 'SHERWANI', 'SAREE', 'GOWN'].map((id) => opt.garments.find((g) => g.id === id).views.join('+')),
+      ['front+back', 'front+back', 'front+back', 'front+back', 'front+back', 'front', 'front']);
     eq('GET /options says what each product is worn with, and the default colour',
       [opt.garments.find((g) => g.id === 'SAREE').pairedWith, opt.garments.find((g) => g.id === 'BLOUSE').pairedWith.pieces, opt.garments.find((g) => g.id === 'GOWN').pairedWith],
       [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'skirt', null]);
@@ -1056,12 +1116,47 @@ async function runAll({ check, eq, section, SRC }) {
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only' }))));
     eq('by default the stream carries only start (jobId), the image and done - no brief, warnings, status text, quality or timings',
       events.map((e) => [e.type, Object.keys(e).sort().join(',')]),
-      [['start', 'jobId,type'], ['image', 'height,image,jobId,mimeType,type,width'], ['done', 'jobId,status,type']]);
+      [['start', 'jobId,type'], ['image', 'height,image,jobId,mimeType,type,view,width'], ['done', 'jobId,status,type,views']]);
     check('...and the image is still the full photograph', /^data:image\/jpeg;base64,\/9j\//.test(events[1].image));
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only-2' }))));
     eq('...and an error keeps its code, message and retryable flag only',
       events.map((e) => [e.type, Object.keys(e).sort().join(',')]), [['start', 'jobId,type'], ['error', 'code,jobId,message,retryable,type']]);
+    streamCfg.detail = 'full';
+
+    // Two photographs for a two-sided garment: front, then back made from the front.
+    script([() => answer([imagePart(FINAL)])]);
+    const twoCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'two-view', garment: 'BLOUSE', designs: [{ area: 'FRONT', image: IMG }, { area: 'BACK', image: IMG }, { area: 'HAND', image: IMG }], fabrics: [{ image: IMG, color: 'red' }] })));
+    const imgs = events.filter((e) => e.type === 'image');
+    const doneTwo = events[events.length - 1];
+    eq('a blouse streams a front image and then a back image, and done lists both views',
+      [events[0].views, imgs.map((e) => e.view), doneTwo.views, doneTwo.status, typeof doneTwo.quality.front, typeof doneTwo.quality.back],
+      [['front', 'back'], ['front', 'back'], ['front', 'back'], 'ok', 'object', 'object']);
+    const imagesIn = (call) => call.body.contents[0].parts.filter((p) => p.inlineData).length;
+    const textOf = (call) => call.body.contents[0].parts.filter((p) => p.text).map((p) => p.text).join('\n');
+    eq('the image model was called twice: the front with front+hand+fabric, the back with back+hand+fabric+the finished front photograph',
+      [twoCalls.length, imagesIn(twoCalls[0]), imagesIn(twoCalls[1]), /THE FRONT VIEW of this exact blouse/.test(textOf(twoCalls[1])), /THE FRONT VIEW/.test(textOf(twoCalls[0]))],
+      [2, 3, 4, true, false]);
+    check('the pair check was run on the two photographs (front then back) and passed',
+      doneTwo.quality.back.pair && doneTwo.quality.back.pair.checked === true && doneTwo.quality.back.pair.passed === true, JSON.stringify(doneTwo.quality.back));
+
+    // The pair check finds a difference: the back is made once more with it named.
+    qa._setFetch(qaSequence(qaAnswer(), qaAnswer(), qaAnswer(['same_sleeves']), qaAnswer()));
+    const pairCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'two-view-2', garment: 'KURTHI', designs: [{ area: 'BACK', image: IMG }], views: ['front', 'back'] })));
+    const donePair = events[events.length - 1];
+    eq('a back view that differs from the front is regenerated with the difference named, then passes',
+      [pairCalls.length, donePair.quality.back.regenerated, donePair.quality.back.pair.passed, /CORRECTIONS - IMPORTANT[\s\S]*The sleeves are identical to the front view/.test(textOf(pairCalls[2]))],
+      [3, true, true, true]);
+    qa._setFetch(qaAnswer());
+
+    // One view only, on request; and the image-only stream carries the view.
+    streamCfg.detail = 'image';
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'one-view', garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })));
+    eq('views: ["front"] gives one photograph, and the image-only stream labels it',
+      events.map((e) => [e.type, e.view || e.views || '']), [['start', ''], ['image', 'front'], ['done', ['front']]]);
     streamCfg.detail = 'full';
 
     // Slow generation: heartbeat, capacity (1 slot in this test run), cancel.

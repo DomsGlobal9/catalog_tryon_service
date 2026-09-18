@@ -42,15 +42,81 @@ const pick = (obj, from, to) => {
   if (from !== to) delete obj[from];
 };
 
+// The design-library payload: parts keyed by "front_design", "back_design"...,
+// each with image_url; fabrics keyed by role (MAIN_FABRIC, BORDER, LINING,
+// BACKING_FABRIC). Only what a photograph can show is used: lining and backing
+// are inside the garment, and a fabric ID is not a picture.
+const IMAGE_LIKE = (v) => typeof v === 'string' && (/^https?:\/\//i.test(v) || /^data:image\//i.test(v) || v.length >= 64);
+const FABRIC_ROLES = { MAIN_FABRIC: null, MAIN: null, BODY_FABRIC: null, BORDER: ['BORDER'], BORDER_FABRIC: ['BORDER'] };
+const HIDDEN_FABRIC_ROLES = new Set(['LINING', 'BACKING_FABRIC', 'BACKING', 'INTERLINING', 'ASTAR']);
+
+function partsObjectToDesigns(parts) {
+  return Object.entries(parts)
+    .map(([key, entry], i) => {
+      const e = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : { image_url: entry };
+      const part = String(e.part || key).replace(/_?design$/i, '');
+      return {
+        area: part,
+        image: e.image_url !== undefined ? e.image_url : (e.imageUrl !== undefined ? e.imageUrl : e.image),
+        ...(e.caption ? { note: e.caption } : {}),
+        ...(e.part_label ? { label: e.part_label } : {}),
+        _seq: Number.isFinite(Number(e.sequence)) ? Number(e.sequence) : i
+      };
+    })
+    .sort((a, b) => a._seq - b._seq)
+    .map(({ _seq, ...d }) => d);
+}
+
+function fabricsObjectToArray(fabrics, garmentValue) {
+  const out = [];
+  // A role that names a design area the garment does not have (a BORDER fabric
+  // for a blouse) is dropped: the photograph has nowhere to show it.
+  const garmentId = typeof garmentValue === 'string' ? taxonomy.canonicaliseGarment(garmentValue) : null;
+  const areasOf = garmentId && taxonomy.getDesignTypes(garmentId) ? new Set(taxonomy.getDesignTypes(garmentId).map((a) => a.id)) : null;
+  for (const [role, value] of Object.entries(fabrics)) {
+    const upper = String(role).toUpperCase();
+    if (HIDDEN_FABRIC_ROLES.has(upper)) continue; // never visible in a photograph
+    const appliesTo = Object.prototype.hasOwnProperty.call(FABRIC_ROLES, upper) ? FABRIC_ROLES[upper] : [upper];
+    if (appliesTo && areasOf && !appliesTo.every((a) => areasOf.has(a))) continue;
+    const entries = Array.isArray(value) ? value : [value];
+    entries.forEach((entry, i) => {
+      const e = entry && typeof entry === 'object' && !Array.isArray(entry) ? { ...entry } : { image: entry };
+      pick(e, 'image_url', 'image');
+      pick(e, 'imageUrl', 'image');
+      if (typeof e.image === 'string' && !IMAGE_LIKE(e.image)) {
+        throw validation(`fabrics.${role}[${i}] is "${e.image.slice(0, 40)}", which looks like a fabric id, not a picture. Send the fabric photograph as an https Cloudinary link or base64.`,
+          [{ field: `fabrics.${role}[${i}]`, code: 'FABRIC_ID_NOT_IMAGE' }]);
+      }
+      out.push({ ...e, ...(appliesTo ? { appliesTo } : {}) });
+    });
+  }
+  // Only the first main fabric stays main; any other main-role fabric is dropped
+  // rather than refused, since the design library lists one main fabric.
+  let seenMain = false;
+  return out.filter((f) => { if (f.appliesTo) return true; if (seenMain) return false; seenMain = true; return true; });
+}
+
 function canonicaliseFields(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
   const body = { ...raw };
   pick(body, 'productType', 'garment');
   pick(body, 'garmentType', 'garment');
+  pick(body, 'garment_key', 'garment');
   pick(body, 'instructions', 'notes');
+  pick(body, 'product_name', 'productName');
+  pick(body, 'model_image', 'modelImage');
+  pick(body, 'client_id', 'clientId');
+  delete body.part_refs; // the design library's own bookkeeping
+  if (body.parts && typeof body.parts === 'object' && !Array.isArray(body.parts)) {
+    body.parts = partsObjectToDesigns(body.parts);
+  }
   pick(body, 'parts', 'designs');
+  if (body.fabrics && typeof body.fabrics === 'object' && !Array.isArray(body.fabrics)) {
+    body.fabrics = fabricsObjectToArray(body.fabrics, body.garment);
+  }
   pick(body, 'modelImageUrl', 'modelImage');
   pick(body, 'pairedWith', 'pairWith');
+  if (typeof body.notes === 'string' && !body.notes.trim()) delete body.notes;
 
   if (body.pairWith && typeof body.pairWith === 'object' && !Array.isArray(body.pairWith)) {
     const pair = { ...body.pairWith };
@@ -68,6 +134,10 @@ function canonicaliseFields(raw) {
       pick(design, 'designImageUrl', 'image');
       pick(design, 'imageUrl', 'image');
       pick(design, 'description', 'note');
+      pick(design, 'image_url', 'image');
+      pick(design, 'part_label', 'label');
+      if (design.caption !== undefined) { if (design.caption && design.note === undefined) design.note = design.caption; delete design.caption; }
+      for (const k of ['id', 'design_id', 'design_title', 'designer_name', 'sequence', 'part']) delete design[k];
       pick(design, 'groundColour', 'groundColor');
       pick(design, 'groundColourHex', 'groundColorHex');
       pick(design, 'keepMotifColours', 'keepMotifColors');
@@ -137,6 +207,10 @@ const schema = z.object({
     note: text(config.limits.maxNoteChars).optional()
   }).strict().optional(),
   modelGender: z.enum(MODEL_GENDERS).optional(),
+  // Which sides to photograph. Only garments with a back (blouse, kurti,
+  // anarkali, salwar suit, sherwani) can give a back view; they give both by
+  // default. Others always give the front only.
+  views: z.array(z.enum(['front', 'back'])).min(1).max(2).optional(),
   notes: text(config.limits.maxNotesChars).optional()
 }).strict();
 
@@ -276,10 +350,24 @@ function resolveRequest(rawBody) {
     };
   });
 
+  const guide = garmentGuide(garment.id);
+  const sides = guide.sides || ['front'];
+  let views = input.views ? [...new Set(input.views)] : null;
+  if (views) {
+    const bad = views.filter((v) => !sides.includes(v));
+    if (bad.length) {
+      throw validation(`${garment.name} can only be photographed from the ${sides.join(' and ')}; "${bad[0]}" is not available for it.`,
+        [{ field: 'views', code: 'VIEW_NOT_AVAILABLE' }]);
+    }
+    views = sides.filter((s) => views.includes(s)); // front before back, always
+  }
+
   return {
     clientId: input.clientId,
     productName: input.productName || null,
     garmentId: garment.id,
+    // null: the garment's own default (both sides for a two-sided garment).
+    views: views || (sides.length > 1 ? [...sides] : null),
     garmentName: garment.name,
     designs,
     fabrics,

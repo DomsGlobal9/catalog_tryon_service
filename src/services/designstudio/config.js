@@ -96,6 +96,16 @@ const config = {
     tightMargin: 0.08,
     tightMinShare: 0.15
   },
+  // Two-sided garments (blouse, kurti, anarkali, salwar suit, sherwani) get a
+  // front and a back photograph. The pair check is one small vision call that
+  // confirms the back photograph shows the same garment on the same person as
+  // the front; if not, the back is made once more with the differences named.
+  pair: {
+    enabled: String(process.env.DESIGNSTUDIO_PAIR_CHECK || 'on').toLowerCase() !== 'off',
+    model: process.env.DESIGNSTUDIO_PAIR_MODEL || 'gemini-2.5-flash',
+    timeoutMs: int('DESIGNSTUDIO_PAIR_TIMEOUT_MS', 30000, { min: 100 }),
+    maxRegenerations: int('DESIGNSTUDIO_PAIR_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
+  },
   qa: {
     // Off by default to save calls and the second image. DESIGNSTUDIO_QA=on.
     enabled: String(process.env.DESIGNSTUDIO_QA || 'off').toLowerCase() === 'on',

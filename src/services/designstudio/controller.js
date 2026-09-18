@@ -21,11 +21,11 @@ const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
 const { resolveRequest } = require('./validate');
 const { prepareImages } = require('./imageInput');
-const { buildPrompt, referenceList, pairing, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
+const { buildPrompt, referenceList, pairing, viewOf, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
 const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
-const { reviewImage, correctionsText } = require('./qualityCheck');
+const { reviewImage, reviewPair, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -102,6 +102,7 @@ async function generate(req, res, next) {
       })(),
       model: job.model.kind,
       pose: prompt.pose,
+      views: job.views || [prompt.pose], // the photographs this request will make, in order
       framing: prompt.framing, // full | three-quarter | waist-up
       aspectRatio: config.gemini.aspectRatio,
       warnings: prompt.warnings
@@ -148,15 +149,13 @@ async function generate(req, res, next) {
           : `Retrying (${reason === 'no_image' ? 'no image was returned' : 'the image model was busy'}).`
       })
     });
-    let result = await generate(prompt.parts, 'generating');
-    attempts = result.attempts;
-    usage = result.usage;
 
-    // Step three: inspect the photograph, and regenerate once with any fault named.
-    const quality = { checked: false, passed: null, regenerated: false, failures: [] };
-    if (config.qa.enabled && prompt.review) {
+    // Step three, per photograph: inspect it and regenerate once with any fault named.
+    const inspect = async (viewPrompt, viewJob, viewDescriptions, result) => {
+      const quality = { checked: false, passed: null, regenerated: false, failures: [] };
+      if (!(config.qa.enabled && viewPrompt.review)) return { result, quality };
       send({ type: 'status', stage: 'checking', message: 'Inspecting the photograph.' });
-      let verdict = await reviewImage(prompt.review, result.image, { signal: abort.signal });
+      let verdict = await reviewImage(viewPrompt.review, result.image, { signal: abort.signal });
       let regenerations = 0;
       while (verdict.checked && verdict.failures.length
         && regenerations < config.qa.maxRegenerations
@@ -166,11 +165,11 @@ async function generate(req, res, next) {
         // Measured: a NECK photo of a kurta sequinned all over kept sequinning the new
         // kurta through the rules and a correction. When decoration spread beyond the
         // designed parts, the retry is shown tighter crops of the references.
-        let retryParts = prompt.parts;
+        let retryParts = viewPrompt.parts;
         if (verdict.failures.some((f) => f.id === 'plain_rest' || f.id === 'plain_sleeves') && boxes.size) {
           const tight = await cropReferences(job, boxes, { tight: true });
           if (tight.length) {
-            retryParts = buildPrompt(job, { descriptions }).parts;
+            retryParts = buildPrompt(viewJob, { descriptions: viewDescriptions, view: viewPrompt.review.view, frontPhoto: viewPrompt.frontPhoto }).parts;
             console.log(`[DesignStudio] requestId=${requestId} retry uses tighter crops: ${tight.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
           }
         }
@@ -184,7 +183,7 @@ async function generate(req, res, next) {
         attempts += retry.attempts;
         quality.regenerated = true;
         send({ type: 'status', stage: 'checking', message: 'Inspecting the corrected photograph.' });
-        const second = await reviewImage(prompt.review, retry.image, { signal: abort.signal });
+        const second = await reviewImage(viewPrompt.review, retry.image, { signal: abort.signal });
         // Keep the corrected photograph unless the inspection shows it is worse.
         // If the second inspection could not run, the corrected photograph is
         // kept but reported unchecked - its faults are not known.
@@ -197,23 +196,73 @@ async function generate(req, res, next) {
       quality.checked = verdict.checked;
       quality.passed = verdict.checked ? verdict.failures.length === 0 : null;
       quality.failures = verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence }));
-    }
+      return { result, quality };
+    };
 
-    send({
-      type: 'image',
-      jobId: admitted.job.id,
-      mimeType: result.image.mimeType,
-      width: result.image.width,
-      height: result.image.height,
-      bytes: result.image.bytes,
-      image: `data:${result.image.mimeType};base64,${result.image.base64}`
-    });
+    // The back photograph is made from the front one, and checked against it:
+    // one garment, one person, two viewpoints. If the check finds a difference,
+    // the back is made once more with that difference named.
+    const matchBackToFront = async (viewPrompt, viewJob, viewDescriptions, front, back, quality) => {
+      if (!(config.pair.enabled && front && viewPrompt.review)) return back;
+      send({ type: 'status', stage: 'checking', message: 'Comparing the back view with the front view.' });
+      let verdict = await reviewPair(viewPrompt.review, front.image, back.image, { signal: abort.signal });
+      let regenerations = 0;
+      while (verdict.checked && verdict.failures.length && regenerations < config.pair.maxRegenerations) {
+        regenerations++;
+        console.log(`[DesignStudio] requestId=${requestId} back view differs from front: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating the back`);
+        let retry;
+        try {
+          retry = await generate([...viewPrompt.parts, { text: correctionsText(verdict.failures) }], 'regenerating');
+        } catch (err) {
+          if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
+          break;
+        }
+        attempts += retry.attempts;
+        quality.regenerated = true;
+        send({ type: 'status', stage: 'checking', message: 'Comparing the corrected back view with the front view.' });
+        const second = await reviewPair(viewPrompt.review, front.image, retry.image, { signal: abort.signal });
+        if (!second.checked || second.failures.length <= verdict.failures.length) { back = retry; usage = retry.usage; verdict = second; }
+      }
+      quality.pair = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+      return back;
+    };
+
+    // Which photographs to make. A two-sided garment gives front then back;
+    // everything else gives one photograph (turned around only for a BACK design).
+    const views = job.views || [null];
+    const results = [];
+    let frontResult = null;
+    for (const view of views) {
+      const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(job, descriptions, view) : { job, descriptions };
+      const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontResult ? frontResult.image : null }) : prompt;
+      if (view === 'back' && frontResult) viewPrompt.frontPhoto = frontResult.image;
+      if (view) send({ type: 'status', stage: 'generating', view, message: `Generating the ${view} view.` });
+      let result = await generate(viewPrompt.parts, 'generating');
+      attempts += result.attempts;
+      usage = result.usage;
+      let quality;
+      ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
+      if (view === 'back') result = await matchBackToFront(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
+      if (view === 'front') frontResult = result;
+      results.push({ view: view || viewPrompt.pose, result, quality });
+      send({
+        type: 'image',
+        jobId: admitted.job.id,
+        view: view || viewPrompt.pose,
+        mimeType: result.image.mimeType,
+        width: result.image.width,
+        height: result.image.height,
+        bytes: result.image.bytes,
+        image: `data:${result.image.mimeType};base64,${result.image.base64}`
+      });
+    }
     send({
       type: 'done',
       jobId: admitted.job.id,
       status: 'ok',
+      views: results.map((r) => r.view),
       attempts,
-      quality,
+      quality: results.length === 1 ? results[0].quality : Object.fromEntries(results.map((r) => [r.view, r.quality])),
       timings: { prepareMs: job.prepareMs, describeMs: job.describeMs || 0, generateMs: Date.now() - generationStarted, totalMs: Date.now() - startedAt }
     });
     outcome = 'OK';
@@ -247,8 +296,8 @@ async function generate(req, res, next) {
 function imageOnly(event) {
   switch (event.type) {
     case 'start': return { type: 'start', jobId: event.jobId };
-    case 'image': return { type: 'image', jobId: event.jobId, mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
-    case 'done': return { type: 'done', jobId: event.jobId, status: event.status };
+    case 'image': return { type: 'image', jobId: event.jobId, view: event.view, mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
+    case 'done': return { type: 'done', jobId: event.jobId, status: event.status, views: event.views };
     case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable };
     default: return null; // status, brief
   }
@@ -298,6 +347,8 @@ function options(_req, res) {
       defaultModelGender: garmentGuide(g.id).wearer,
       // How much of the model is in the photo, so the product fills the frame.
       framing: garmentGuide(g.id).framing,
+      // The photographs made by default: ['front'] or ['front', 'back']. Choose with `views`.
+      views: garmentGuide(g.id).sides || ['front'],
       // The supporting pieces worn with this product (never designed), or null
       // when the product is the whole outfit. Set their colour with pairWith.
       pairedWith: garmentGuide(g.id).pairedWith

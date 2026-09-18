@@ -287,3 +287,9 @@
 .ds-quality.ok { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.35); color: #86efac; }
 .ds-quality.bad { background: rgba(250, 204, 21, 0.1); border-color: rgba(250, 204, 21, 0.35); color: #fde68a; }
 .ds-quality.unknown { color: var(--text-muted); }
+
+/* ── Front and back views side by side ───────────────────────────────────── */
+.ds-views { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.ds-views figure { margin: 0; flex: 1 1 240px; max-width: 360px; }
+.ds-views img { width: 100%; border-radius: 10px; border: 1px solid var(--border-color); }
+.ds-views figcaption { text-align: center; font-family: monospace; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.3rem; text-transform: capitalize; }

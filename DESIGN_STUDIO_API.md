@@ -14,7 +14,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
-| **Output** | One JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up) |
+| **Output** | JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up). **Two photographs (front and back)** for a blouse, kurti, anarkali, salwar suit or sherwani; one for the rest |
 
 ---
 
@@ -59,7 +59,8 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `fabrics[].note` | string, ≤300 | No | A short instruction for this fabric only. |
 | `productName` | string, ≤120 | No | e.g. `"Bridal Banarasi Saree"`. Used as a hint to the style and occasion. No text is ever drawn into the image. |
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
-| `modelGender` | `female` or `male` | No | Defaults to the garment's usual wearer (`male` for `SHERWANI`, `female` for the rest). |
+| `modelGender` | `female` or `male` | No | Defaults to `female` for every garment (the `SHERWANI` here is a women's sherwani-style jacket; the men's sherwani is made by the Catalog Try-On men pipeline). |
+| `views` | string[] | No | Which photographs to make: `["front", "back"]` (the default for a blouse, kurti, anarkali, salwar suit and sherwani), `["front"]` or `["back"]`. Other garments only have a front; asking them for a back is a `400`. See *Front and back*. |
 | `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
@@ -111,6 +112,46 @@ rewriting. Both spellings produce exactly the same result.
 
 `clientId` is still required, and a typo inside `details` is refused with the field named.
 
+### If your payload comes from the design library
+
+This shape is accepted exactly as the design library produces it - no rewriting needed:
+
+```json
+{
+  "clientId": "shop-42-user-9",
+  "garment_key": "blouse",
+  "product_name": "Blouse",
+  "parts": {
+    "front_design": { "part": "front_design", "sequence": 0, "image_url": "https://res.cloudinary.com/acme/image/upload/v1/front.jpg", "part_label": "Front Design", "caption": "" },
+    "back_design":  { "part": "back_design",  "sequence": 1, "image_url": "https://res.cloudinary.com/acme/image/upload/v1/back.jpg",  "part_label": "Back Design",  "caption": "" },
+    "hand_design":  { "part": "hand_design",  "sequence": 2, "image_url": "https://res.cloudinary.com/acme/image/upload/v1/hand.jpg",  "part_label": "Hand Design",  "caption": "keep the tassels" }
+  },
+  "fabrics": {
+    "MAIN_FABRIC": ["https://res.cloudinary.com/acme/image/upload/v1/fabric-main.jpg"],
+    "BORDER": ["https://res.cloudinary.com/acme/image/upload/v1/fabric-border.jpg"],
+    "LINING": ["eeedba61-3b50-48ad-942b-a68a7d342f47"]
+  },
+  "model_image": "data:image/jpeg;base64,/9j/4AAQ...",
+  "part_refs": {},
+  "notes": ""
+}
+```
+
+| Design-library name | Same as | Notes |
+| :--- | :--- | :--- |
+| `garment_key` | `garment` | |
+| `product_name` | `productName` | |
+| `parts` as an object | `designs` | The key (`front_design`, `back_design`, `neck_design`, `hand_design`, `sleeve_design`, ...) names the area; `_design` is dropped. Ordered by `sequence`. |
+| `parts.*.image_url` | `designs[].image` | |
+| `parts.*.caption` | `designs[].note` | Only when not empty |
+| `parts.*.part_label`, `id`, `design_id`, `design_title`, `designer_name`, `part_refs` | accepted, not used | Your own bookkeeping |
+| `fabrics` as an object of roles | `fabrics[]` | `MAIN_FABRIC` is the main fabric; `BORDER` applies to the `BORDER` area (dropped when the garment has no border area, like a blouse); `LINING` and `BACKING_FABRIC` are inside the garment and never used. |
+| `model_image` | `modelImage` | A link or base64 |
+
+**A fabric must be a picture.** The design library stores fabric **ids** (`639c8187-...`). Only your
+system can turn an id into its picture, so replace each id with the fabric's Cloudinary link or base64
+before sending. An id sent as-is is refused: `400` with `FABRIC_ID_NOT_IMAGE` naming the entry.
+
 ### Images
 
 Every image is **either**:
@@ -155,7 +196,7 @@ and the supporting pieces mostly out of it.
 | `PETTICOAT` | full length | a short fitted blouse ending at the waist | a quiet neutral |
 | `BOTTOM_WEAR` | full length | a short fitted top ending at the waist | a quiet neutral |
 | `KURTHI` | full length | slim churidar or leggings | coordinates with the kurti |
-| `SHERWANI` | full length | a fitted churidar | coordinates with the sherwani |
+| `SHERWANI` (women's) | full length | a fitted churidar | coordinates with the sherwani |
 | `GOWN`, `SUIT`, `SHARARA` | full length | nothing — the product is the whole outfit | — |
 
 "Main fabric colour" is the `color` / `colorHex` of the fabric **without** `appliesTo`.
@@ -225,6 +266,32 @@ A good model photo:
 | **Size** | At least 1000 px tall; up to 12 MB like any image |
 | **Consent** | You must have the person's permission to use their photograph |
 
+### Front and back
+
+A blouse, kurti, anarkali, salwar suit or sherwani has a front and a back that both matter, and one
+photograph cannot show both. These five garments therefore give **two photographs** by default, in this
+order:
+
+1. **Front.** The model faces the camera. The `FRONT`, `NECK`, `BUTTON` and `POCKET` designs are
+   shown here, along with everything that shows from both sides (sleeves, hems, borders, collars,
+   all-over prints). The `BACK` design is *not* shown to the image model for this photograph.
+2. **Back, made from the front.** The finished front photograph is given to the image model as the
+   ground truth for the garment's colour, fabric, cut, sleeves, hem and the model herself; only the
+   `BACK` design and the shared parts are added. The model turns her back squarely to the camera and
+   looks back over one shoulder, hair pinned up or brought forward, so the whole back is visible.
+   Then a small check compares the two photographs (same garment, same sleeves, same person, a true
+   back view, same studio, same supporting piece); if anything differs, the back is made once more with
+   the difference named.
+
+With **no `BACK` design**, the back photograph is still made, plain, in the garment's fabric. To make
+only one side, send `views: ["front"]` or `views: ["back"]`. The order is always front then back.
+
+Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
+for both takes roughly **25–35 seconds longer** than a single photograph.
+
+The other garments (saree, lehenga, dupatta, gown, sharara, petticoat, bottom wear) always give one
+photograph, from the front.
+
 ### How a request is answered, in two steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
@@ -264,15 +331,15 @@ The stream carries **only the photograph** and the few fields needed to receive 
 | `type` | When | Contents |
 | :--- | :--- | :--- |
 | `start` | Immediately | `jobId` |
-| `image` | On success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height` |
-| `done` | After `image` | `jobId`, `status: "ok"` |
+| `image` | On success, once per photograph | `view` (`"front"` or `"back"`), `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height` |
+| `done` | After the last `image` | `jobId`, `status: "ok"`, `views` (the photographs made, in order) |
 | `error` | Instead of `image` | `jobId`, `code`, `message`, `retryable` |
 
-Every stream ends with either `image` + `done`, or `error`. Nothing else is sent: how the references
+Every stream ends with either the `image` events + `done`, or `error`. Nothing else is sent: how the references
 were read, how the photograph was checked and how long each step took stay in the service's own logs.
 
-Measured in production: **30–45 seconds** for most photographs. A slow attempt is cut off at 100s and
-tried once more. Keep your client's timeout at **240 seconds** or more, and show your
+Measured in production: **30–45 seconds** for one photograph, **55–80 seconds** for a front-and-back
+pair. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your
 user a progress indicator while the stream is open.
 
 ```text
@@ -282,9 +349,13 @@ data: {"type":"start","jobId":"6c1f…"}
 
 : keepalive 1757934822345
 
-data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
+data: {"type":"image","jobId":"6c1f…","view":"front","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
 
-data: {"type":"done","jobId":"6c1f…","status":"ok"}
+: keepalive 1757934842345
+
+data: {"type":"image","jobId":"6c1f…","view":"back","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
+
+data: {"type":"done","jobId":"6c1f…","status":"ok","views":["front","back"]}
 ```
 
 ### Reading the stream (JavaScript)
@@ -309,7 +380,7 @@ async function generateGarment(payload, { onEvent, signal } = {}) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let result = null;
+  const result = {};
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -321,11 +392,11 @@ async function generateGarment(payload, { onEvent, signal } = {}) {
       if (!frame.startsWith('data: ')) continue;   // keep-alive
       const event = JSON.parse(frame.slice(6));
       onEvent && onEvent(event);
-      if (event.type === 'image') result = event;
+      if (event.type === 'image') result[event.view] = event;   // { front, back }
       if (event.type === 'error') throw Object.assign(new Error(event.message), event);
     }
   }
-  return result;                                    // { image: 'data:image/jpeg;base64,...', width, height }
+  return result;                                    // { front: { image, width, height }, back?: {...} }
 }
 ```
 
@@ -349,7 +420,7 @@ generations. The cancelled stream ends with an `error` event whose code is `CANC
 ## `GET /api/v1/designstudio/options`
 
 Everything needed to build a valid request: the 12 garments with their design areas, default model
-gender, `framing`, and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
+gender, `framing`, `views` (`["front"]` or `["front", "back"]`), and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
 hard-coding the lists.
 
 ---
@@ -360,7 +431,7 @@ Before the stream (JSON body `{ "success": false, "error": { "code", "message", 
 
 | Status | `code` | Meaning |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Something in the request is wrong. `details[]` names each `field` and a specific `code`: `UNKNOWN_GARMENT`, `UNKNOWN_DESIGN_AREA`, `DUPLICATE_DESIGN_AREA`, `MULTIPLE_MAIN_FABRICS`, `FABRIC_AREA_CONFLICT`, `IMAGE_SOURCE_NOT_ALLOWED`, `INSECURE_URL`, `INVALID_IMAGE_ENCODING`, `IMAGE_TOO_LARGE`, `INVALID_FIELD`. |
+| `400` | `VALIDATION_ERROR` | Something in the request is wrong. `details[]` names each `field` and a specific `code`: `UNKNOWN_GARMENT`, `UNKNOWN_DESIGN_AREA`, `DUPLICATE_DESIGN_AREA`, `MULTIPLE_MAIN_FABRICS`, `FABRIC_AREA_CONFLICT`, `FABRIC_ID_NOT_IMAGE`, `VIEW_NOT_AVAILABLE`, `IMAGE_SOURCE_NOT_ALLOWED`, `INSECURE_URL`, `INVALID_IMAGE_ENCODING`, `IMAGE_TOO_LARGE`, `INVALID_FIELD`. |
 | `400` | `INVALID_JSON` | The body is not valid JSON. |
 | `401` | — | Missing or wrong `x-api-key`. |
 | `413` | `PAYLOAD_TOO_LARGE` | The request is over 50 MB. Send smaller images (a few MB each is plenty). |
@@ -424,5 +495,6 @@ Inside the stream (`error` event):
 - **A trim that is the design is kept.** A `WAISTBAND` photo whose waistband is a pearl-and-tassel
   fringe gives a fringed waistband; tassels are only removed where they are not the named part (the
   ends of a dupatta photographed whole, a saree pallu).
-- **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
-  request are then hidden.
+- **One photograph shows one side.** For the five two-sided garments both sides are photographed (see
+  *Front and back*). For any other garment a `BACK` design turns the model around and front areas in
+  the same request are then hidden.
