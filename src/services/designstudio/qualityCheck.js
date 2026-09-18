@@ -183,10 +183,28 @@ async function reviewImage(review, image, { signal } = {}) {
   }
 }
 
-/** The checks a back photograph must pass against the front photograph. */
-function pairChecklist(review) {
+/**
+ * The checks a photograph must pass against its own design references, and -
+ * for a back view - against the front photograph it was made from.
+ * @param {Object} review        buildPrompt(...).review for this view
+ * @param {Object[]} references  [{ area, part, ref }] the design pictures sent for this view
+ */
+function viewChecklist(review, references = []) {
   const product = review.product;
-  const checks = [
+  const checks = [];
+  // Measured in production: a sheer yoke became solid cloth, a small keyhole back
+  // became a deep U. The photograph is compared with the reference picture itself.
+  for (const r of references) {
+    const neck = /NECK|BACK|COLLAR/.test(r.area);
+    // Measured: the front reference's own sleeves were compared with the photo's
+    // sleeves (which come from the SLEEVE reference) and failed it. Each reference
+    // answers for ONE part only.
+    checks.push([`ref_${r.area.toLowerCase()}`,
+      `REFERENCE ${r.ref} was sent ONLY for the ${r.part}. If it shows a whole garment, every other part of that garment (its sleeves, body, neckline, hem, colour) is NOT part of this reference and must be ignored - those parts of the PHOTOGRAPH follow other references. Ignore the fabric colour too (the garment is made in its own fabric on purpose), and the model and background. Look ONLY at the ${r.part} in the PHOTOGRAPH against the ${r.part} in REFERENCE ${r.ref}. ${neck ? 'Is the neckline the SAME SHAPE, DEPTH and WIDTH as in the reference (not deeper, wider or a different shape), with the same closure (tie-up, keyhole, buttons) at the same size, and ' : 'Are '}the motifs on that part of the same kind, size, spacing and placement, with any sheer or net area of that part still sheer, and any trim, lace, band or edging on that part as in the reference?`,
+      `The ${r.part} must follow reference ${r.ref} exactly: ${neck ? 'the same neckline shape, depth and width and the same closure at the same size; ' : ''}the same motifs at the same size, spacing and placement; sheer areas stay sheer; trims and edging as in the reference.`]);
+  }
+  if (review.view !== 'back') return checks.map(([id, question, correction]) => ({ id, question, correction }));
+  checks.push(
     // Measured on a real blouse: teal flowers on the front and gold butis on the back
     // (each side's own reference) were called "different blouses". The decoration is
     // MEANT to differ; only the cloth and the cut must match.
@@ -202,30 +220,37 @@ function pairChecklist(review) {
       `The photograph is a true back view: the front of the ${product} is not visible.`],
     ['same_studio', 'Are the backdrop, lighting and framing the same in both photographs?',
       'The same plain studio backdrop, lighting and framing as the front view.']
-  ];
+  );
   if (review.pair) {
     checks.push(['same_supporting', `Is the ${review.pair.pieces} worn with the ${product} the same colour and style in both photographs?`,
       `The ${review.pair.pieces} is the same colour and style as in the front view.`]);
   }
+  checks.push(['arms_clear', 'Are the arms hanging at the sides with the hands visible beside the hips - not clasped behind the back, not on the hips, not covering any part of the garment?',
+    'The arms hang relaxed at the sides with the hands visible beside the hips; nothing covers the back of the garment.']);
   return checks.map(([id, question, correction]) => ({ id, question, correction }));
 }
+const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
 
 /**
  * Compare a back photograph with the front photograph it was made from.
  * Same shape of answer as reviewImage. Never required.
  */
-async function reviewPair(review, frontImage, backImage, { signal } = {}) {
+async function reviewView(review, { image, frontImage = null, references = [], signal } = {}) {
   const started = Date.now();
-  const checklist = pairChecklist(review);
+  const checklist = viewChecklist(review, references);
   const unchecked = (problem) => ({ checked: false, failures: [], problem, ms: Date.now() - started });
-  if (!config.pair.enabled || !config.gemini.apiKey()) return unchecked('disabled');
+  if (!config.pair.enabled || !config.gemini.apiKey() || !checklist.length) return unchecked('disabled');
+  const isBack = review.view === 'back' && frontImage;
   const text = [
-    'You are the quality inspector for a fashion catalogue. The first picture is the FRONT view of a garment on a model; the second is meant to be the BACK view of the same garment on the same model.',
+    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on a model. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}.`,
     'Answer each check strictly: pass=true only when it is clearly satisfied. When something differs, answer pass=false and say what differs in evidence (under 25 words).',
     'Answer every check, using its id.',
     '',
     ...checklist.map((c) => `- ${c.id}: ${c.question}`)
   ].join('\n');
+  const parts = [{ text }, { text: 'PHOTOGRAPH:' }, { inlineData: { mimeType: image.mimeType, data: image.base64 } }];
+  for (const r of references) parts.push({ text: `REFERENCE ${r.ref} (${r.part}):` }, { inlineData: { mimeType: r.image.mimeType, data: r.image.base64 } });
+  if (isBack) parts.push({ text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } });
   const timeout = AbortSignal.timeout(config.pair.timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
@@ -233,11 +258,7 @@ async function reviewPair(review, frontImage, backImage, { signal } = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey() },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [
-          { text },
-          { text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } },
-          { text: 'BACK view:' }, { inlineData: { mimeType: backImage.mimeType, data: backImage.base64 } }
-        ] }],
+        contents: [{ role: 'user', parts }],
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: RESPONSE_SCHEMA,
@@ -277,4 +298,7 @@ function correctionsText(failures) {
   ].join('\n');
 }
 
-module.exports = { reviewImage, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+/** Kept for callers of the older name: the back view against the front photograph only. */
+const reviewPair = (review, frontImage, backImage, opts = {}) => reviewView({ ...review, view: 'back' }, { image: backImage, frontImage, ...opts });
+
+module.exports = { reviewImage, reviewView, viewChecklist, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

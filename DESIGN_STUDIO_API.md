@@ -279,15 +279,17 @@ order:
    ground truth for the garment's colour, fabric, cut, sleeves, hem and the model herself; only the
    `BACK` design and the shared parts are added. The model turns her back squarely to the camera and
    looks back over one shoulder, hair pinned up or brought forward, so the whole back is visible.
-   Then a small check compares the two photographs (same garment, same sleeves, same person, a true
-   back view, same studio, same supporting piece); if anything differs, the back is made once more with
-   the difference named.
+   Each photograph is then checked **against its own reference pictures** (neckline shape and depth,
+   motifs, sheer panels staying sheer, trims), and the back is also checked against the front (same
+   cloth and cut, same sleeves, same person, a true back view with the arms at the sides, same studio,
+   same supporting piece). Anything that differs is named and that photograph is made once more.
 
 With **no `BACK` design**, the back photograph is still made, plain, in the garment's fabric. To make
 only one side, send `views: ["front"]` or `views: ["back"]`. The order is always front then back.
 
 Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
-for both takes roughly **25–35 seconds longer** than a single photograph.
+for both takes roughly **25–35 seconds longer** than a single photograph, plus about 35 seconds for each
+photograph that had to be made again.
 
 The other garments (saree, lehenga, dupatta, gown, sharara, petticoat, bottom wear) always give one
 photograph, from the front.

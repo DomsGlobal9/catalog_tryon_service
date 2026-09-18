@@ -347,6 +347,11 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       lines.push('TECHNIQUE LOCK: the motifs of this design are PRINTED flat on the cloth, with the raised work named above (for example mirrors, sequins or embroidery) added on top of the print. Keep the printed motifs flat - never turn them into woven zari or brocade - and keep that raised work exactly where the reference shows it.');
     }
     if (info.notes) lines.push(`Must not be missed: ${info.notes}`);
+    // Measured in production: a sheer yoke came out as solid cloth, and a small
+    // keyhole back became a deep U. Both are shape facts the model drifts on.
+    if (/sheer|net\b|see-through|transparent|organza|tulle/i.test(`${info.technique || ''} ${info.notes || ''} ${info.layout || ''}`)) {
+      lines.push('SHEER: part of this reference is sheer net or see-through fabric. Keep it sheer in the finished garment, with skin visible through it - never solid, opaque cloth.');
+    }
     if (lines.length) lines.unshift('This is what the reference actually shows - reproduce all of it:');
     return lines;
   };
@@ -620,6 +625,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   if (hasGlobal && hasZone) {
     designRules.push('A design assigned to a specific area always wins inside that area. The overall, print or embroidery references apply everywhere else.');
   }
+  designRules.push('A neckline reference (NECK, BACK, COLLAR_NECK) fixes the neckline\'s exact SHAPE, DEPTH and WIDTH: reproduce them as in the reference - never deeper, wider, higher or a different shape - and the same closure (tie-up, keyhole, buttons) at the same size.');
   designRules.push(hasGlobal
     ? 'Do not invent any motif, embellishment, logo or pattern that is not in the references.'
     : 'Do not invent any motif, embellishment, logo or pattern that is not in the references. Parts of the garment with no design reference stay plain in their fabric, with neat, simple finishing only.');
@@ -675,7 +681,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
   if (view === 'back') {
-    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: hair is pinned up or brought forward over one shoulder, arms slightly away from the body, and nothing (hair, hands, jewellery, a dupatta) covers any part of the back.`);
+    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: hair is pinned up or brought forward over one shoulder; the arms hang relaxed at the sides with the hands visible beside the hips - never clasped behind the back, never on the hips - and nothing (hair, hands, jewellery, a dupatta) covers any part of the back.`);
     if (frontPhotoNumber) modelLines.push(`The same person as in [Image ${frontPhotoNumber}], with the same hair and jewellery, seen from behind.`);
   } else if (pose === 'back') {
     modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);

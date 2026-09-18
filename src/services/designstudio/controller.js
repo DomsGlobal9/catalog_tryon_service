@@ -25,7 +25,7 @@ const { buildPrompt, referenceList, pairing, viewOf, DEFAULT_PAIRING_COLOUR } = 
 const { describeReferences } = require('./describeReferences');
 const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
-const { reviewImage, reviewPair, correctionsText } = require('./qualityCheck');
+const { reviewImage, reviewView, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -199,17 +199,22 @@ async function generate(req, res, next) {
       return { result, quality };
     };
 
-    // The back photograph is made from the front one, and checked against it:
-    // one garment, one person, two viewpoints. If the check finds a difference,
-    // the back is made once more with that difference named.
-    const matchBackToFront = async (viewPrompt, viewJob, viewDescriptions, front, back, quality) => {
-      if (!(config.pair.enabled && front && viewPrompt.review)) return back;
-      send({ type: 'status', stage: 'checking', message: 'Comparing the back view with the front view.' });
-      let verdict = await reviewPair(viewPrompt.review, front.image, back.image, { signal: abort.signal });
+    // Every photograph is checked against the design references it was made from
+    // (neckline shape and depth, motifs, sheer panels, sleeves); a back view is also
+    // checked against the front photograph. A mismatch is named and the photograph
+    // is made once more.
+    const matchReferences = async (viewPrompt, viewJob, viewDescriptions, front, back, quality) => {
+      if (!(config.pair.enabled && viewPrompt.review)) return back;
+      const references = viewJob.designs
+        .map((d, i) => ({ area: d.areaId, ref: i + 1, image: d.image, part: (viewPrompt.review.parts.find((p) => p.area === d.areaId) || {}).part || d.areaId.toLowerCase() }))
+        .filter((r) => r.image && r.image.base64);
+      const view = viewPrompt.review.view;
+      send({ type: 'status', stage: 'checking', message: view === 'back' ? 'Comparing the back view with its references and the front view.' : 'Comparing the photograph with its references.' });
+      let verdict = await reviewView(viewPrompt.review, { image: back.image, frontImage: view === 'back' ? front && front.image : null, references, signal: abort.signal });
       let regenerations = 0;
       while (verdict.checked && verdict.failures.length && regenerations < config.pair.maxRegenerations) {
         regenerations++;
-        console.log(`[DesignStudio] requestId=${requestId} back view differs from front: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating the back`);
+        console.log(`[DesignStudio] requestId=${requestId} ${view || 'front'} view does not match: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
         let retry;
         try {
           retry = await generate([...viewPrompt.parts, { text: correctionsText(verdict.failures) }], 'regenerating');
@@ -219,11 +224,12 @@ async function generate(req, res, next) {
         }
         attempts += retry.attempts;
         quality.regenerated = true;
-        send({ type: 'status', stage: 'checking', message: 'Comparing the corrected back view with the front view.' });
-        const second = await reviewPair(viewPrompt.review, front.image, retry.image, { signal: abort.signal });
+        send({ type: 'status', stage: 'checking', message: 'Checking the corrected photograph.' });
+        const second = await reviewView(viewPrompt.review, { image: retry.image, frontImage: view === 'back' ? front && front.image : null, references, signal: abort.signal });
         if (!second.checked || second.failures.length <= verdict.failures.length) { back = retry; usage = retry.usage; verdict = second; }
       }
-      quality.pair = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+      quality.references = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+      quality.pair = quality.references; // the older name
       return back;
     };
 
@@ -242,7 +248,7 @@ async function generate(req, res, next) {
       usage = result.usage;
       let quality;
       ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
-      if (view === 'back') result = await matchBackToFront(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
+      if (view) result = await matchReferences(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
       if (view === 'front') frontResult = result;
       results.push({ view: view || viewPrompt.pose, result, quality });
       send({

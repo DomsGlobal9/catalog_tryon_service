@@ -787,7 +787,16 @@ async function runAll({ check, eq, section, SRC }) {
   check('the old single-photo behaviour is unchanged for a saree (no view named)',
     buildPrompt(fakeJob('SAREE', ['PALLU'])).pose === 'front' && !/photographed from the front/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   eq('the pair check compares garment, sleeves, person, a true back view, studio and the supporting piece',
-    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting']);
+    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear']);
+  const refs = [{ area: 'BACK', part: 'back of the blouse', ref: 1 }, { area: 'HAND', part: 'hand of the blouse', ref: 2 }];
+  eq('every view is also checked against its own references: neckline shape/depth for a neckline, motifs and sheer panels for every part; the front view gets only those',
+    [qa.viewChecklist(backPrompt.review, refs).map((c) => c.id).slice(0, 2), qa.viewChecklist(frontPrompt.review, [{ area: 'NECK', part: 'neck of the blouse', ref: 1 }]).map((c) => c.id),
+      /SAME SHAPE, DEPTH and WIDTH/.test(qa.viewChecklist(backPrompt.review, refs)[0].question), /sheer or net area of that part still sheer/.test(qa.viewChecklist(backPrompt.review, refs)[1].question),
+      /was sent ONLY for the hand of the blouse\. If it shows a whole garment, every other part of that garment \(its sleeves, body, neckline, hem, colour\) is NOT part of this reference/.test(qa.viewChecklist(backPrompt.review, refs)[1].question)],
+    [['ref_back', 'ref_hand'], ['ref_neck'], true, true, true]);
+  check('the prompt fixes neckline shape and depth, keeps sheer panels sheer, and keeps the arms at the sides in the back view',
+    /fixes the neckline's exact SHAPE, DEPTH and WIDTH/.test(backPrompt.text) && /hands visible beside the hips - never clasped behind the back/.test(backPrompt.text)
+    && /SHEER: part of this reference is sheer net/.test(buildPrompt(fakeJob('BLOUSE', ['NECK']), { descriptions: new Map([[1, { motifs: 'flowers', technique: 'embroidery on sheer net yoke', notes: 'round neck, shallow; SHEER yoke' }]]) }).text));
   check('the pair check judges cloth and cut, never the decoration (a real blouse with different front and back designs was called two blouses)',
     /Judge the CLOTH and CUT only - the front and the back carry their own, different designs on purpose/.test(qa.pairChecklist(backPrompt.review)[0].question));
 
