@@ -187,9 +187,12 @@ async function reviewImage(review, image, { signal } = {}) {
 function pairChecklist(review) {
   const product = review.product;
   const checks = [
-    ['same_garment', `Is the ${product} in the BACK photograph the same garment as in the FRONT photograph - the same fabric colour and shade, the same fabric texture, the same fit and length?`,
-      `The back view shows exactly the same ${product} as the front view: identical fabric colour and shade, texture, fit and length.`],
-    ['same_sleeves', `Are the sleeves the same in both photographs - the same length, the same shape, the same sleeve-end finish?`,
+    // Measured on a real blouse: teal flowers on the front and gold butis on the back
+    // (each side's own reference) were called "different blouses". The decoration is
+    // MEANT to differ; only the cloth and the cut must match.
+    ['same_garment', `Judge the CLOTH and CUT only - the front and the back carry their own, different designs on purpose, so ignore the embroidery, motifs and decoration entirely. Is the ${product} in the BACK photograph made of the same fabric as in the FRONT photograph (same base colour and shade, same texture and sheen), with the same fit, the same length and the same neckline depth at the shoulders?`,
+      `The back view is the same ${product} as the front view in cloth and cut: identical fabric base colour and shade, texture, fit and length. Its decoration follows the back design reference, not the front's.`],
+    ['same_sleeves', `Are the sleeves the same in both photographs - the same length, the same shape (puff, fitted, flared), the same fabric and the same sleeve-end finish?`,
       'The sleeves are identical to the front view: same length, shape and sleeve ends.'],
     ['same_person', 'Is it the same person in both photographs - the same build, skin tone, hair colour and hair style?',
       'The same person as the front view, with the same hair and skin tone.'],

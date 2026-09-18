@@ -788,6 +788,8 @@ async function runAll({ check, eq, section, SRC }) {
     buildPrompt(fakeJob('SAREE', ['PALLU'])).pose === 'front' && !/photographed from the front/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   eq('the pair check compares garment, sleeves, person, a true back view, studio and the supporting piece',
     qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting']);
+  check('the pair check judges cloth and cut, never the decoration (a real blouse with different front and back designs was called two blouses)',
+    /Judge the CLOTH and CUT only - the front and the back carry their own, different designs on purpose/.test(qa.pairChecklist(backPrompt.review)[0].question));
 
   check('the describe step is asked for the problem and for the ground colour of every design',
     describe.readAnswer({ references: [{ ref: 1, motifs: 'x', problem: 'a collage' }] }, [{ ref: 1 }]).get(1).problem === 'a collage');
