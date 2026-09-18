@@ -339,7 +339,7 @@ Every stream ends with either the `image` events + `done`, or `error`. Nothing e
 were read, how the photograph was checked and how long each step took stay in the service's own logs.
 
 Measured in production: **30–45 seconds** for one photograph, **55–80 seconds** for a front-and-back
-pair. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your
+pair (a blouse with front, back and sleeve designs: 69 seconds). A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your
 user a progress indicator while the stream is open.
 
 ```text
