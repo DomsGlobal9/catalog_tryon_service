@@ -27,6 +27,11 @@ async function runAll({ check, eq, section, SRC }) {
     DESIGNSTUDIO_HEARTBEAT_MS: '60',
     // The endpoint tests below read every event; the image-only default is tested on its own.
     DESIGNSTUDIO_STREAM_DETAIL: 'full',
+    // Off by default in production to save cost; the tests exercise them switched on.
+    DESIGNSTUDIO_CROP: 'on',
+    DESIGNSTUDIO_QA: 'on',
+    DESIGNSTUDIO_QA_MAX_REGENERATIONS: '1',
+    DESIGNSTUDIO_IMAGE_SIZE: '2K',
     DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS: '400',
     DESIGNSTUDIO_MAX_BODY_MB: '3',
     DESIGNSTUDIO_MAX_IMAGE_MB: '2',

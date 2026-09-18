@@ -39,7 +39,7 @@ KEEP_ALIVE_TIMEOUT_MS=65000       # longer than the load balancer's idle timeout
 # ── Design Studio (all optional) ─────────────────────────────────────────────
 # Designs + fabrics -> one garment on a model, in one Gemini call. Uses GEMINI_API_KEY.
 DESIGNSTUDIO_MODEL=gemini-3.1-flash-image
-DESIGNSTUDIO_IMAGE_SIZE=2K              # 1K | 2K | 4K (output is always portrait 3:4)
+DESIGNSTUDIO_IMAGE_SIZE=1K              # 1K (default, cheaper) | 2K | 4K (output is always portrait 3:4)
 DESIGNSTUDIO_MAX_DESIGNS=6
 DESIGNSTUDIO_MAX_FABRICS=3
 DESIGNSTUDIO_MAX_IMAGE_MB=12            # per image
@@ -62,17 +62,17 @@ DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET=4096  # at 1024 a block print was read as 
 # Crop each design picture to the part it is for (found by one small vision call per
 # picture, in parallel with the describe step). A whole-outfit photo then cannot leak
 # its other parts. Never required: no part found means the picture is used whole.
-DESIGNSTUDIO_CROP=on
+DESIGNSTUDIO_CROP=off                   # off by default to save calls; 'on' crops each design picture to its part
 # What callers receive: 'image' (default) sends only start (jobId), the image, done
 # and error. 'full' also sends the brief, status text, warnings, quality and timings -
 # for debugging and the frontend test page. The server log has the detail either way.
 DESIGNSTUDIO_STREAM_DETAIL=image
 DESIGNSTUDIO_CROP_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_CROP_TIMEOUT_MS=20000
-DESIGNSTUDIO_QA=on
+DESIGNSTUDIO_QA=off                     # off by default to save calls and the second image; 'on' inspects each photograph
 DESIGNSTUDIO_QA_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_QA_REGENERATE_UNDER_MS=120000  # only regenerate if the request is younger than this
-DESIGNSTUDIO_QA_MAX_REGENERATIONS=1
+DESIGNSTUDIO_QA_MAX_REGENERATIONS=0
 DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=100000  # real runs took 25-60s; one hung past 120s
 DESIGNSTUDIO_TIMEOUT_RETRIES=1          # a slow attempt is cut off and tried once more
 DESIGNSTUDIO_DEADLINE_MS=220000         # whole generation including retries

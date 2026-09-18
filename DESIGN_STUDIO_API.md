@@ -14,7 +14,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
-| **Output** | One JPEG, portrait **3:4**, plain studio background, as base64. Full length, except a blouse (waist-up) |
+| **Output** | One JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up) |
 
 ---
 
@@ -129,7 +129,7 @@ request up to **50 MB**. Images at least **1000 px** on their longest side give 
 3. otherwise, if that fabric has no stated colour, **the colour read from the fabric photograph**;
 4. the design reference supplies **shape, construction and motifs** - the colour of the garment it was
    photographed on is never used. The service names that colour to the image model and tells it what
-   replaces it, and the quality check looks for it on the finished photograph.
+   replaces it.
 
 Measured: a sleeve design photographed on mustard made mint sleeves mustard, and a
 gota border photographed on royal blue made a rust lehenga's hem blue. With the
@@ -225,29 +225,21 @@ A good model photo:
 | **Size** | At least 1000 px tall; up to 12 MB like any image |
 | **Consent** | You must have the person's permission to use their photograph |
 
-### How a request is answered, in three steps
+### How a request is answered, in two steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
    actually contains — "temple (mandir) spires in gold zari on teal", "small multi-coloured floral
-   butis, red, green, orange, white", "block print, matte". At the same time, each design picture is searched for the part it is for, and the picture is
-   **cropped to that part** (with a margin, so a neckline keeps its shoulders). A neck photo of a kurta
-   sequinned all over shows the image model the neckline, not the sequinned body. A close-up, swatch
-   or `OVERALL` design is never cropped.
+   butis, red, green, orange, white", "block print, matte".
 2. **The garment is generated.** Those words go to the image model **alongside** your pictures.
-3. **The photograph is inspected.** A vision model checks the finished photograph against a checklist
-   built from your order: one person with the whole head in frame, the right framing, the supporting
-   piece (a saree's blouse, a kurti's churidar) completely plain, no colour from a reference photo's
-   background on the garment, printed designs still looking printed, no dupatta or tassels you did not
-   ask for, one pallu, no text. **If a check fails, the garment is generated once more with that exact
-   fault named**, inspected again, and the better photograph is returned. If the fault was decoration
-   spreading beyond the parts you sent designs for, the regeneration also sees much tighter crops of
-   your pictures.
 
 Step 1 exists because pictures alone were not enough: a border full of temple motifs came back as
-plain gold bands until the motifs were named in words. Step 3 exists because the image model is not
-deterministic: with the right instructions, a small fault still appeared in some runs and not others
-(measured: a stray light-blue stripe from a reference in 1 run of 3). Steps 1 and 3 never fail a
-request: if either cannot run, generation simply carries on.
+plain gold bands until the motifs were named in words. It never fails a request: if it cannot run,
+generation carries on from the pictures alone.
+
+Each request makes **one** photograph. The image model is not deterministic, so if a result is not
+right, sending the same request again gives a new attempt. **Tip:** crop each design picture to the part
+it is for (see *Getting the best results*) - a whole-outfit photo can carry that outfit's other
+decoration into the new garment.
 
 ### What "exact" means
 
@@ -279,9 +271,8 @@ The stream carries **only the photograph** and the few fields needed to receive 
 Every stream ends with either `image` + `done`, or `error`. Nothing else is sent: how the references
 were read, how the photograph was checked and how long each step took stay in the service's own logs.
 
-Measured in production (all 12 garments): **30–45 seconds** for most photographs, up to **95 seconds**
-when the photograph is automatically made a second time after a failed check. A slow attempt is cut
-off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your
+Measured in production: **30–45 seconds** for most photographs. A slow attempt is cut off at 100s and
+tried once more. Keep your client's timeout at **240 seconds** or more, and show your
 user a progress indicator while the stream is open.
 
 ```text
@@ -291,7 +282,7 @@ data: {"type":"start","jobId":"6c1f…"}
 
 : keepalive 1757934822345
 
-data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":1792,"height":2400,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
+data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
 
 data: {"type":"done","jobId":"6c1f…","status":"ok"}
 ```

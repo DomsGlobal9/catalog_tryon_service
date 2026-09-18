@@ -18,9 +18,9 @@ const config = {
     model: process.env.DESIGNSTUDIO_MODEL || 'gemini-3.1-flash-image',
     baseUrl: (process.env.DESIGNSTUDIO_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, ''),
     apiKey: () => process.env.GEMINI_API_KEY || '',
-    // 1K | 2K | 4K. 2K is the catalogue sweet spot: fabric weave and zari stay
-    // crisp, and the image is still a sensible size to send back as base64.
-    imageSize: (process.env.DESIGNSTUDIO_IMAGE_SIZE || '2K').toUpperCase(),
+    // 1K | 2K | 4K. 1K by product decision, to keep cost down; 2K keeps fine
+    // weave and zari crisper (DESIGNSTUDIO_IMAGE_SIZE=2K).
+    imageSize: (process.env.DESIGNSTUDIO_IMAGE_SIZE || '1K').toUpperCase(),
     // Fixed by product decision: portrait catalogue photographs.
     aspectRatio: '3:4',
     // Unset by default: Google's own default (1.0) is recommended for Gemini 3
@@ -72,7 +72,8 @@ const config = {
   // Crop each design reference to the part it is for, using the box the describe
   // step returns (cropReferences.js). Never required.
   crop: {
-    enabled: String(process.env.DESIGNSTUDIO_CROP || 'on').toLowerCase() !== 'off',
+    // Off by default to save calls (one per design picture). DESIGNSTUDIO_CROP=on.
+    enabled: String(process.env.DESIGNSTUDIO_CROP || 'off').toLowerCase() === 'on',
     // One small call per design picture, in parallel with the describe step.
     // Measured: boxes asked for inside the multi-picture describe call were loose
     // and changed between runs (a pallu box that missed the pallu).
@@ -96,7 +97,8 @@ const config = {
     tightMinShare: 0.15
   },
   qa: {
-    enabled: String(process.env.DESIGNSTUDIO_QA || 'on').toLowerCase() !== 'off',
+    // Off by default to save calls and the second image. DESIGNSTUDIO_QA=on.
+    enabled: String(process.env.DESIGNSTUDIO_QA || 'off').toLowerCase() === 'on',
     model: process.env.DESIGNSTUDIO_QA_MODEL || 'gemini-2.5-flash',
     timeoutMs: int('DESIGNSTUDIO_QA_TIMEOUT_MS', 40000, { min: 100 }),
     maxOutputTokens: int('DESIGNSTUDIO_QA_MAX_TOKENS', 8192, { min: 256 }),
@@ -104,7 +106,7 @@ const config = {
     // Regenerate only while the whole request is still young enough to finish
     // inside the generation deadline.
     regenerateIfElapsedUnderMs: int('DESIGNSTUDIO_QA_REGENERATE_UNDER_MS', 120000, { min: 0 }),
-    maxRegenerations: int('DESIGNSTUDIO_QA_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
+    maxRegenerations: int('DESIGNSTUDIO_QA_MAX_REGENERATIONS', 0, { min: 0, max: 2 })
   },
 
   limits: {
