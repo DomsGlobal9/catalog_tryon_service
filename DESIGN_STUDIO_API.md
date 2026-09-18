@@ -188,6 +188,43 @@ lists the supporting pieces and default colour for every garment.
 Why this exists, measured: when the blouse was only described as "plain unless a design reference
 describes it", a saree's pallu design came out on the blouse instead.
 
+### Using your own model
+
+Send a photo of the person to dress in `modelImage` (`modelImageUrl` in a catalogue payload). It is
+given like any other image: base64, or an https Cloudinary link. Without it, a professional model is
+created for you.
+
+```json
+{
+  "clientId": "shop-42-user-9",
+  "garment": "SAREE",
+  "designs": [{ "area": "PALLU", "image": "https://res.cloudinary.com/acme/image/upload/v1/pallu.jpg" }],
+  "fabrics": [{ "image": "https://res.cloudinary.com/acme/image/upload/v1/silk.jpg", "color": "wine", "colorHex": "#6D1A36" }],
+  "modelImage": "https://res.cloudinary.com/acme/image/upload/v1/our-model.jpg"
+}
+```
+
+What happens with that photo:
+
+- **The same person is dressed.** Their face, skin tone, hair, body shape and proportions are kept.
+- **Only the clothes change.** Their own outfit, pose, background and lighting are not used: the result
+  is the usual catalogue photograph, with a plain studio backdrop, 3:4, full length (waist-up for a
+  `BLOUSE`), posed to show every part you sent a design for.
+- **It is only the person, never a design.** Nothing from the model photo (their clothes, jewellery or
+  background) is copied onto the garment.
+- `modelGender` is not needed with a model photo; without one, it chooses the generated model.
+- Send **the same `modelImage` across a collection** to show every product on the same person.
+
+A good model photo:
+
+| | |
+| :--- | :--- |
+| **Person** | One person, facing the camera, standing, the whole body in the frame |
+| **Clothes** | Plain, fitted clothes (a plain T-shirt and trousers, or a plain dress) |
+| **Light** | Even daylight or studio light, the face clearly visible, no sunglasses or face covering |
+| **Size** | At least 1000 px tall; up to 12 MB like any image |
+| **Consent** | You must have the person's permission to use their photograph |
+
 ### How a request is answered, in three steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
