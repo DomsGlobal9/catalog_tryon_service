@@ -73,7 +73,8 @@ async function generate(req, res, next) {
 
   const send = (event) => {
     if (res.writableEnded || res.destroyed) return;
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    const out = config.stream.detail === 'full' ? event : imageOnly(event);
+    if (out) res.write(`data: ${JSON.stringify(out)}\n\n`);
   };
   const heartbeat = setInterval(() => {
     if (!res.writableEnded && !res.destroyed) res.write(`: keepalive ${Date.now()}\n\n`);
@@ -234,6 +235,22 @@ async function generate(req, res, next) {
     await admitted.release();
     if (!res.writableEnded && !res.destroyed) res.end();
     logOutcome({ requestId, req, job, startedAt, outcome, attempts, usage, prepared, jobId: admitted.job.id });
+  }
+}
+
+/**
+ * The caller's view of an event by default: the photograph and only what is
+ * needed to receive it. The jobId stays so a generation can be cancelled; an
+ * error keeps its code, message and retryable flag. Everything else (the reading
+ * of the references, warnings, progress text, inspection, timings) is dropped.
+ */
+function imageOnly(event) {
+  switch (event.type) {
+    case 'start': return { type: 'start', jobId: event.jobId };
+    case 'image': return { type: 'image', jobId: event.jobId, mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
+    case 'done': return { type: 'done', jobId: event.jobId, status: event.status };
+    case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable };
+    default: return null; // status, brief
   }
 }
 

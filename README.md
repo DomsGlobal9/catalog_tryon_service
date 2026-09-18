@@ -63,6 +63,10 @@ DESIGNSTUDIO_DESCRIBE_THINKING_BUDGET=4096  # at 1024 a block print was read as 
 # picture, in parallel with the describe step). A whole-outfit photo then cannot leak
 # its other parts. Never required: no part found means the picture is used whole.
 DESIGNSTUDIO_CROP=on
+# What callers receive: 'image' (default) sends only start (jobId), the image, done
+# and error. 'full' also sends the brief, status text, warnings, quality and timings -
+# for debugging and the frontend test page. The server log has the detail either way.
+DESIGNSTUDIO_STREAM_DETAIL=image
 DESIGNSTUDIO_CROP_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_CROP_TIMEOUT_MS=20000
 DESIGNSTUDIO_QA=on

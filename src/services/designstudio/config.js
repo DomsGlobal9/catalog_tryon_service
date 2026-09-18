@@ -145,7 +145,12 @@ const config = {
   },
 
   stream: {
-    heartbeatMs: int('DESIGNSTUDIO_HEARTBEAT_MS', 10000, { min: 50 })
+    heartbeatMs: int('DESIGNSTUDIO_HEARTBEAT_MS', 10000, { min: 50 }),
+    // What a caller receives. 'image' (default): only the photograph and the few
+    // fields needed to receive it - no reading of the references, warnings,
+    // inspection or timings. 'full': every event, for debugging and the test page.
+    // The server log records the full detail either way.
+    detail: String(process.env.DESIGNSTUDIO_STREAM_DETAIL || 'image').toLowerCase() === 'full' ? 'full' : 'image'
   }
 };
 

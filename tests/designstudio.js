@@ -25,6 +25,8 @@ async function runAll({ check, eq, section, SRC }) {
     GEMINI_API_KEY: 'AIzaFAKE_TEST_KEY_never_sent_anywhere_000',
     DESIGNSTUDIO_RETRY_BASE_MS: '5',
     DESIGNSTUDIO_HEARTBEAT_MS: '60',
+    // The endpoint tests below read every event; the image-only default is tested on its own.
+    DESIGNSTUDIO_STREAM_DETAIL: 'full',
     DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS: '400',
     DESIGNSTUDIO_MAX_BODY_MB: '3',
     DESIGNSTUDIO_MAX_IMAGE_MB: '2',
@@ -1041,6 +1043,21 @@ async function runAll({ check, eq, section, SRC }) {
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
     ({ events } = await readEvents(await post('/generate', body())));
     eq('a refusal arrives as an error event and the stream ends, no image', [events.map((e) => e.type), events[events.length - 1].code], [['start', 'status', 'brief', 'status', 'error'], 'GENERATION_BLOCKED']);
+
+    // The default a caller gets: the photograph only, no text about how it was made.
+    const streamCfg = S('config').config.stream;
+    streamCfg.detail = 'image';
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only' }))));
+    eq('by default the stream carries only start (jobId), the image and done - no brief, warnings, status text, quality or timings',
+      events.map((e) => [e.type, Object.keys(e).sort().join(',')]),
+      [['start', 'jobId,type'], ['image', 'height,image,jobId,mimeType,type,width'], ['done', 'jobId,status,type']]);
+    check('...and the image is still the full photograph', /^data:image\/jpeg;base64,\/9j\//.test(events[1].image));
+    script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
+    ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only-2' }))));
+    eq('...and an error keeps its code, message and retryable flag only',
+      events.map((e) => [e.type, Object.keys(e).sort().join(',')]), [['start', 'jobId,type'], ['error', 'code,jobId,message,retryable,type']]);
+    streamCfg.detail = 'full';
 
     // Slow generation: heartbeat, capacity (1 slot in this test run), cancel.
     let geminiSignal = null;

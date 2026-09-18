@@ -120,7 +120,7 @@ Every image is **either**:
 
 JPEG, PNG, WebP, AVIF and HEIC are accepted. Each image may be up to **12 MB**, and the whole
 request up to **50 MB**. Images at least **1000 px** on their longest side give the best detail; under
-512 px works but you will get a warning, and under 64 px is refused.
+512 px works with less fine detail, and under 64 px is refused.
 
 ### Colours: where each part's base colour comes from
 
@@ -169,10 +169,8 @@ model around.
 
 A contrast panel keeps its own colour. A red embroidered yoke on a blue kurta stays red on your
 fabric, while embroidery photographed on a garment of the same colour takes your fabric's colour.
-The `brief` event says which way each design was read (`groundType`: `contrast panel` or
-`garment fabric`) and names any part kept as a contrast panel. The call is dependable on close-ups;
-on a small yoke in a full-length photo it can go either way, so send `designs[].groundColorHex`
-when the colour of that panel matters.
+The call is dependable on close-ups; on a small yoke in a full-length photo it can go either way, so
+send `designs[].groundColorHex` when the colour of that panel matters.
 
 To choose the supporting piece's colour or look yourself, send `pairWith`:
 
@@ -184,9 +182,8 @@ To choose the supporting piece's colour or look yourself, send `pairWith`:
 ```
 
 Your designs still never go on the supporting piece, even with a `note`. If you send `pairWith` for
-a garment that is the whole outfit (`GOWN`, `SUIT`, `SHARARA`), it is not used and `start.warnings`
-says so. The `start` event echoes what was decided in `pairedWith`, and `GET /options` lists the
-supporting pieces and default colour for every garment.
+a garment that is the whole outfit (`GOWN`, `SUIT`, `SHARARA`), it is simply not used. `GET /options`
+lists the supporting pieces and default colour for every garment.
 
 Why this exists, measured: when the blouse was only described as "plain unless a design reference
 describes it", a saree's pallu design came out on the blouse instead.
@@ -195,8 +192,7 @@ describes it", a saree's pallu design came out on the blouse instead.
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
    actually contains — "temple (mandir) spires in gold zari on teal", "small multi-coloured floral
-   butis, red, green, orange, white", "block print, matte". You get this back as the `brief` event.
-   At the same time, each design picture is searched for the part it is for, and the picture is
+   butis, red, green, orange, white", "block print, matte". At the same time, each design picture is searched for the part it is for, and the picture is
    **cropped to that part** (with a margin, so a neckline keeps its shoulders). A neck photo of a kurta
    sequinned all over shows the image model the neckline, not the sequinned body. A close-up, swatch
    or `OVERALL` design is never cropped.
@@ -208,14 +204,13 @@ describes it", a saree's pallu design came out on the blouse instead.
    ask for, one pallu, no text. **If a check fails, the garment is generated once more with that exact
    fault named**, inspected again, and the better photograph is returned. If the fault was decoration
    spreading beyond the parts you sent designs for, the regeneration also sees much tighter crops of
-   your pictures. The `done` event reports the
-   result in `quality`.
+   your pictures.
 
 Step 1 exists because pictures alone were not enough: a border full of temple motifs came back as
 plain gold bands until the motifs were named in words. Step 3 exists because the image model is not
 deterministic: with the right instructions, a small fault still appeared in some runs and not others
 (measured: a stray light-blue stripe from a reference in 1 run of 3). Steps 1 and 3 never fail a
-request: if either cannot run, generation carries on and `quality.checked` is `false`.
+request: if either cannot run, generation simply carries on.
 
 ### What "exact" means
 
@@ -229,42 +224,40 @@ You must have the rights to the designs and fabrics you send.
 ## Response: an event stream
 
 A good request answers `200` with `Content-Type: text/event-stream`. Each event is one line starting
-with `data: ` followed by JSON, then a blank line. Lines starting with `:` are keep-alive pings; ignore them.
+with `data: ` followed by JSON, then a blank line. Lines starting with `:` are keep-alive pings sent
+every 10 seconds while the photograph is being made; ignore them.
 
 **Anything wrong with the request is refused before the stream opens**, as ordinary JSON (see
 *Errors*). So check the status first: only `200` is a stream.
 
+The stream carries **only the photograph** and the few fields needed to receive it:
+
 | `type` | When | Contents |
 | :--- | :--- | :--- |
-| `start` | Immediately | `jobId`, `garment`, `productName`, `designs`, `fabrics` (with `itemCode` and `color` echoed back), `pairedWith` (`pieces`, `colour`, `from`, `note`, or `null`), `model` (`generated`/`reference`), `pose`, `framing` (`full`/`waist-up`), `aspectRatio`, `warnings` |
-| `status` | Several | `stage`: `reading-references`, then `generating` (with `attempt`), then `checking`; if a check failed, `regenerating` and `checking` again |
-| `image` | Success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height`, `bytes` |
-| `done` | After `image` | `status: "ok"`, `attempts`, `quality`, `timings` (`prepareMs`, `describeMs`, `generateMs`, `totalMs`). `quality` is `{ checked, passed, regenerated, failures: [{ check, evidence }] }`: whether the photograph was inspected, whether it passed, whether it was regenerated, and any check it still fails |
-| `brief` | After the references are read | `references[]`: what was understood from each picture — `motifs`, `layout`, `colours`, `technique`, `notes`, `groundType` (`contrast panel` / `garment fabric`), `groundColour`, `garmentColour` (the rest of the photographed garment) and `problem` (why a picture could not be read, else empty). Plus `warnings`. Useful for showing your user, and for spotting a misread reference. |
-| `error` | Instead of `image` | `code`, `message`, `retryable` |
+| `start` | Immediately | `jobId` |
+| `image` | On success | `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height` |
+| `done` | After `image` | `jobId`, `status: "ok"` |
+| `error` | Instead of `image` | `jobId`, `code`, `message`, `retryable` |
 
-Every stream ends with either `image` + `done`, or `error`. Measured in production (all 12 garments): **30–45 seconds** when the photograph passes inspection first time, **60–95 seconds** when it is regenerated. A slow attempt is cut off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your user the `status` events so the wait is visible.
+Every stream ends with either `image` + `done`, or `error`. Nothing else is sent: how the references
+were read, how the photograph was checked and how long each step took stay in the service's own logs.
+
+Measured in production (all 12 garments): **30–45 seconds** for most photographs, up to **95 seconds**
+when the photograph is automatically made a second time after a failed check. A slow attempt is cut
+off at 100s and tried once more. Keep your client's timeout at **240 seconds** or more, and show your
+user a progress indicator while the stream is open.
 
 ```text
-data: {"type":"start","jobId":"6c1f…","garment":"SAREE","designs":[{"index":0,"area":"PALLU","areaName":"Pallu Design"},{"index":1,"area":"BORDER","areaName":"Border Design"}],"fabrics":[{"index":0,"name":"Kanjivaram silk","appliesTo":"MAIN"},{"index":1,"name":"Gold tissue","appliesTo":["PALLU"]}],"model":"generated","pose":"front","aspectRatio":"3:4","warnings":[]}
-
-data: {"type":"status","stage":"generating","attempt":1,"message":"Generating the garment."}
+data: {"type":"start","jobId":"6c1f…"}
 
 : keepalive 1757934812345
 
-data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":1536,"height":2048,"bytes":612345,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
+: keepalive 1757934822345
 
-data: {"type":"done","jobId":"6c1f…","status":"ok","attempts":1,"quality":{"checked":true,"passed":true,"regenerated":false,"failures":[]},"timings":{"prepareMs":840,"describeMs":9100,"generateMs":24300,"totalMs":34500}}
+data: {"type":"image","jobId":"6c1f…","mimeType":"image/jpeg","width":1792,"height":2400,"image":"data:image/jpeg;base64,/9j/4AAQ…"}
+
+data: {"type":"done","jobId":"6c1f…","status":"ok"}
 ```
-
-### Warnings
-
-`start.warnings` tells you, in plain words, when the result may not be perfect — for example a design
-image under 512 px, or a request with both a `FRONT` and a `BACK` design (one photograph cannot show
-both fully; the model is posed to show the back). The `brief` event adds warnings found while reading
-the pictures - for example **a design picture where the part cannot be made out** (a shop rack of
-many dupattas, a collage, the part hidden or tiny): that part is kept simple rather than invented, and
-the warning asks for a close-up.
 
 ### Reading the stream (JavaScript)
 
@@ -382,22 +375,18 @@ Inside the stream (`error` event):
 - Use **`appliesTo`** when a fabric is only for part of the garment (a tissue pallu on a silk saree).
 - Reuse the same **`modelImage`** across a collection for a consistent look.
 - Use **`groundColorHex`** whenever a design photo is shot on a different colour than your product.
-- **Read `done.quality`.** `passed: false` means the photograph is the better of two attempts but still
-  has the fault named in `failures` (for example a cuff band). Show it, or offer your user a retry.
 
 ### Known limits, measured
 
 - **A busy fabric can out-shout a design.** If a fabric swatch is itself a dense brocade or jaal and
   the same part also has a design reference, the fabric's woven pattern tends to dominate that part.
-  **The service now tells you**: when the references are read, a warning in the `brief` event names the
-  part and the fabric ("BODY has both a design and a patterned fabric … send a plainer fabric for BODY").
-  Verified both ways on the same saree: with a brocade jaal on the body, the body design's
+  Send a plain fabric for a part that has its own design. Verified both ways on the same saree: with a brocade jaal on the body, the body design's
   multi-coloured butis disappeared; with a plain wine silk on the body, they came through exactly.
 - **Very fine motifs are approximate.** Large areas, drape, fabric colour and texture are dependable;
   a tiny repeated motif may be simplified. Naming it in `designs[].note` helps.
 - **Send a close-up for an edge.** A `BORDER`, hem, cuff or waistband design is always made as a band
   along that edge. If its picture is a whole garment patterned all over, it is still used only as a
-  band, and the `brief` event says so — but a close-up of the band itself gives a closer match.
+  band - a close-up of the band itself gives a closer match.
 - **Embellishment shapes are approximate.** Measured: small cone tassels came back as round latkans
   with pearls, and a feathered gota fringe as a flat scalloped band. The placement and colours were
   right; the exact shape of a small 3D trim is the least reliable detail.
@@ -408,4 +397,4 @@ Inside the stream (`error` event):
   fringe gives a fringed waistband; tassels are only removed where they are not the named part (the
   ends of a dupatta photographed whole, a saree pallu).
 - **One photograph shows one side.** A `BACK` design turns the model around; front areas in the same
-  request are then hidden, and `start.warnings` says so.
+  request are then hidden.
