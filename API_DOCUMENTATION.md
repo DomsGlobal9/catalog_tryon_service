@@ -219,7 +219,10 @@ A `color` the service cannot read is refused **before** any generation, as JSON 
 every fold, the gold zari stayed gold and the woven motifs kept their size and layout. Two faults in
 that run: the maroon blouse visible in the reference and the maroon selvedge band of the border also
 came out blue. The prompt now names that outcome as forbidden ("the blouse must NOT become Royal
-Blue"); that wording has passed the offline checks but has not yet been proven in a paid run.
+Blue"). **Second run, same day, after that change:** a red Banarasi with a gold brocade blouse asked for
+in Emerald Green `#0B6E4F`, `saree1`. Four views in **28 s**. The saree went an even emerald green, the
+blouse stayed red-and-gold brocade, the gold border and zari stayed gold, and the diamond and paisley
+motifs kept their size and layout.
 
 ### Available `modelId` values — 22 in the database
 
@@ -694,7 +697,8 @@ plus the live suite (`npm run test:live`).
 | Call | Result |
 | :--- | :--- |
 | Women, 4 views, garment supplied as a URL | `200`, 4 × `VIEW_READY` at 895×1200, then `COMPLETE` |
-| Women, colour variant (`color: Royal Blue #2745A8`), local service, real Gemini (24 Sep 2026) | `200`, `COLOR_VARIANT`, 4 × `VIEW_READY` (895×1200, 456–574 KB), `COMPLETE` with `colorVariant`, 107 s. Body recoloured evenly, zari stayed gold; blouse and selvedge wrongly recoloured (prompt strengthened since, unverified). |
+| Women, colour variant (`color: Royal Blue #2745A8`), local service, real Gemini (24 Sep 2026) | `200`, `COLOR_VARIANT`, 4 × `VIEW_READY` (895×1200, 456–574 KB), `COMPLETE` with `colorVariant`, 107 s. Body recoloured evenly, zari stayed gold; blouse and selvedge wrongly recoloured, which led to the stronger wording below. |
+| Women, colour variant (`color: Emerald Green #0B6E4F`) after the stronger wording, real Gemini (24 Sep 2026) | `200`, 4 × `VIEW_READY` (895×1200, 384–493 KB), 28 s. Saree recoloured evenly; blouse, border and zari kept their colours; motifs kept size and layout. |
 | Women, colour variant, whole pipeline against a Gemini stub (25 checks, free) | Bad colour → `400 INVALID_COLOR` before any call; 4 calls with `color`, the colour rule only in the front call, the pinned background in all four; 0 changes without `color`; switches and aliases; 5-call fallback mode |
 | Men, `SHERWANI`, `sizes: ["M"]` | `200`, `SIZE_READY` (476 KB JPEG), then `COMPLETE` — two events at the time, see the duplicate-event note |
 | Missing `clientId`/`modelId` | `400` |

@@ -2,7 +2,7 @@
 
 Status: **built on 24 September 2026.** First written on 15 September 2026, revised the same day it was built with the review notes (structured `color` field, preserve and do-not lists, the zari safeguard, and an honest accuracy field in the response). The caller-facing description is in `API_DOCUMENTATION.md` under *Colour variants*; this file keeps the reasoning.
 
-**What the one paid run showed (24 September 2026):** green-and-gold silk saree → Royal Blue `#2745A8`, 107 s for four views. The body recoloured evenly, the gold zari stayed gold, the motifs kept their layout, and the three other views matched the front. The blouse and the border's selvedge band also turned blue although told to stay. The rule was reworded to name the forbidden outcome ("the blouse must NOT become Royal Blue") in the colour rule, in the negatives and in the blouse paragraph. That rewording is checked offline and not yet proven in a paid run.
+**What the one paid run showed (24 September 2026):** green-and-gold silk saree → Royal Blue `#2745A8`, 107 s for four views. The body recoloured evenly, the gold zari stayed gold, the motifs kept their layout, and the three other views matched the front. The blouse and the border's selvedge band also turned blue although told to stay. The rule was reworded to name the forbidden outcome ("the blouse must NOT become Royal Blue") in the colour rule, in the negatives and in the blouse paragraph. A second paid run after the rewording (red Banarasi with a gold brocade blouse → Emerald Green `#0B6E4F`, 28 s) came out right: saree green, blouse still red-and-gold, border and zari still gold, motifs unchanged.
 
 ## What you asked
 
