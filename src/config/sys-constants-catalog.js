@@ -118,6 +118,92 @@ const VIEW_INSTRUCTIONS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// COLOUR VARIANT — "the same product, in another colour"
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The strongest rule in the prompt is EXACT COLOUR. A colour variant contradicts
+// it on purpose, so this is one precise exception carved out for the FRONT view
+// only: the base fabric takes the target colour, and everything else keeps the
+// reference's colour. The back, side and sitting views are made from the
+// finished front and never see the original flat-lay, so they inherit the new
+// colour with no colour instruction of their own. One source of truth.
+//
+// The common failure with "make it red" is gold zari turning reddish-gold and
+// embroidery drifting with it. So the block names, part by part, what changes
+// and what does not.
+//
+const garmentNoun = (category) => {
+  const cat = String(category || '').trim().toUpperCase();
+  const normalised = CATEGORY_ALIASES[cat] || cat;
+  return ({ SAREE: 'saree', LEHANGA: 'lehenga', ANARKALI: 'anarkali', SHARARA: 'sharara', KURTHI: 'kurthi' })[normalised] || 'garment';
+};
+
+/** The target colour, said in words the image model can act on. */
+function colourTargetLine(colour) {
+  const article = /^[aeiou]/i.test(colour.description) ? 'an' : 'a';
+  return colour.hex
+    ? `TARGET COLOUR: ${colour.name} - ${article} ${colour.description} tone (colour reference ${colour.hex}).`
+    : `TARGET COLOUR: ${colour.name} - ${article} ${colour.description} tone.`;
+}
+
+/** What changes and what does not. Shared by the front prompt and the recolour pass. */
+function colourChangeList(colour, category) {
+  const g = garmentNoun(category);
+  return [
+    `- The BASE FABRIC of the ${g} -> the target colour, evenly, in every fold, pleat and drape, in shadow and in highlight alike.`,
+    '- Gold or silver zari, metallic thread, sequins, stones and beads -> UNCHANGED. Gold stays gold and silver stays silver. Never tint metal towards the target colour.',
+    '- Embroidery, prints, woven motifs and their thread colours -> UNCHANGED in colour, size, spacing and placement. (Only a motif woven in the base colour itself, tone-on-tone, follows the base colour.)',
+    colour.border
+      ? '- Border -> recoloured to the target colour along with the base fabric. Its zari, motifs, width and style stay exactly as in the reference.'
+      : `- Border -> UNCHANGED. It keeps exactly the colour it has in the reference, including any plain selvedge band along its edge, and its width and style. The border must NOT become ${colour.name} unless it already is that colour in the reference.`,
+    colour.blouse
+      ? `- Blouse -> recoloured to the target colour to match the ${g}. Its neckline, sleeves, fabric texture and embroidery stay exactly as specified above.`
+      : `- Blouse -> UNCHANGED. It keeps exactly the colour it has in the reference picture (or in the separate blouse picture), and its fabric and design. The blouse must NOT become ${colour.name}: only the ${g}'s base fabric changes colour, never the blouse.`,
+    '- Fabric texture, weave, sheen, weight, transparency, folds, drape, highlights and shadows -> UNCHANGED.',
+    '- The model, pose, background, lighting and framing -> UNCHANGED.'
+  ].join('\n');
+}
+
+/** RULE #2C, added to the FRONT prompt when a colour variant is requested. */
+function colourVariantRule(colour, category) {
+  const g = garmentNoun(category);
+  return `═══════════════════════════════════════════════════════════════════
+RULE #2C — COLOUR VARIANT (THIS REQUEST ONLY)
+═══════════════════════════════════════════════════════════════════
+This photograph is a COLOUR VARIANT of the reference ${g}. The product is sold in more than one colour, and this picture shows it in:
+${colourTargetLine(colour)}
+
+Recolour ONLY the ${g}'s base fabric to the target colour. The requested colour is the ONLY intended difference from the reference ${g}. Wherever RULE #2 or RULE #2B says to match the reference's colour, read it as: the BASE FABRIC takes the target colour, and everything else keeps the reference's colour exactly.
+
+What changes and what does not:
+${colourChangeList(colour, category)}
+
+Do NOT redesign the ${g}, change the pattern, change the border's width or style, change the embroidery or zari, add or remove any detail, or change anything but the colour. A colour variant is the same product in a different colour: nothing else may differ.
+`;
+}
+
+/**
+ * The fallback mode (COLOUR_VARIANT_MODE=pass): the front is made in the
+ * reference's own colour first, then this prompt recolours that finished
+ * photograph in a second call. An edit pass holds design detail very well; it
+ * costs one extra image call per variant.
+ */
+function getRecolourPassPrompt(colour, category) {
+  const g = garmentNoun(category);
+  return `[NEGATIVE PROMPTS: wrong colour, patchy colour, uneven colour, colour bleeding into zari, tinted gold, recoloured embroidery, changed pattern, changed border, redesigned garment, changed face, changed pose, changed background, different crop, added props, watermark, text overlay]
+
+You are a professional retoucher for an e-commerce catalogue. The PHOTOGRAPH shows a ${g} on a model. Produce the SAME photograph with the ${g}'s base fabric recoloured to:
+${colourTargetLine(colour)}
+
+This is a colour variant of the same product. The requested colour is the ONLY intended difference.
+
+What changes and what does not:
+${colourChangeList(colour, category)}
+
+Keep everything that is not the ${g}'s base fabric exactly as it is: the model's face, hair, skin, pose and hands, the jewellery, the background, the floor, the lighting, the shadows and the framing. Same camera, same crop, same size. The result must be indistinguishable from a real, unretouched photograph of the same shoot. Output the photograph only.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DYNAMIC PROMPT BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -126,10 +212,28 @@ const VIEW_INSTRUCTIONS = {
  * @param {string} category - 'SAREE', 'LEHANGA', etc.
  * @param {Object} inputSlots - { hasFullDress, hasTop, hasBottom, hasReference }
  * @param {string} environmentPrompt - The randomly selected background description
+ * @param {Object} [options]
+ * @param {Object|null} [options.colour] - a parsed colour variant (see services/colourVariant.js).
+ *   Applied to the FRONT view only; the other views inherit it from the front photograph.
+ *   With no colour the prompt is byte-identical to the one built without this parameter.
  */
-function getDynamicPrompt(viewType, category, inputSlots, environmentPrompt = '') {
+function getDynamicPrompt(viewType, category, inputSlots, environmentPrompt = '', options = {}) {
   const categoryInstruction = getCategoryPrompt(category);
   const viewInstruction = VIEW_INSTRUCTIONS[viewType];
+  const colour = viewType === 'FRONT' && options && options.colour ? options.colour : null;
+
+  // With a colour variant, three lines in the prompt would fight the recolour.
+  const negativeColour = colour
+    ? ['wrong colour, patchy colour, uneven colour, colour bleeding into zari, tinted gold, recoloured embroidery',
+      colour.blouse ? '' : 'recoloured blouse, blouse in the target colour',
+      colour.border ? '' : 'recoloured border, selvedge in the target colour'].filter(Boolean).join(', ')
+    : 'altered colour, colour shift';
+  const colourRule = colour
+    ? `- COLOUR: see RULE #2C. This request is a COLOUR VARIANT - the base fabric takes
+  the target colour, and every other colour in the reference is kept exactly.`
+    : `- EXACT COLOUR. Match the hue, saturation and tone of the reference precisely.
+  Do not brighten, deepen, warm, cool or "correct" the colour.`;
+  const colourVariantSection = colour ? colourVariantRule(colour, category) : '';
 
   let blouseInstruction = '';
   if (category.toUpperCase() === 'SAREE') {
@@ -140,15 +244,17 @@ A separate blouse image has been provided in the sequence.
 2. If the reference is unstitched flat fabric, you MUST construct a standard, modest regular neckline (strictly NO collar necks) with standard half-sleeves.
 3. If the reference is a stitched blouse, copy its exact neckline and sleeves. 
 The blouse must be tailored to fit the model's body naturally. Ignore any blouse visible in the Saree Reference.\n`;
+      if (colour && !colour.blouse) blouseInstruction += `COLOUR VARIANT: the blouse is NOT part of the colour change. It keeps the colour it has in the Blouse Reference and must NOT become ${colour.name}.\n`;
     } else {
       blouseInstruction = `\nTHE BLOUSE (No separate image provided):
 CRITICAL: Analyze the Saree Reference image carefully.
 1. IF A BLOUSE IS VISIBLE: You MUST copy its exact neckline, sleeve length, color, fabric texture, and embroidery. Reproduce the visible blouse with 100% pixel-perfect accuracy.
 2. IF NO BLOUSE IS VISIBLE (e.g. folded fabric flat-lay): You MUST generate a modest, matching blouse (standard round neckline, half-sleeves) that complements the saree. Do NOT leave the model bare.\n`;
+      if (colour && !colour.blouse) blouseInstruction += `COLOUR VARIANT: the blouse is NOT part of the colour change. A visible blouse keeps exactly the colour it has in the Saree Reference and must NOT become ${colour.name}. A generated blouse is a plain, modest blouse in the colour a blouse would have with the ORIGINAL reference saree - not ${colour.name}.\n`;
     }
   }
 
-  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, border stopping partway, border fading out, unfinished pallu edge, pallu ending in plain fabric, border missing at pallu end, interrupted border, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, altered colour, colour shift, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
+  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, border stopping partway, border fading out, unfinished pallu edge, pallu ending in plain fabric, border missing at pallu end, interrupted border, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, ${negativeColour}, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
 
 You are a professional fashion photographer conducting a catalog shoot for e-commerce.
   
@@ -175,8 +281,7 @@ inspiration. Reproduce THAT EXACT PIECE — not a similar one, not an improved o
   present in the reference. If an area of the reference is plain, it stays plain.
 - REMOVE NOTHING. Every motif, border, pattern break and texture visible in the
   reference must appear in the output. Do not simplify busy areas.
-- EXACT COLOUR. Match the hue, saturation and tone of the reference precisely.
-  Do not brighten, deepen, warm, cool or "correct" the colour.
+${colourRule}
 - EXACT SCALE. Keep motifs and borders in the same proportion to the garment as
   in the reference. A small motif stays small; a narrow border stays narrow.
 - EXACT PLACEMENT. Patterns must sit where they sit in the reference, and
@@ -194,7 +299,7 @@ inspiration. Reproduce THAT EXACT PIECE — not a similar one, not an improved o
 
 If any detail of the garment is unclear in the reference, reproduce it as plainly
 as possible. Never fill an uncertainty with invention.
-═══════════════════════════════════════════════════════════════════
+${colourVariantSection}═══════════════════════════════════════════════════════════════════
 RULE #3 — VIEW SPECIFIC & STUDIO SCENE
 ═══════════════════════════════════════════════════════════════════
 ${viewInstruction}
@@ -205,5 +310,7 @@ ${viewInstruction}
 
 module.exports = {
   getCategoryPrompt,
-  getDynamicPrompt
+  getDynamicPrompt,
+  getRecolourPassPrompt,
+  colourVariantRule
 };

@@ -7,6 +7,13 @@ let lehengaModelCounter = 1;
 function App() {
   const [category, setCategory] = useState('SAREE');
   const [selectedDupattaStyle, setSelectedDupattaStyle] = useState('');
+  // Colour variant (optional): the same garment in another colour.
+  const [colourOn, setColourOn] = useState(false);
+  const [colourName, setColourName] = useState('');
+  const [colourHex, setColourHex] = useState('#0F5132');
+  const [colourBorder, setColourBorder] = useState(false);
+  const [colourBlouse, setColourBlouse] = useState(false);
+  const [variant, setVariant] = useState(null);
   const [inputs, setInputs] = useState({
     
     fullDress: null,
@@ -150,6 +157,7 @@ function App() {
     setError(null);
     // Initialize results so the grid appears immediately with skeletons/placeholders
     setResults({ front: null, back: null, side: null, sitting: null });
+    setVariant(null);
     setStatusMsg("Starting streaming connection...");
 
     try {
@@ -170,11 +178,14 @@ console.log(`Sending to backend with modelId: ${dynamicModelId}`);
         fullDress: inputs.fullDress?.base64 || null,
         topFront: inputs.topFront?.base64 || null,
         bottom: inputs.bottom?.base64 || null,
-        dupattaStyleUrl: selectedDupattaStyle
+        dupattaStyleUrl: selectedDupattaStyle,
+        color: colourOn ? { name: colourName.trim() || undefined, hex: colourHex, border: colourBorder, blouse: colourBlouse } : undefined
       }, (event) => {
         // This callback is fired multiple times over the SSE stream!
         if (event.type === 'STATUS') {
           setStatusMsg(event.message);
+        } else if (event.type === 'COLOR_VARIANT') {
+          setVariant(event);
         } else if (event.type === 'VIEW_READY') {
           setResults(prev => ({ ...prev, [event.view]: event.image }));
         } else if (event.type === 'COMPLETE') {
@@ -341,6 +352,38 @@ console.log(`Sending to backend with modelId: ${dynamicModelId}`);
           )}
         </div>
 
+        <div className="colour-variant">
+          <label className="colour-variant-toggle">
+            <input type="checkbox" checked={colourOn} onChange={(e) => setColourOn(e.target.checked)} disabled={loading} />
+            Make this product in another colour
+          </label>
+          {colourOn && (
+            <div className="colour-variant-fields">
+              <label>
+                Colour name
+                <input type="text" value={colourName} placeholder="e.g. Bottle Green (optional: the swatch is enough)" maxLength={60}
+                  onChange={(e) => setColourName(e.target.value)} disabled={loading} />
+              </label>
+              <label>
+                Swatch
+                <input type="color" value={colourHex} onChange={(e) => setColourHex(e.target.value.toUpperCase())} disabled={loading} />
+                <span className="colour-variant-hex">{colourHex}</span>
+              </label>
+              <label className="colour-variant-check">
+                <input type="checkbox" checked={colourBorder} onChange={(e) => setColourBorder(e.target.checked)} disabled={loading} />
+                Recolour the border too
+              </label>
+              {category === 'SAREE' && (
+                <label className="colour-variant-check">
+                  <input type="checkbox" checked={colourBlouse} onChange={(e) => setColourBlouse(e.target.checked)} disabled={loading} />
+                  Recolour the blouse too
+                </label>
+              )}
+              <p className="colour-variant-note">Zari stays gold and the design stays the same. The colour comes out close to the swatch, not an exact match.</p>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1.5rem', flexWrap: 'wrap' }}>
           <button 
             className="btn-generate" 
@@ -376,6 +419,12 @@ console.log(`Sending to backend with modelId: ${dynamicModelId}`);
       {results && (
         <div style={{marginTop: '4rem'}}>
           <h2 style={{textAlign: 'center', marginBottom: '2rem'}}>Generated Output</h2>
+          {variant && (
+            <p className="colour-variant-result">
+              <span className="colour-variant-dot" style={{ background: variant.colorHex || 'transparent' }}></span>
+              Colour variant: <strong>{variant.colorName}</strong>{variant.colorHex ? ` (${variant.colorHex})` : ''} — approximate colour
+            </p>
+          )}
           <div className="results-grid">
             <div className="result-card">
               {results.front ? <img src={results.front} alt="Front View" /> : <div className="skeleton-image">Generating Front...</div>}

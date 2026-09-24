@@ -67,4 +67,4 @@ function sameColourFamily(a, b) {
   return ca.some((x) => cb.some((y) => distance(x, y) < 110));
 }
 
-module.exports = { sameColourFamily, coloursIn, distance };
+module.exports = { sameColourFamily, coloursIn, distance, NAMED };

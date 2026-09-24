@@ -275,3 +275,16 @@ body {
   margin-top: 1rem;
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* Colour variant: the same garment in another colour (WomenApp) */
+.colour-variant { margin-top: 1.5rem; text-align: left; }
+.colour-variant-toggle { display: flex; align-items: center; gap: 0.6rem; color: var(--text-muted); cursor: pointer; font-size: 0.95rem; }
+.colour-variant-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem 1.2rem; margin-top: 0.9rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: 12px; }
+.colour-variant-fields label { display: flex; flex-direction: column; gap: 0.35rem; color: var(--text-muted); font-size: 0.85rem; }
+.colour-variant-fields input[type="text"] { padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: inherit; }
+.colour-variant-fields input[type="color"] { width: 3.2rem; height: 2.2rem; border: 1px solid var(--border-color); border-radius: 8px; background: transparent; padding: 0; cursor: pointer; }
+.colour-variant-hex { font-family: monospace; font-size: 0.85rem; }
+.colour-variant-check { flex-direction: row !important; align-items: center; cursor: pointer; }
+.colour-variant-note { grid-column: 1 / -1; margin: 0; font-size: 0.8rem; color: var(--text-muted); }
+.colour-variant-result { text-align: center; color: var(--text-muted); margin: -1rem 0 1.5rem; }
+.colour-variant-dot { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 50%; border: 1px solid var(--border-color); vertical-align: middle; margin-right: 0.4rem; }

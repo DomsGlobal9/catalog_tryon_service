@@ -17,6 +17,7 @@ const aiGenerationService = require('../services/catalogAiService');
 const capacity = require('../lib/capacity');
 const shared = require('../lib/shared');
 const { admitGeneration, cancelGeneration } = require('../middleware/generationGuard');
+const { parseColourVariant, colourSummary } = require('../services/colourVariant');
 
 // Running jobs, the zombie killer and admission control live in
 // middleware/generationGuard.js, shared with the men pipeline and visible to
@@ -79,6 +80,21 @@ router.post('/generate-catalog/women', async (req, res) => {
     // Default category to SAREE if not provided
     const safeCategory = (category || 'SAREE').toUpperCase();
 
+    // COLOUR VARIANT (optional): "the same saree, in another colour".
+    // `color`, `colour` or `colorVariant`; a name, a hex code, or an object.
+    // Refused as a clear 400 before any slot is taken or any call is made.
+    let colour = null;
+    try {
+      const raw = req.body.color !== undefined ? req.body.color
+        : req.body.colour !== undefined ? req.body.colour
+        : req.body.colorVariant;
+      colour = parseColourVariant(raw);
+    } catch (err) {
+      if (err.code === 'INVALID_COLOR') return res.status(400).json({ success: false, error: err.message, code: 'INVALID_COLOR' });
+      throw err;
+    }
+    const variant = colourSummary(colour);
+
     // 1. Fetch the exact 4 Base Poses from the Database for this model
     const model = await prisma.aiModel.findUnique({
       where: { id: modelId }
@@ -140,6 +156,9 @@ console.log('==========================');
     res.flushHeaders(); 
 
     res.write(`data: ${JSON.stringify({ type: 'STATUS', message: 'Starting AI Generation Pipeline...' })}\n\n`);
+    // Says what colour was asked for, and that the result is close to it, not
+    // an exact hex match: model-made pixels cannot promise that.
+    if (variant) res.write(`data: ${JSON.stringify({ type: 'COLOR_VARIANT', ...variant })}\n\n`);
 
     // Keep the connection provably alive across the 14-25s gaps between views.
     // An SSE comment line is ignored by every compliant client, so this cannot
@@ -158,7 +177,8 @@ console.log('==========================');
     topBack,
     bottom,
     category: safeCategory,
-    dupattaStyleUrl
+    dupattaStyleUrl,
+    colour
   },
       {
         front: finalFrontBaseUrl,
@@ -167,6 +187,11 @@ console.log('==========================');
         sitting: model.sittingBaseUrl
       },
       (progressEvent) => {
+        // A step has started (the recolour pass) - or a view has finished.
+        if (progressEvent.type === 'status') {
+          res.write(`data: ${JSON.stringify({ type: 'STATUS', message: progressEvent.message })}\n\n`);
+          return;
+        }
         // Fire events back to the client the millisecond a view finishes!
         res.write(`data: ${JSON.stringify({ type: 'VIEW_READY', ...progressEvent })}\n\n`);
       },
@@ -183,7 +208,7 @@ console.log('==========================');
     });
 
     // 5. Close stream
-    res.write(`data: ${JSON.stringify({ type: 'COMPLETE', jobId: jobId })}\n\n`);
+    res.write(`data: ${JSON.stringify(variant ? { type: 'COMPLETE', jobId: jobId, colorVariant: variant } : { type: 'COMPLETE', jobId: jobId })}\n\n`);
     res.end();
 
   } catch (error) {

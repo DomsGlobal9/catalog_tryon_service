@@ -36,6 +36,12 @@ MAX_CONCURRENT_GENERATIONS=3      # per server, both pipelines together; excess 
 GENERATION_RATE_LIMIT_PER_HOUR=60 # generations per customer per hour, across all servers; 0 = off
 KEEP_ALIVE_TIMEOUT_MS=65000       # longer than the load balancer's idle timeout, avoids stray 502s
 
+# ── Colour variants (women's catalog; optional) ──────────────────────────────
+# A request with `color` makes the same garment in another colour.
+COLOUR_VARIANT_MODE=front         # front (default): recolour inside the front call, 4 image calls
+                                  # pass: make the front, then recolour it in a 2nd call (5 calls) - holds detail best
+# GEMINI_BASE_URL=                # tests only: point the catalog pipelines at a local Gemini stub
+
 # ── Design Studio (all optional) ─────────────────────────────────────────────
 # Designs + fabrics -> one garment on a model, in one Gemini call. Uses GEMINI_API_KEY.
 DESIGNSTUDIO_MODEL=gemini-3.1-flash-image

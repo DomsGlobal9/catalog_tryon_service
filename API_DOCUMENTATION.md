@@ -106,6 +106,7 @@ sitting — generated onto a chosen AI model.
 | `bottom` | String | No | Skirt or pants. |
 | `category` | String | No | Defaults to `SAREE`. See *Category handling*. |
 | `dupattaStyleUrl` | String | No | **LEHANGA only.** See *Dupatta style*. |
+| `color` | String or Object | No | **Colour variant:** the same garment in another colour. A name, a hex code, or `{ name, hex, border, blouse }`. See *Colour variants*. `colour` and `colorVariant` are accepted as aliases. |
 | `topBack` | String | No | **Accepted but ignored** — see below. |
 
 #### ⚠️ `topBack` is accepted and silently discarded
@@ -156,6 +157,69 @@ shorthand key or a full image URL:
 
 The reference controls **only how the dupatta is draped** — not its colour, fabric or embroidery,
 which come from the garment reference.
+
+#### Colour variants — the same garment in another colour
+
+A product is usually sold in several colours, but you have a picture of only one. Send `color`
+and the catalog is made in that colour: **the base fabric changes, and nothing else does.** Gold
+or silver zari stays metallic, embroidery and motifs keep their colours, size and placement, and
+the design, drape and model are the same as without `color`.
+
+```json
+{ "clientId": "acme-retail", "modelId": "saree1", "category": "SAREE",
+  "saree": "https://cdn.shop/green-silk-saree.jpg",
+  "color": { "name": "Royal Blue", "hex": "#2745A8" } }
+```
+
+| Form | Example | What the service does |
+| :--- | :--- | :--- |
+| Name and hex | `{ "name": "Royal Blue", "hex": "#2745A8" }` | The name steers the model; the hex is sent as a reference. Best results. |
+| Hex only | `"#2745A8"` or `{ "hex": "#2745A8" }` | The nearest colour name is worked out and used (`#2745A8` → *Royal Blue*; `#0F5132` → *Bottle Green*). |
+| Name only | `"Bottle Green"` | Used as it is. Letters, spaces, hyphens and apostrophes, up to 60 characters. |
+
+Two optional switches on the object form, both `false` by default:
+
+| Switch | Default | `true` |
+| :--- | :--- | :--- |
+| `border` | The border keeps its own colour, width and style. | The border is recoloured with the body; its zari and motifs still stay as they are. |
+| `blouse` | The blouse keeps its own colour and design (SAREE). | The blouse is recoloured to match; its neckline, sleeves and embroidery stay as they are. |
+
+**What to expect:**
+
+* **One colour per request.** The gateway closes a request at 90 seconds and one four-view catalog
+  takes about 60–110 seconds, so several colours in one request would time out. Loop over colours,
+  one request each, with a **different `clientId` per colour** — the same `clientId` cancels the
+  previous job.
+* **The background is fixed.** Without `color` each catalog gets a random studio prop. With `color`
+  every request uses the same plain studio, so the red, green and blue versions of one product sit
+  in the same setting. To get the original colour in that same setting, send it as a variant too.
+* **The colour is close, not exact.** An image model cannot hit a hex value. `#2745A8` gives *a*
+  royal blue that will differ slightly between runs. Every response says so: `colorAccuracy` is
+  always `"approximate"`. Call it "Royal Blue" on the product page, not "#2745A8".
+* **Cost.** Same as a normal catalog: 4 image calls. (The service can be switched to a 5-call mode
+  that recolours the finished front in a separate pass; that is a server setting, not a request field.)
+* **Without `color` nothing changes.** The prompts sent for a request with no colour are byte-identical
+  to the ones before this feature existed; that is checked by the test suite.
+
+**Two extra things in the stream.** Right after the first `STATUS`, a `COLOR_VARIANT` event says what
+was understood; `COMPLETE` repeats it as `colorVariant`:
+
+```json
+{ "type": "COLOR_VARIANT", "requestedColor": "#2745A8", "colorName": "Royal Blue",
+  "colorHex": "#2745A8", "colorAccuracy": "approximate",
+  "recolourBorder": false, "recolourBlouse": false }
+```
+
+A `color` the service cannot read is refused **before** any generation, as JSON `400` with
+`"code": "INVALID_COLOR"` and a message that says what to send, for example
+`color "#12" is not a valid hex code. Use #RRGGBB, for example "#0F5132".`
+
+**Measured (24 September 2026, one run):** a green-and-gold silk saree asked for in Royal Blue
+`#2745A8`, default switches, `saree2`. Four views in **107 s**. The body came out an even royal blue in
+every fold, the gold zari stayed gold and the woven motifs kept their size and layout. Two faults in
+that run: the maroon blouse visible in the reference and the maroon selvedge band of the border also
+came out blue. The prompt now names that outcome as forbidden ("the blouse must NOT become Royal
+Blue"); that wording has passed the offline checks but has not yet been proven in a paid run.
 
 ### Available `modelId` values — 22 in the database
 
@@ -238,7 +302,11 @@ arrival position.
 `view` is one of `front`, `back`, `side`, `sitting`. Verified output: JPEG, roughly 830×1260 to
 895×1200, 370–540 KB per view.
 
-**`COMPLETE`** — all four views done.
+**`COLOR_VARIANT`** — only when the request carried `color`; sent right after the first `STATUS`.
+Says what colour was understood and that the result is approximate. See *Colour variants*.
+
+**`COMPLETE`** — all four views done. With `color`, it also carries `colorVariant` (the same fields
+as `COLOR_VARIANT`).
 ```json
 { "type": "COMPLETE", "jobId": "a1b2c3d4-..." }
 ```
@@ -626,6 +694,8 @@ plus the live suite (`npm run test:live`).
 | Call | Result |
 | :--- | :--- |
 | Women, 4 views, garment supplied as a URL | `200`, 4 × `VIEW_READY` at 895×1200, then `COMPLETE` |
+| Women, colour variant (`color: Royal Blue #2745A8`), local service, real Gemini (24 Sep 2026) | `200`, `COLOR_VARIANT`, 4 × `VIEW_READY` (895×1200, 456–574 KB), `COMPLETE` with `colorVariant`, 107 s. Body recoloured evenly, zari stayed gold; blouse and selvedge wrongly recoloured (prompt strengthened since, unverified). |
+| Women, colour variant, whole pipeline against a Gemini stub (25 checks, free) | Bad colour → `400 INVALID_COLOR` before any call; 4 calls with `color`, the colour rule only in the front call, the pinned background in all four; 0 changes without `color`; switches and aliases; 5-call fallback mode |
 | Men, `SHERWANI`, `sizes: ["M"]` | `200`, `SIZE_READY` (476 KB JPEG), then `COMPLETE` — two events at the time, see the duplicate-event note |
 | Missing `clientId`/`modelId` | `400` |
 | Men without a garment image | `400` |

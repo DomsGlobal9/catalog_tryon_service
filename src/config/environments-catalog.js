@@ -55,6 +55,14 @@ const ENVIRONMENTS = [
   "CRITICAL BACKGROUND RULE: PRESERVE THE EXACT SAME BACKGROUND COLOR AND WALL FROM THE BASE MODEL REFERENCE IMAGE. DO NOT ALTER IT IN ANY WAY. Do not add any physical props, just add this lighting effect: a subtle, warm spotlight creating a gentle glowing halo on the wall directly behind the model."
 ];
 
+// The background used when a COLOUR VARIANT is requested. The random prop above
+// would put the red variant and the green variant of the same saree in
+// different rooms, which is useless as a product-page set. A variant set shares
+// this one plain, prop-free studio, so the only difference between the pictures
+// is the colour.
+const VARIANT_ENVIRONMENT = "CRITICAL BACKGROUND RULE: PRESERVE THE EXACT SAME BACKGROUND COLOR AND WALL FROM THE BASE MODEL REFERENCE IMAGE. DO NOT ALTER IT IN ANY WAY. Do not add any props and do not add any lighting effects. This photograph is one of a colour-variant set of the same product, and every picture in the set must share this identical plain studio background.";
+
 module.exports = {
-  ENVIRONMENTS
+  ENVIRONMENTS,
+  VARIANT_ENVIRONMENT
 };

@@ -1,4 +1,4 @@
-export const generateCatalog = async ({ fullDress, topFront, bottom, category, dupattaStyleUrl }, onEvent, modelId = "saree1", abortSignal = null) => {
+export const generateCatalog = async ({ fullDress, topFront, bottom, category, dupattaStyleUrl, color }, onEvent, modelId = "saree1", abortSignal = null) => {
   const isDev = import.meta.env.DEV;
   const url = isDev 
     ? "http://localhost:4005/api/v1/draping/generate-catalog"
@@ -20,6 +20,9 @@ export const generateCatalog = async ({ fullDress, topFront, bottom, category, d
   if (category === 'LEHANGA' && dupattaStyleUrl) {
   payload.dupattaStyleUrl = dupattaStyleUrl;
 }
+  // Colour variant: the same garment in another colour. Optional; leave it
+  // out and the catalog is made in the colour of the uploaded picture.
+  if (color) payload.color = color;
 
   if (category === 'SAREE') {
     payload.saree = fullDress;

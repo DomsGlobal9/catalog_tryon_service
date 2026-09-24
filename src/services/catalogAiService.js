@@ -1,6 +1,32 @@
-const { getDynamicPrompt } = require('../config/sys-constants-catalog');
-const { ENVIRONMENTS } = require('../config/environments-catalog');
+const { getDynamicPrompt, getRecolourPassPrompt } = require('../config/sys-constants-catalog');
+const { ENVIRONMENTS, VARIANT_ENVIRONMENT } = require('../config/environments-catalog');
 const sharp = require('sharp');
+
+// =============================================================================
+// COLOUR VARIANTS
+// =============================================================================
+// "The same saree, in another colour." Two ways to make the front view:
+//
+//   front (default)  the recolour rule is part of the front prompt, so the
+//                    front is made in the new colour in one call. Same cost as
+//                    a normal catalog: 4 image calls.
+//   pass             the front is made as usual, then a second call recolours
+//                    that finished photograph. Holds design detail best; costs
+//                    one extra image call. Switch to it if the default lets
+//                    colour leak into the zari or drift the motifs.
+//
+// Either way the back, side and sitting views are made from the finished
+// front and carry no colour instruction of their own: one source of truth.
+const COLOUR_VARIANT_MODE = (process.env.COLOUR_VARIANT_MODE || 'front').trim().toLowerCase() === 'pass' ? 'pass' : 'front';
+
+/**
+ * The background for this generation. A colour variant pins it: the random
+ * prop would put each colour of the same saree in a different room.
+ */
+function pickEnvironment(colour) {
+  if (colour) return VARIANT_ENVIRONMENT;
+  return ENVIRONMENTS[Math.floor(Math.random() * ENVIRONMENTS.length)];
+}
 
 /**
  * Helper: Download an image URL and convert to Base64
@@ -102,7 +128,10 @@ async function callGeminiImageGen(partsArray, abortSignal) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set in .env');
 
-  const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent";
+  // GEMINI_BASE_URL lets a test point this at a local stub, so an end-to-end
+  // run of the pipeline costs nothing. Unset in production.
+  const GEMINI_BASE = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+  const GEMINI_URL = `${GEMINI_BASE}/v1beta/models/gemini-3.1-flash-image:generateContent`;
 
   const payload = {
     contents: [ { parts: partsArray } ],
@@ -236,12 +265,14 @@ const {
   topFront,
   bottom,
   category,
-  dupattaStyleUrl
+  dupattaStyleUrl,
+  colour = null
 } = inputs;
-    console.log(`Starting Sequential Generation Flow for Category: ${category}`);
+    console.log(`Starting Sequential Generation Flow for Category: ${category}${colour ? ` | colour variant: ${colour.name}${colour.hex ? ' ' + colour.hex : ''} (mode ${COLOUR_VARIANT_MODE})` : ''}`);
 
     // Select a random premium environment for this generation session
-    const randomEnv = ENVIRONMENTS[Math.floor(Math.random() * ENVIRONMENTS.length)];
+    // (pinned to one plain studio when a colour variant is requested).
+    const randomEnv = pickEnvironment(colour);
     console.log(`Selected Dynamic Environment: ${randomEnv.substring(0, 60)}...`);
 
     // Base models: cached, and prepared concurrently on a cold cache. Was four
@@ -346,15 +377,32 @@ const buildPayloadParts = (
     // 1. Generate Front View (Anchor)
     console.log('Generating Front View...');
     if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
-    const frontPrompt = getDynamicPrompt('FRONT', category, inputSlots, randomEnv);
+    // In 'front' mode the colour rule is part of this prompt. In 'pass' mode
+    // the front is made in the reference's own colour and recoloured next.
+    const frontColour = colour && COLOUR_VARIANT_MODE === 'front' ? colour : null;
+    const frontPrompt = getDynamicPrompt('FRONT', category, inputSlots, randomEnv, { colour: frontColour });
    const frontParts = buildPayloadParts(
   frontPrompt,
   frontBase,
   null,
   category === 'LEHANGA' && !!processedDupattaStyle
 );
-    const generatedFront = await callGeminiImageGen(frontParts, abortSignal);
+    let generatedFront = await callGeminiImageGen(frontParts, abortSignal);
     console.log('✅ Front View generated successfully.');
+
+    if (colour && COLOUR_VARIANT_MODE === 'pass') {
+      if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
+      console.log(`Recolouring the front view to ${colour.name}...`);
+      if (onProgress) onProgress({ type: 'status', message: `Recolouring the front view to ${colour.name}...` });
+      const mime = (generatedFront.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
+      generatedFront = await callGeminiImageGen([
+        { text: getRecolourPassPrompt(colour, category) },
+        { text: 'PHOTOGRAPH — the catalogue photograph to recolour (keep everything but the base fabric colour exactly as it is):' },
+        { inline_data: { mime_type: mime, data: cleanBase64(generatedFront) } }
+      ], abortSignal);
+      console.log('✅ Front View recoloured successfully.');
+    }
+
     if (onProgress) onProgress({ view: 'front', image: generatedFront });
 
     // 2. Generate Dependent Views (passing the generatedFront as a reference)
@@ -424,6 +472,8 @@ const buildPayloadParts = (
 
 module.exports = {
   generate4ViewCatalog,
+  pickEnvironment,
+  COLOUR_VARIANT_MODE,
   // Exported so the retry behaviour can be pinned by a test. The response body
   // read sits inside the retry loop; a dropped download must be retried, not
   // fatal, and that is worth regression coverage rather than trust.

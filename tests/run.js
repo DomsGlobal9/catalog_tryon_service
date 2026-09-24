@@ -94,6 +94,91 @@ async function offline() {
   check('flat-lay fidelity rule present',
     sysConstants.getDynamicPrompt('FRONT', 'SAREE', {}, 'bg').includes('RULE #2B'));
 
+  section('COLOUR VARIANTS  (the same saree in another colour; nothing changes without one)');
+  const { parseColourVariant, colourSummary } = require(path.join(SRC, 'services/colourVariant'));
+  const crypto = require('crypto');
+  const frontSlots = { hasFullDress: true, hasTop: false, hasBottom: false, hasReference: false };
+  const dependentSlots = { hasFullDress: false, hasTop: false, hasBottom: false, hasReference: true };
+  // The regression guarantee. This fingerprint was taken from every view x
+  // category x blouse combination BEFORE the colour-variant feature existed.
+  // A request without a colour must produce exactly those prompts, byte for
+  // byte. If you change the prompts on purpose, re-pin it.
+  const fingerprint = crypto.createHash('sha256');
+  for (const v of ['FRONT', 'BACK', 'SIDE', 'SITTING']) {
+    for (const cat of ['SAREE', 'LEHANGA', 'ANARKALI', 'SHARARA', 'KURTHI', 'DEFAULT']) {
+      for (const top of [true, false]) {
+        fingerprint.update(sysConstants.getDynamicPrompt(v, cat, { hasFullDress: v === 'FRONT', hasTop: top && v === 'FRONT', hasBottom: false, hasReference: v !== 'FRONT' }, 'bg'));
+      }
+    }
+  }
+  eq('without a colour every prompt is byte-identical to before the feature (pinned fingerprint)',
+    fingerprint.digest('hex'), 'b1cb0bfbff949258d9a28e49604a85a6fd17f24235fa57c73c7eb922f0754e2c');
+  const plainFront = sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg');
+  check('an empty options object or a null colour changes nothing',
+    plainFront === sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', {})
+    && plainFront === sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', { colour: null }));
+
+  eq('"#0F5132" -> Bottle Green, in words the model can use, hex kept as the reference',
+    parseColourVariant('#0F5132'), { name: 'Bottle Green', hex: '#0F5132', description: 'deep, rich bottle green', border: false, blouse: false });
+  eq('a plain name is enough', parseColourVariant('bottle green'), { name: 'Bottle Green', hex: null, description: 'bottle green', border: false, blouse: false });
+  eq('a 3-digit hex expands, case is normalised', [parseColourVariant('#0f5').hex, parseColourVariant('6d1a36').hex], ['#00FF55', '#6D1A36']);
+  eq('the object form with switches', parseColourVariant({ name: 'wine', hex: '#6d1a36', border: true, blouse: 'true' }),
+    { name: 'Wine', hex: '#6D1A36', description: 'deep, rich wine', border: true, blouse: true });
+  eq('nothing asked -> null', [parseColourVariant(undefined), parseColourVariant(null), parseColourVariant(''), parseColourVariant('  '), parseColourVariant({})], [null, null, null, null, null]);
+  const refused = (raw) => { try { parseColourVariant(raw); return null; } catch (e) { return e; } };
+  check('bad input is refused as a 400 with code INVALID_COLOR and a message that says what to send',
+    ['#12', { hex: 'zzz' }, { name: 'x<script>' }, ['a'], { border: true }, 'a'.repeat(61)]
+      .map(refused).every((e) => e && e.status === 400 && e.code === 'INVALID_COLOR' && /Bottle Green|#0F5132|characters/.test(e.message)));
+
+  const bottle = parseColourVariant({ name: 'Bottle Green', hex: '#0F5132' });
+  const front = sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', { colour: bottle });
+  check('the front prompt carries RULE #2C with the target colour in words and as a hex reference',
+    /RULE #2C — COLOUR VARIANT/.test(front) && front.includes('TARGET COLOUR: Bottle Green - a deep, rich bottle green tone (colour reference #0F5132).'));
+  check('the EXACT COLOUR rule and the colour-shift negatives are replaced, not left to fight the recolour',
+    !/EXACT COLOUR\./.test(front) && !/altered colour, colour shift/.test(front) && /tinted gold, recoloured embroidery/.test(front));
+  check('zari stays gold; embroidery, prints and motifs keep their colours',
+    /Gold stays gold and silver stays silver/.test(front) && /Embroidery, prints, woven motifs and their thread colours -> UNCHANGED/.test(front));
+  check('the border and the blouse keep their own colour by default',
+    /Border -> UNCHANGED/.test(front) && /Blouse -> UNCHANGED/.test(front));
+  // Measured in the one paid run: "keeps its own colour" was not enough - the
+  // maroon blouse and the border's selvedge came out in the new colour. The
+  // forbidden outcome is now named, in the colour rule, in the negatives and
+  // in the blouse paragraph.
+  check('the blouse and the border are told the colour they must NOT become',
+    /The blouse must NOT become Bottle Green/.test(front) && /The border must NOT become Bottle Green/.test(front)
+    && /recoloured blouse, blouse in the target colour, recoloured border, selvedge in the target colour/.test(front)
+    && /COLOUR VARIANT: the blouse is NOT part of the colour change/.test(front));
+  check('with a separate blouse picture the blouse paragraph says the same',
+    /keeps the colour it has in the Blouse Reference and must NOT become Bottle Green/.test(sysConstants.getDynamicPrompt('FRONT', 'SAREE', { ...frontSlots, hasTop: true }, 'bg', { colour: bottle })));
+  const both = sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', { colour: parseColourVariant({ hex: '#0F5132', border: true, blouse: true }) });
+  check('the border and the blouse follow the colour only when asked',
+    /Border -> recoloured to the target colour/.test(both) && /Blouse -> recoloured to the target colour/.test(both));
+  check('those warnings disappear when the blouse and border are meant to follow the colour',
+    !/must NOT become/.test(both) && !/recoloured blouse|recoloured border/.test(both) && !/COLOUR VARIANT: the blouse/.test(both));
+  check('every other fidelity rule is still in place',
+    ['RULE #1', 'ADD NOTHING', 'REMOVE NOTHING', 'EXACT SCALE', 'EXACT PLACEMENT', 'CONTINUOUS BORDERS', 'FABRIC BEHAVIOUR', 'RULE #3'].every((k) => front.includes(k)));
+  check('the back, side and sitting prompts ignore the colour: they inherit it from the front photograph',
+    ['BACK', 'SIDE', 'SITTING'].every((v) => sysConstants.getDynamicPrompt(v, 'SAREE', dependentSlots, 'bg', { colour: bottle }) === sysConstants.getDynamicPrompt(v, 'SAREE', dependentSlots, 'bg')));
+  check('the wording follows the garment (lehenga, kurthi via its alias)',
+    sysConstants.getDynamicPrompt('FRONT', 'LEHENGA', frontSlots, 'bg', { colour: bottle }).includes("Recolour ONLY the lehenga's base fabric")
+    && sysConstants.getDynamicPrompt('FRONT', 'KURTI', frontSlots, 'bg', { colour: bottle }).includes("Recolour ONLY the kurthi's base fabric"));
+  const pass = sysConstants.getRecolourPassPrompt(bottle, 'SAREE');
+  check('the recolour-pass prompt (fallback mode) recolours a finished photograph and keeps everything else',
+    /Produce the SAME photograph/.test(pass) && /Gold stays gold/.test(pass) && /Same camera, same crop, same size/.test(pass) && pass.includes('#0F5132'));
+
+  const catalogSvc = require(path.join(SRC, 'services/catalogAiService'));
+  const { ENVIRONMENTS, VARIANT_ENVIRONMENT } = require(path.join(SRC, 'config/environments-catalog'));
+  check('a colour variant pins the background to one plain studio, so a variant set matches',
+    catalogSvc.pickEnvironment(bottle) === VARIANT_ENVIRONMENT && catalogSvc.pickEnvironment(parseColourVariant('red')) === VARIANT_ENVIRONMENT && /Do not add any props/.test(VARIANT_ENVIRONMENT));
+  check('without a colour the background is still one of the random props',
+    [1, 2, 3, 4, 5].every(() => ENVIRONMENTS.includes(catalogSvc.pickEnvironment(null))));
+  eq('the mode defaults to recolouring in the front call (4 image calls, no extra cost)', catalogSvc.COLOUR_VARIANT_MODE, 'front');
+  eq('the response says the colour is approximate, never an exact hex promise',
+    colourSummary(bottle), { requestedColor: '#0F5132', colorName: 'Bottle Green', colorHex: '#0F5132', colorAccuracy: 'approximate', recolourBorder: false, recolourBlouse: false });
+  eq('a name-only request reports the name', colourSummary(parseColourVariant('Wine')).requestedColor, 'Wine');
+  eq('no colour, no summary', colourSummary(null), null);
+
+
   section('INSTRUCTION PARSER');
   let r = parseInstruction('i want red bridal kanjivaram saree pallu designs with heavy zari');
   eq('spec example 1', [r.category, r.designType, r.keywords],
@@ -796,6 +881,18 @@ async function sharedStateWithoutDatabase() {
     check('budget refusal says when to retry', Number(res4.headers['retry-after']) >= 1 && Number(res4.headers['retry-after']) <= 3600 && /per hour/.test(res4.body.error),
       'Retry-After ' + res4.headers['retry-after'] + ': ' + res4.body.error);
     eq('every slot released', capacity.stats().activeGenerations, 0);
+    // COLOUR VARIANTS, at the route: a bad colour is refused as a JSON 400 before
+    // it touches the database or takes a generation slot. (Lives here because
+    // loading the route loads the capacity module, whose limits this section sets.)
+    const womenRouter = require(path.join(SRC, 'routes/catalogRoutes'));
+    const womenHandler = womenRouter.stack.find((l) => l.route && l.route.path === '/generate-catalog/women').route.stack[0].handle;
+    const routeRes = () => ({ statusCode: 200, body: null, headersSent: false, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, setHeader() {}, write() {}, end() {}, on() {} });
+    const badColour = routeRes();
+    await womenHandler({ body: { clientId: 'c', modelId: 'saree1', saree: 'x', color: '#12' }, on() {} }, badColour);
+    eq('the route answers a bad colour with 400 INVALID_COLOR', [badColour.statusCode, badColour.body && badColour.body.code], [400, 'INVALID_COLOR']);
+    const badColour2 = routeRes();
+    await womenHandler({ body: { clientId: 'c', modelId: 'saree1', saree: 'x', colour: { name: 'Bottle Green', hex: 'not-a-hex' } }, on() {} }, badColour2);
+    check('the alias "colour" is read too, and the message names the field', badColour2.statusCode === 400 && /color\.hex/.test(badColour2.body.error));
 
     console.log = () => {}; console.warn = () => {};
     const cJob = await admitGeneration(fakeReq('C'), fakeRes(), { clientId: 'shared-name', pipeline: 'women' });
