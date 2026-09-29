@@ -302,8 +302,16 @@ arrival position.
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
 }
 ```
-`view` is one of `front`, `back`, `side`, `sitting`. Verified output: JPEG, roughly 830×1260 to
-895×1200, 370–540 KB per view.
+`view` is one of `front`, `back`, `side`, `sitting`. Output: JPEG, **3:4 portrait, 896×1200**, about
+380–600 KB per view. Every view of a catalog has the same shape (since 29 September 2026; before that
+the shape followed each base pose photo, so a 2:3 back view could sit among 3:4 views).
+
+**Framing.** Every view keeps the base pose's framing: the model centred, her whole figure from head to
+feet in the picture, space above the head and floor below the feet, nothing cut off at an edge. The
+background prop (a stool, a rug, a vase) stays small and to the side and never moves the model; a rug
+lies centred under her feet. This fixed a front view where a rug took the centre of the picture and the
+model was pushed to the right edge and half cut off. Catalogs made before 29 September keep their old
+framing; make them again to get the new one.
 
 **`COLOR_VARIANT`** — only when the request carried `color`; sent right after the first `STATUS`.
 Says what colour was understood and that the result is approximate. See *Colour variants*.
@@ -699,6 +707,7 @@ plus the live suite (`npm run test:live`).
 | Women, 4 views, garment supplied as a URL | `200`, 4 × `VIEW_READY` at 895×1200, then `COMPLETE` |
 | Women, colour variant (`color: Royal Blue #2745A8`), local service, real Gemini (24 Sep 2026) | `200`, `COLOR_VARIANT`, 4 × `VIEW_READY` (895×1200, 456–574 KB), `COMPLETE` with `colorVariant`, 107 s. Body recoloured evenly, zari stayed gold; blouse and selvedge wrongly recoloured, which led to the stronger wording below. |
 | Women, colour variant (`color: Emerald Green #0B6E4F`) after the stronger wording, real Gemini (24 Sep 2026) | `200`, 4 × `VIEW_READY` (895×1200, 384–493 KB), 28 s. Saree recoloured evenly; blouse, border and zari kept their colours; motifs kept size and layout. |
+| Women, framing fix, red Banarasi on `saree1` with the jute-rug prop forced (the prop behind the mis-framed Mustard Gold picture), real Gemini (29 Sep 2026) | 4 views in 28 s, all 896×1200. Model centred and whole in every view; rug centred under her feet; bench fully inside the sitting view. |
 | Women, colour variant, whole pipeline against a Gemini stub (25 checks, free) | Bad colour → `400 INVALID_COLOR` before any call; 4 calls with `color`, the colour rule only in the front call, the pinned background in all four; 0 changes without `color`; switches and aliases; 5-call fallback mode |
 | Men, `SHERWANI`, `sizes: ["M"]` | `200`, `SIZE_READY` (476 KB JPEG), then `COMPLETE` — two events at the time, see the duplicate-event note |
 | Missing `clientId`/`modelId` | `400` |

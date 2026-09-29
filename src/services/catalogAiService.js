@@ -121,6 +121,21 @@ async function augmentedResize(base64Str) {
   return outputBuffer.toString('base64');
 }
 
+// OUTPUT SHAPE. Without this the image model picks the shape of whichever base
+// photo it was given: most are 3:4, but the kurti and sharara poses are 2:3 and
+// some lehenga and anarkali poses are 4:5, and one saree set came back with a
+// 2:3 back view among 3:4 views. A product page wants every view the same shape.
+// CATALOG_ASPECT_RATIO=off restores "follow the base photo".
+const ASPECT_RATIOS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']);
+function catalogAspectRatio() {
+  const raw = String(process.env.CATALOG_ASPECT_RATIO || '').trim().toLowerCase();
+  if (raw === 'off') return null;
+  if (!raw) return '3:4';
+  if (ASPECT_RATIOS.has(raw)) return raw;
+  console.warn(`[Catalog] CATALOG_ASPECT_RATIO="${raw}" is not a supported ratio; using 3:4.`);
+  return '3:4';
+}
+
 /**
  * Helper: Call Gemini 3.1 Flash Image Generation
  */
@@ -133,10 +148,12 @@ async function callGeminiImageGen(partsArray, abortSignal) {
   const GEMINI_BASE = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
   const GEMINI_URL = `${GEMINI_BASE}/v1beta/models/gemini-3.1-flash-image:generateContent`;
 
+  const aspectRatio = catalogAspectRatio();
   const payload = {
     contents: [ { parts: partsArray } ],
     generationConfig: {
       temperature: 0.1, // Low temperature for high consistency
+      ...(aspectRatio ? { imageConfig: { aspectRatio } } : {})
     }
   };
 
@@ -361,7 +378,7 @@ const buildPayloadParts = (
         parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(referenceImage) } });
       }
 
-      parts.push({ text: "CUSTOMER — The Base Model (The person to dress - PRESERVE THEIR EXACT IDENTITY, POSE AND BACKGROUND):" });
+      parts.push({ text: "CUSTOMER — The Base Model (The person to dress - PRESERVE THEIR EXACT IDENTITY, POSE, POSITION IN THE FRAME, CAMERA DISTANCE AND BACKGROUND):" });
       parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(baseImage) } });
 
       return parts;
@@ -472,6 +489,7 @@ const buildPayloadParts = (
 
 module.exports = {
   generate4ViewCatalog,
+  catalogAspectRatio,
   pickEnvironment,
   COLOUR_VARIANT_MODE,
   // Exported so the retry behaviour can be pinned by a test. The response body

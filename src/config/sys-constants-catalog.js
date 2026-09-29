@@ -118,6 +118,19 @@ const VIEW_INSTRUCTIONS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// COMPOSITION — where the model sits in the picture
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The prompt was exhaustive about drape, borders and colour and said nothing
+// about composition. Seen in production (Mustard Gold Kanchi silk, front view):
+// the random prop "a jute rug beneath the model's feet" took the centre of the
+// picture and the model was pushed to the right edge, half cut off, with most
+// of the frame empty. These two rules fix the framing for every view and keep
+// any prop out of the way.
+const COMPOSITION_RULE = `- COMPOSITION (CATALOGUE FRAMING): Keep the Base Model photograph's framing and camera distance. The model is in the CENTRE of the picture and her whole figure is visible - from the top of the head to the feet (and the seat, when she is seated) - with clear space above the head and a strip of floor visible below the feet. No part of the model or the garment - head, hands, feet, hem, pallu or dupatta - is cut off by the edge of the picture. Never move the model towards one side, never zoom in on part of her, and never leave most of the picture empty.`;
+const PROPS_RULE = `- PROPS: A prop named in the BACKGROUND line is a small, secondary detail beside or behind the model. It never takes the centre of the picture, never pushes the model away from the centre, and never changes the framing. A rug or carpet lies centred under the model's feet.`;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COLOUR VARIANT — "the same product, in another colour"
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -254,7 +267,7 @@ CRITICAL: Analyze the Saree Reference image carefully.
     }
   }
 
-  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, border stopping partway, border fading out, unfinished pallu edge, pallu ending in plain fabric, border missing at pallu end, interrupted border, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, ${negativeColour}, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin]
+  return `[NEGATIVE PROMPTS: trailing fabric, train, extra cloth on floor, plain black fabric below gold border, fabric pooling, messy hemline, cloth dragging on floor, border stopping partway, border fading out, unfinished pallu edge, pallu ending in plain fabric, border missing at pallu end, interrupted border, invented borders, added embroidery, extra motifs, hallucinated zari, embellishment not in reference, ${negativeColour}, oversaturated, restyled garment, different garment, simplified pattern, missing motifs, watermark, text overlay, logo, duplicated limbs, distorted hands, extra fingers, blurry fabric, plastic skin, model cut off at the edge of the picture, off-centre model, cropped head, cropped feet, most of the picture empty]
 
 You are a professional fashion photographer conducting a catalog shoot for e-commerce.
   
@@ -303,12 +316,16 @@ ${colourVariantSection}═══════════════════
 RULE #3 — VIEW SPECIFIC & STUDIO SCENE
 ═══════════════════════════════════════════════════════════════════
 ${viewInstruction}
+${COMPOSITION_RULE}
 - STUDIO LIGHTING: Use bright, even, professional studio lighting.
 - BACKGROUND: ${environmentPrompt || 'The background must be clean, solid, and neutral (like a professional e-commerce studio).'}
+${PROPS_RULE}
 - The result must be indistinguishable from a real, unretouched photograph.`;
 }
 
 module.exports = {
+  COMPOSITION_RULE,
+  PROPS_RULE,
   getCategoryPrompt,
   getDynamicPrompt,
   getRecolourPassPrompt,

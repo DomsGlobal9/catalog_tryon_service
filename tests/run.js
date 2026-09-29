@@ -94,15 +94,58 @@ async function offline() {
   check('flat-lay fidelity rule present',
     sysConstants.getDynamicPrompt('FRONT', 'SAREE', {}, 'bg').includes('RULE #2B'));
 
+  section('COMPOSITION  (the model centred, whole figure in frame, props kept aside)');
+  {
+    const views = ['FRONT', 'BACK', 'SIDE', 'SITTING'];
+    const cats = ['SAREE', 'LEHANGA', 'ANARKALI', 'SHARARA', 'KURTI'];
+    const all = [];
+    for (const v of views) for (const c of cats) all.push(sysConstants.getDynamicPrompt(v, c, { hasFullDress: v === 'FRONT', hasReference: v !== 'FRONT' }, 'bg'));
+    check('every view of every category carries the composition rule',
+      all.every((p) => p.includes(sysConstants.COMPOSITION_RULE)));
+    check('the rule asks for the centre, head to feet, space above and floor below, nothing cut off',
+      /CENTRE of the picture/.test(sysConstants.COMPOSITION_RULE) && /top of the head to the feet/.test(sysConstants.COMPOSITION_RULE)
+      && /strip of floor visible below the feet/.test(sysConstants.COMPOSITION_RULE) && /cut off by the edge/.test(sysConstants.COMPOSITION_RULE));
+    check('every prompt keeps props aside: never the centre, never pushing the model, rugs centred under the feet',
+      all.every((p) => p.includes(sysConstants.PROPS_RULE)) && /never pushes the model away from the centre/.test(sysConstants.PROPS_RULE) && /rug or carpet lies centred under the model's feet/.test(sysConstants.PROPS_RULE));
+    check('the props rule comes after the BACKGROUND line it refers to',
+      all.every((p) => p.indexOf('- BACKGROUND:') < p.indexOf('- PROPS:')));
+    check('the negatives name the failure seen in production',
+      all.every((p) => /model cut off at the edge of the picture, off-centre model, cropped head, cropped feet, most of the picture empty/.test(p)));
+    const svc = require(path.join(SRC, 'services/catalogAiService'));
+    const saved = process.env.CATALOG_ASPECT_RATIO;
+    const ratioFor = (v) => { if (v === undefined) delete process.env.CATALOG_ASPECT_RATIO; else process.env.CATALOG_ASPECT_RATIO = v; return svc.catalogAspectRatio(); };
+    const warn = console.warn; console.warn = () => {};
+    eq('output shape: 3:4 by default, configurable, "off" follows the base photo, junk falls back to 3:4',
+      [ratioFor(undefined), ratioFor('4:5'), ratioFor('off'), ratioFor('OFF'), ratioFor('banana')], ['3:4', '4:5', null, null, '3:4']);
+    console.warn = warn;
+    // What actually goes to the image model.
+    const realFetch = global.fetch; const realKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'offline-test-key-never-sent';
+    const sent = [];
+    global.fetch = async (_url, opts) => { sent.push(JSON.parse(opts.body)); return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ inline_data: { mime_type: 'image/jpeg', data: 'QUJD' } }] } }] }) }; };
+    try {
+      ratioFor(undefined); await svc.callGeminiImageGen([{ text: 'x' }], null);
+      ratioFor('off'); await svc.callGeminiImageGen([{ text: 'x' }], null);
+    } finally {
+      global.fetch = realFetch;
+      if (realKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = realKey;
+      if (saved === undefined) delete process.env.CATALOG_ASPECT_RATIO; else process.env.CATALOG_ASPECT_RATIO = saved;
+    }
+    eq('every image call pins the shape (imageConfig.aspectRatio 3:4); "off" sends none',
+      [sent[0] && sent[0].generationConfig.imageConfig, sent[1] && sent[1].generationConfig.imageConfig, sent[0] && sent[0].generationConfig.temperature],
+      [{ aspectRatio: '3:4' }, undefined, 0.1]);
+  }
+
   section('COLOUR VARIANTS  (the same saree in another colour; nothing changes without one)');
   const { parseColourVariant, colourSummary } = require(path.join(SRC, 'services/colourVariant'));
   const crypto = require('crypto');
   const frontSlots = { hasFullDress: true, hasTop: false, hasBottom: false, hasReference: false };
   const dependentSlots = { hasFullDress: false, hasTop: false, hasBottom: false, hasReference: true };
-  // The regression guarantee. This fingerprint was taken from every view x
-  // category x blouse combination BEFORE the colour-variant feature existed.
-  // A request without a colour must produce exactly those prompts, byte for
-  // byte. If you change the prompts on purpose, re-pin it.
+  // The regression guarantee: every view x category x blouse combination,
+  // fingerprinted. Any change to the prompts - deliberate or not - fails here
+  // until it is re-pinned on purpose. History: pinned before the colour-variant
+  // feature (b1cb0bfb...), re-pinned 29 Sep 2026 for the composition and props
+  // rules. A request without a colour must still produce exactly these prompts.
   const fingerprint = crypto.createHash('sha256');
   for (const v of ['FRONT', 'BACK', 'SIDE', 'SITTING']) {
     for (const cat of ['SAREE', 'LEHANGA', 'ANARKALI', 'SHARARA', 'KURTHI', 'DEFAULT']) {
@@ -111,8 +154,8 @@ async function offline() {
       }
     }
   }
-  eq('without a colour every prompt is byte-identical to before the feature (pinned fingerprint)',
-    fingerprint.digest('hex'), 'b1cb0bfbff949258d9a28e49604a85a6fd17f24235fa57c73c7eb922f0754e2c');
+  eq('without a colour every prompt is byte-identical to the pinned version (fingerprint)',
+    fingerprint.digest('hex'), '7df85f07c8f2b51db77bd79779826f6ac25ac53f4789f3d90f96ecf5a870e8d9');
   const plainFront = sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg');
   check('an empty options object or a null colour changes nothing',
     plainFront === sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', {})
