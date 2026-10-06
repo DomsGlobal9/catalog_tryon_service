@@ -104,12 +104,27 @@ function createJobRegistry({ store, instanceId, pollMs = 1500, log = console }) 
   async function register(key, pipeline) {
     const id = crypto.randomUUID();
     const controller = new AbortController();
+
+    // `cancel(key)` and `register` are separate awaits, so two requests for the
+    // same key arriving together could both pass the cancel and both run. The
+    // newer job therefore also stops every OLDER job under its key: here, by
+    // order of arrival (the Map keeps insertion order), and on other servers
+    // by start time. The newest always survives; two never both run.
+    for (const [otherId, other] of local) {
+      if (other.key === key) abortLocal(otherId, 'replaced by a newer job');
+    }
     local.set(id, { key, pipeline, controller });
 
     try {
       await store.query(
         `INSERT INTO ${store.tables.jobs} (job_id, job_key, pipeline, instance_id) VALUES ($1, $2, $3, $4)`,
         [id, key, pipeline, instanceId]
+      );
+      await store.query(
+        `UPDATE ${store.tables.jobs} SET cancel_requested = true
+          WHERE job_key = $1 AND job_id <> $2 AND cancel_requested = false
+            AND started_at < (SELECT started_at FROM ${store.tables.jobs} WHERE job_id = $2)`,
+        [key, id]
       );
     } catch (err) {
       ignoreUnavailable(err);

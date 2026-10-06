@@ -189,7 +189,11 @@ async function reviewImage(review, image, { signal } = {}) {
  * @param {Object} review        buildPrompt(...).review for this view
  * @param {Object[]} references  [{ area, part, ref }] the design pictures sent for this view
  */
-function viewChecklist(review, references = []) {
+// Checks that compare the back photograph with the front one. Without a front
+// photograph (views: ["back"] alone) they have nothing to compare with.
+const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_person', 'same_studio', 'same_supporting']);
+
+function viewChecklist(review, references = [], { withFront = true } = {}) {
   const product = review.product;
   const checks = [];
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back
@@ -227,7 +231,7 @@ function viewChecklist(review, references = []) {
   }
   checks.push(['arms_clear', 'Are the arms hanging at the sides with the hands visible beside the hips - not clasped behind the back, not on the hips, not covering any part of the garment?',
     'The arms hang relaxed at the sides with the hands visible beside the hips; nothing covers the back of the garment.']);
-  return checks.map(([id, question, correction]) => ({ id, question, correction }));
+  return checks.filter(([id]) => withFront || !NEEDS_FRONT.has(id)).map(([id, question, correction]) => ({ id, question, correction }));
 }
 const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
 
@@ -237,7 +241,7 @@ const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
  */
 async function reviewView(review, { image, frontImage = null, references = [], signal } = {}) {
   const started = Date.now();
-  const checklist = viewChecklist(review, references);
+  const checklist = viewChecklist(review, references, { withFront: !!frontImage });
   const unchecked = (problem) => ({ checked: false, failures: [], problem, ms: Date.now() - started });
   if (!config.pair.enabled || !config.gemini.apiKey() || !checklist.length) return unchecked('disabled');
   const isBack = review.view === 'back' && frontImage;

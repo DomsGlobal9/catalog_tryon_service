@@ -286,6 +286,9 @@ order:
 
 With **no `BACK` design**, the back photograph is still made, plain, in the garment's fabric. To make
 only one side, send `views: ["front"]` or `views: ["back"]`. The order is always front then back.
+With `views: ["back"]` alone there is no front photograph, so the checks that compare back with front are skipped; the back is still checked against its references.
+
+For a garment with only a front (saree, gown, sharara...), `views` changes nothing: one photograph is made, exactly as if `views` were left out. A `BACK` design on such a garment turns the model around as usual (before 6 October 2026, `views: ["front"]` dropped that design without saying so).
 
 Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
 for both takes roughly **25–35 seconds longer** than a single photograph, plus about 35 seconds for each
@@ -335,7 +338,7 @@ The stream carries **only the photograph** and the few fields needed to receive 
 | `start` | Immediately | `jobId` |
 | `image` | On success, once per photograph | `view` (`"front"` or `"back"`), `image` (a `data:image/jpeg;base64,...` URI), `mimeType`, `width`, `height` |
 | `done` | After the last `image` | `jobId`, `status: "ok"`, `views` (the photographs made, in order) |
-| `error` | Instead of `image` | `jobId`, `code`, `message`, `retryable` |
+| `error` | Instead of `image` | `jobId`, `code`, `message`, `retryable`, and `details` when the code has them (`GENERATION_BLOCKED`: `details.reason`; `IMAGE_UNUSABLE`: which images failed). `message` is always our own sentence, never the image model's wording. |
 
 Every stream ends with either the `image` events + `done`, or `error`. Nothing else is sent: how the references
 were read, how the photograph was checked and how long each step took stay in the service's own logs.
@@ -454,7 +457,7 @@ Inside the stream (`error` event):
 | `MODEL_UNAVAILABLE` | The image model is busy or down (already retried for you). | Yes, shortly |
 | `MODEL_TIMEOUT` | The image model did not answer in time, twice. Measured: normal runs take 25-60s, a rare one hangs. | Yes |
 | `MODEL_QUOTA_EXCEEDED` | The image model has reached its spending cap or quota on this deployment. Every generation fails until it is raised. | No - tell your operator; retrying does not help |
-| `CANCELLED` | You cancelled, or started a new generation with the same `clientId`. | — |
+| `CANCELLED` | You cancelled, or started a new generation with the same `clientId` - including a cancel that lands while a photograph is being checked. | — |
 | `INTERNAL_ERROR` | Unexpected failure. | Yes |
 
 ---

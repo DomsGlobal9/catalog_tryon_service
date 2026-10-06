@@ -360,6 +360,10 @@ function resolveRequest(rawBody) {
         [{ field: 'views', code: 'VIEW_NOT_AVAILABLE' }]);
     }
     views = sides.filter((s) => views.includes(s)); // front before back, always
+    // A one-sided garment makes one photograph either way; naming it used to
+    // send it down the two-sided path, which dropped a BACK design and ran the
+    // paid pair check. The default path turns the model for a BACK design.
+    if (sides.length === 1) views = null;
   }
 
   return {

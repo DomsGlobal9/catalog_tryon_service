@@ -67,6 +67,15 @@ async function runAll({ check, eq, section, SRC }) {
   const body = (over = {}) => ({ clientId: 'c1', garment: 'SAREE', designs: [{ area: 'PALLU', image: IMG }], ...over });
 
   // ── VALIDATION ─────────────────────────────────────────────────────────────
+  section('DESIGN STUDIO: ON/OFF SWITCHES  (every switch reads the same words)');
+  const { flag } = S('config');
+  const read = (value, fallback) => { process.env.DS_TEST_FLAG = value; const quiet = console.warn; console.warn = () => {}; try { return flag('DS_TEST_FLAG', fallback); } finally { console.warn = quiet; delete process.env.DS_TEST_FLAG; } };
+  eq('off / false / 0 / no all switch OFF a switch that defaults on (PAIR_CHECK=false used to stay on and keep paying)',
+    ['off', 'false', '0', 'no', 'OFF', ' False '].map((v) => read(v, true)), [false, false, false, false, false, false]);
+  eq('on / true / 1 / yes all switch ON a switch that defaults off (QA=true used to stay off)',
+    ['on', 'true', '1', 'yes', 'ON'].map((v) => read(v, false)), [true, true, true, true, true]);
+  eq('unset or unreadable keeps the default', [read('', true), read('', false), read('maybe', true), read('maybe', false)], [true, false, true, false]);
+
   section('DESIGN STUDIO: REQUEST CHECKS  (nothing is decoded or downloaded yet)');
   const aliasJob = resolveRequest(body({ garment: 'lehenga', designs: [{ area: 'ghagra', image: IMG }, { area: 'kinari', image: IMG }] }));
   eq('garment and area aliases resolve to canonical ids', [aliasJob.garmentId, aliasJob.designs.map((d) => d.areaId)], ['LEHANGA', ['SKIRT', 'BORDER']]);
@@ -977,6 +986,20 @@ async function runAll({ check, eq, section, SRC }) {
   calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).' } }), { status: 429 }), () => answer([imagePart(FINAL)])]);
   out = await run();
   eq('a plain rate-limit 429 is still retried', [!!out.image, calls.length], [true, 2]);
+  // Google's ordinary per-minute limit says "check your plan and billing details"
+  // too. Reading "billing" as "budget spent" stopped retrying a limit that clears in seconds.
+  const perMinute = JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', details: [{ violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel' }] }] } });
+  calls = script([() => new Response(perMinute, { status: 429 }), () => answer([imagePart(FINAL)])]);
+  out = await run();
+  eq('the per-minute 429 that mentions "billing details" is retried, not reported as quota spent', [!!out.image, calls.length], [true, 2]);
+  const perDay = JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel' }] }] } });
+  calls = script([() => new Response(perDay, { status: 429 })]);
+  out = await run();
+  eq('a spent DAILY quota is reported at once as MODEL_QUOTA_EXCEEDED', [out.error.code, calls.length], ['MODEL_QUOTA_EXCEEDED', 1]);
+  calls = script([() => new Response(JSON.stringify({ error: { code: 503, message: 'The model is overloaded. Please try again later.' } }), { status: 503 })]);
+  out = await run();
+  eq('still unavailable after retries: the caller gets our sentence, not Google\'s body',
+    [out.error.code, out.error.message], ['MODEL_UNAVAILABLE', 'The image model is unavailable right now. Please retry shortly.']);
   calls = script([() => { throw new TypeError('fetch failed: socket hang up'); }, () => answer([imagePart(FINAL)])]);
   out = await run();
   eq('a dropped connection is retried', [!!out.image, calls.length], [true, 2]);
@@ -998,6 +1021,7 @@ async function runAll({ check, eq, section, SRC }) {
   calls = script([() => new Response(JSON.stringify({ error: { message: 'Request contains an invalid argument.' } }), { status: 400 })]);
   out = await run();
   eq('a 400 is not retried', [out.error.code, calls.length], ['GENERATION_REJECTED', 1]);
+  check('...and Google\'s own wording stays out of the caller\'s message', !/invalid argument/i.test(out.error.message), out.error.message);
   calls = script([() => new Response(JSON.stringify({ error: { message: 'API key not valid. key=AIzaSyLEAKLEAKLEAKLEAKLEAKLEAK' } }), { status: 403 })]);
   out = await run();
   check('a bad key is 424 and the caller never sees the provider\'s message', out.error.code === 'MODEL_UNAVAILABLE' && out.error.status === 424 && !/AIza|key/i.test(out.error.message), out.error.message);
@@ -1131,8 +1155,9 @@ async function runAll({ check, eq, section, SRC }) {
     check('...and the image is still the full photograph', /^data:image\/jpeg;base64,\/9j\//.test(events[1].image));
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
     ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only-2' }))));
-    eq('...and an error keeps its code, message and retryable flag only',
-      events.map((e) => [e.type, Object.keys(e).sort().join(',')]), [['start', 'jobId,type'], ['error', 'code,jobId,message,retryable,type']]);
+    eq('...and an error keeps its code, message, retryable flag and the documented details',
+      events.map((e) => [e.type, Object.keys(e).sort().join(',')]), [['start', 'jobId,type'], ['error', 'code,details,jobId,message,retryable,type']]);
+    eq('...GENERATION_BLOCKED carries details.reason, as the docs promise', [events[1].code, events[1].details], ['GENERATION_BLOCKED', { reason: 'SAFETY' }]);
     streamCfg.detail = 'full';
 
     // Two photographs for a two-sided garment: front, then back made from the front.
@@ -1169,6 +1194,41 @@ async function runAll({ check, eq, section, SRC }) {
     eq('views: ["front"] gives one photograph, and the image-only stream labels it',
       events.map((e) => [e.type, e.view || e.views || '']), [['start', ''], ['image', 'front'], ['done', ['front']]]);
     streamCfg.detail = 'full';
+
+    // views: ["back"] alone: no front photograph exists to compare with, so the
+    // front-versus-back checks must not be asked (a wrong failure buys a paid regeneration).
+    const askedIds = [];
+    qa._setFetch(async (url, opts) => {
+      askedIds.push(...[...JSON.parse(opts.body).contents[0].parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]));
+      return qaAnswer()(url, opts);
+    });
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'back-only', garment: 'BLOUSE', designs: [{ area: 'BACK', image: IMG }], views: ['back'] })));
+    eq('views: ["back"] alone: one back photograph, and no check compares it with a front that does not exist',
+      [events.filter((e) => e.type === 'image').map((e) => e.view), askedIds.some((id) => ['same_person', 'same_sleeves', 'same_garment', 'same_studio'].includes(id)), askedIds.includes('back_shown')],
+      [['back'], false, true]);
+    qa._setFetch(qaAnswer());
+
+    // A one-sided garment with a BACK design and views: ["front"]: the back
+    // design used to be dropped silently and a paid pair check run.
+    let qaCalls = 0;
+    qa._setFetch(async (...a) => { qaCalls++; return qaAnswer()(...a); });
+    const gownCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'gown-front', garment: 'GOWN', designs: [{ area: 'BACK', image: IMG }], views: ['front'] })));
+    eq('GOWN with a BACK design and views: ["front"]: one photograph, the BACK design reaches the image model, no pair check',
+      [events.filter((e) => e.type === 'image').length, imagesIn(gownCalls[0]), qaCalls, events[events.length - 1].type], [1, 1, 1, 'done']);
+    qa._setFetch(qaAnswer());
+
+    // Cancelled while the photograph is being checked: CANCELLED, not "failed unexpectedly".
+    qa._setFetch(async (url, opts) => new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(opts.signal.reason))));
+    script([() => answer([imagePart(FINAL)])]);
+    const checking = post('/generate', body({ clientId: 'cancel-in-check' }), { headers: { 'x-gateway-client-id': 'acct-check-cancel' } });
+    await new Promise((r) => setTimeout(r, 250));
+    const cancelCheck = await (await post('/cancel', { clientId: 'cancel-in-check' }, { headers: { 'x-gateway-client-id': 'acct-check-cancel' } })).json();
+    ({ events } = await readEvents(await checking));
+    eq('a cancel during the photograph check ends the stream with CANCELLED',
+      [cancelCheck.cancelled, events[events.length - 1].type, events[events.length - 1].code], [true, 'error', 'CANCELLED']);
+    qa._setFetch(qaAnswer());
 
     // Slow generation: heartbeat, capacity (1 slot in this test run), cancel.
     let geminiSignal = null;

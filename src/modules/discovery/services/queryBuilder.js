@@ -29,6 +29,8 @@ const SHOT_TYPE_TERMS = {
   any: []
 };
 
+const MAX_QUERY_WORDS = 32;
+
 /** Lowercased, trimmed, de-duplicated, order preserved. */
 function normalizeTokens(values) {
   const seen = new Set();
@@ -74,8 +76,7 @@ function buildQuery({ keywords = [], category, designType, filters = {}, shotTyp
   // design".
   const designWord = area ? 'design' : null;
 
-  const tokens = normalizeTokens([
-    ...keywords,
+  const others = [
     filters.color,
     filters.fabric,
     garmentTerm,
@@ -85,7 +86,19 @@ function buildQuery({ keywords = [], category, designType, filters = {}, shotTyp
     ...(SHOT_TYPE_TERMS[shotType] || []),
     // Last, so the garment and design words keep their weight at the front.
     ...(SOURCE_QUERY_TERMS[source] || [])
-  ]);
+  ];
+  const tokens = normalizeTokens([...keywords, ...others]);
+
+  // Google reads only the first 32 words. Long keyword phrases (or a long
+  // instruction) used to push the garment, design and site words past that and
+  // quietly lose them. Keyword words are dropped from the end until it fits;
+  // a query already within 32 words is unchanged, byte for byte.
+  if (tokens.length > MAX_QUERY_WORDS) {
+    const kept = new Set(normalizeTokens(others));
+    for (let i = tokens.length - 1; i >= 0 && tokens.length > MAX_QUERY_WORDS; i--) {
+      if (!kept.has(tokens[i])) tokens.splice(i, 1);
+    }
+  }
 
   const query = tokens.join(' ');
 

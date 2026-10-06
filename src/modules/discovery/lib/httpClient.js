@@ -52,8 +52,8 @@ async function attempt(url, { headers, body, timeoutMs, providerName }) {
     }
     // A dropped connection or DNS blip usually is transient.
     throw providerError(
-      `${providerName} request failed: ${redact(err && err.message ? err.message : String(err))}`,
-      { retryable: true }
+      `${providerName} could not be reached.`,
+      { retryable: true, details: redact(err && err.message ? err.message : String(err)) }
     );
   }
 

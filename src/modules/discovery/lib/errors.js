@@ -52,7 +52,10 @@ class RateLimitError extends AppError {
 /** The upstream search provider failed, timed out, or rejected us. */
 class ProviderError extends AppError {
   constructor(message, details) {
-    super(message, { statusCode: 424, code: 'PROVIDER_UNAVAILABLE', details });
+    // The provider's own response text is for our logs only: it can describe our
+    // account ("Not enough credits"). The caller gets the message alone.
+    super(message, { statusCode: 424, code: 'PROVIDER_UNAVAILABLE' });
+    this.providerDetail = details;
   }
 }
 
@@ -87,6 +90,19 @@ function discoveryErrorHandler(err, req, res, _next) {
     return res.status(400).json({
       success: false,
       error: { code: 'INVALID_JSON', message: 'Request body is not valid JSON.' }
+    });
+  }
+
+  // Every other body-parser refusal (an unsupported charset or Content-Encoding,
+  // a body shorter than its Content-Length, an aborted upload) is the caller's
+  // fault too, and says so with its own 4xx status. It used to fall through to
+  // 500, so five odd requests a minute could trip the gateway's breaker for the
+  // whole slug.
+  const status = Number(err && (err.status || err.statusCode));
+  if (err && err.expose && status >= 400 && status < 500) {
+    return res.status(status).json({
+      success: false,
+      error: { code: 'BAD_REQUEST', message: String(err.message || 'Bad request.') }
     });
   }
 

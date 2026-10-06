@@ -18,6 +18,17 @@ const capacity = require('../lib/capacity');
 const shared = require('../lib/shared');
 const { admitGeneration, cancelGeneration } = require('../middleware/generationGuard');
 const { parseColourVariant, colourSummary } = require('../services/colourVariant');
+const { publicMessage } = require('../lib/publicError');
+
+/** A job-status write must never take the stream down with it. */
+async function recordJob(jobId, data) {
+  if (!jobId) return;
+  try {
+    await prisma.drapeJob.update({ where: { id: jobId }, data });
+  } catch (err) {
+    console.error(`[Catalog] could not record job ${jobId} as ${data.status}:`, err.message);
+  }
+}
 
 // Running jobs, the zombie killer and admission control live in
 // middleware/generationGuard.js, shared with the men pipeline and visible to
@@ -31,8 +42,8 @@ const SSE_HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS || 15000);
 
 // Explicit endpoint to kill jobs since reverse proxies sometimes mask TCP disconnects
 router.post('/cancel-job/women', async (req, res) => {
-  const { clientId } = req.body;
-  if (!clientId) return res.status(400).json({ success: false, error: 'clientId required' });
+  const clientId = typeof req.body.clientId === 'number' ? String(req.body.clientId) : req.body.clientId;
+  if (!clientId || typeof clientId !== 'string') return res.status(400).json({ success: false, error: 'clientId required' });
 
   if (await cancelGeneration(req, { clientId, pipeline: 'women' })) {
     console.log(`[Zombie Killer] Explicit cancellation received for client ${clientId}.`);
@@ -49,7 +60,9 @@ router.post('/generate-catalog/women', async (req, res) => {
   let admitted = null;
 
   try {
-  const { clientId, modelId, bottom } = req.body;
+  const { modelId, bottom } = req.body;
+    // A numeric clientId always worked; keep it working, as text.
+    const clientId = typeof req.body.clientId === 'number' ? String(req.body.clientId) : req.body.clientId;
     let category = req.body.category || 'SAREE';
 
     // Hardcoded Dupatta URL Mapping for third-party client convenience
@@ -72,6 +85,9 @@ router.post('/generate-catalog/women', async (req, res) => {
     if (!clientId || !modelId) {
       return res.status(400).json({ success: false, error: 'clientId and modelId are required.' });
     }
+    if (typeof clientId !== 'string' || typeof modelId !== 'string') {
+      return res.status(400).json({ success: false, error: 'clientId and modelId must be text.' });
+    }
 
     if (!fullDress) {
       return res.status(400).json({ success: false, error: 'The primary garment image (fullDress / flat-lay) is strictly required.' });
@@ -85,9 +101,10 @@ router.post('/generate-catalog/women', async (req, res) => {
     // Refused as a clear 400 before any slot is taken or any call is made.
     let colour = null;
     try {
-      const raw = req.body.color !== undefined ? req.body.color
-        : req.body.colour !== undefined ? req.body.colour
-        : req.body.colorVariant;
+      // The first one actually filled in: a blank `color: ""` left by a form
+      // must not hide a real `colour` sent beside it.
+      const filled = (v) => v !== undefined && v !== null && !(typeof v === 'string' && !v.trim());
+      const raw = [req.body.color, req.body.colour, req.body.colorVariant].find(filled);
       colour = parseColourVariant(raw);
     } catch (err) {
       if (err.code === 'INVALID_COLOR') return res.status(400).json({ success: false, error: err.message, code: 'INVALID_COLOR' });
@@ -134,6 +151,16 @@ console.log('==========================');
     if (!admitted) return;
     const abortController = admitted.job;
 
+    // The caller hung up (gateway timeout, closed tab): stop paying for views
+    // nobody will receive. This must be the RESPONSE's close - on Express 5 the
+    // request has already finished being read and never reports a hang-up.
+    res.on('close', () => {
+      if (!res.writableFinished && !abortController.signal.aborted) {
+        console.log(`Client connection closed for job ${jobId}. Aborting pipeline...`);
+        abortController.abort();
+      }
+    });
+
     // 2. Log the Job Start in Prisma (Zero-Retention: We don't save the Base64 images)
     const job = await prisma.drapeJob.create({
       data: {
@@ -143,11 +170,6 @@ console.log('==========================');
       }
     });
     jobId = job.id;
-
-    req.on('close', () => {
-      console.log(`Client connection closed for job ${jobId}. Aborting pipeline...`);
-      abortController.abort();
-    });
 
     // --- SSE STREAMING INITIALIZATION ---
     res.setHeader('Content-Type', 'text/event-stream');
@@ -199,49 +221,37 @@ console.log('==========================');
     );
 
     // 4. Update Job Status to COMPLETED
-    await prisma.drapeJob.update({
-      where: { id: jobId },
-      data: { 
-        status: 'COMPLETED',
-        latencyMs: Date.now() - startTime
-      }
-    });
+    await recordJob(jobId, { status: 'COMPLETED', latencyMs: Date.now() - startTime });
 
     // 5. Close stream
     res.write(`data: ${JSON.stringify(variant ? { type: 'COMPLETE', jobId: jobId, colorVariant: variant } : { type: 'COMPLETE', jobId: jobId })}\n\n`);
     res.end();
 
   } catch (error) {
-    if (error.name === 'AbortError' || error.message.includes('AbortError')) {
+    const open = res.headersSent && !res.writableEnded && !res.destroyed;
+    const message = String((error && error.message) || error);
+    if ((error && error.name === 'AbortError') || message.includes('AbortError')) {
       console.log(`Job ${jobId} was aborted (Likely due to Zombie Killer or client disconnect).`);
-      if (jobId) {
-        await prisma.drapeJob.update({
-          where: { id: jobId },
-          data: { status: 'CANCELLED', latencyMs: Date.now() - startTime }
-        });
+      await recordJob(jobId, { status: 'CANCELLED', latencyMs: Date.now() - startTime });
+      // Replaced by a newer job or cancelled from elsewhere while the caller is
+      // still listening: say so, so the caller does not read the end of the
+      // stream as a finished catalog.
+      if (open) {
+        res.write(`data: ${JSON.stringify({ type: 'ERROR', code: 'CANCELLED', error: 'Generation was cancelled.' })}\n\n`);
+        res.end();
       }
-      // Superseded or cancelled. If the caller is somehow still listening (a
-      // cancel sent from elsewhere), close the stream rather than leave it hanging.
-      if (!res.writableEnded && !res.destroyed) res.end();
       return;
     }
 
-    if (jobId) {
-      await prisma.drapeJob.update({
-        where: { id: jobId },
-        data: { 
-          status: 'FAILED',
-          errorMessage: error.message,
-          latencyMs: Date.now() - startTime
-        }
-      });
-    }
-    
-    if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: 'ERROR', error: error.message })}\n\n`);
+    console.error(`[Catalog] job ${jobId} failed:`, message);
+    await recordJob(jobId, { status: 'FAILED', errorMessage: message.slice(0, 1000), latencyMs: Date.now() - startTime });
+
+    const error_ = publicMessage(error);
+    if (open) {
+      res.write(`data: ${JSON.stringify({ type: 'ERROR', code: (error.expose && error.code) || 'GENERATION_FAILED', error: error_ })}\n\n`);
       res.end();
-    } else {
-      res.status(500).json({ success: false, error: 'Generation failed', details: error.message });
+    } else if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error_ });
     }
   } finally {
     if (heartbeat) clearInterval(heartbeat);

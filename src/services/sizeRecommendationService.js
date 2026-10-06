@@ -45,7 +45,7 @@ async function requestSizeRecommendation(imageBase64, mimeType) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured.');
 
   const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    `${(process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '')}/v1beta/models/gemini-2.5-flash:generateContent`,
     {
       method: 'POST',
       headers: {

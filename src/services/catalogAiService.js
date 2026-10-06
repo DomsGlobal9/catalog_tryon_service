@@ -28,16 +28,9 @@ function pickEnvironment(colour) {
   return ENVIRONMENTS[Math.floor(Math.random() * ENVIRONMENTS.length)];
 }
 
-/**
- * Helper: Download an image URL and convert to Base64
- */
-async function imageUrlToBase64(imageUrl) {
-  const response = await fetch(imageUrl);
-  if (!response.ok) throw new Error(`Image download failed: HTTP ${response.status}`);
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  return buffer.toString('base64');
-}
+// Caller links are downloaded through lib/fetchImage: public addresses only,
+// time and size capped, cancellable.
+const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
 
 // =============================================================================
 // BASE MODEL CACHE
@@ -309,12 +302,16 @@ const {
     // Process input garments to bypass filters (supports both Base64 and public URLs)
     const resolveInput = async (input) => {
       if (!input) return null;
+      if (typeof input !== 'string') throw new ImageFetchError('Garment images must be an image link or a base64 string.', 'INVALID_IMAGE');
       const cleanInput = input.trim();
-      if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://')) {
-        console.log('Downloading external image URL for input garment...');
-        return await augmentedResize(await imageUrlToBase64(cleanInput));
+      const isUrl = cleanInput.startsWith('http://') || cleanInput.startsWith('https://');
+      if (isUrl) console.log('Downloading external image URL for input garment...');
+      const raw = isUrl ? await imageUrlToBase64(cleanInput, { signal: abortSignal }) : cleanInput;
+      try {
+        return await augmentedResize(raw);
+      } catch {
+        throw new ImageFetchError('A garment image could not be read. Send a JPEG, PNG or WebP image.', 'INVALID_IMAGE');
       }
-      return await augmentedResize(cleanInput);
     };
 
     // Independent of each other - prepare concurrently.
@@ -329,7 +326,7 @@ if (category === 'LEHANGA' && dupattaStyleUrl) {
   console.log('[Lehenga] Processing selected Dupatta Style reference...');
 
   processedDupattaStyle = await augmentedResize(
-    await imageUrlToBase64(dupattaStyleUrl)
+    await imageUrlToBase64(dupattaStyleUrl, { signal: abortSignal })
   );
 }
 

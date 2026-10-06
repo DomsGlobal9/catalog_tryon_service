@@ -72,7 +72,35 @@ function toneWords(hex) {
   return words.join(', ');
 }
 
-const titleCase = (s) => s.trim().replace(/\s+/g, ' ').replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+const titleCase = (s) => s.trim().replace(/\s+/g, ' ').toLowerCase().replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+
+const toHex = (rgb) => '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('').toUpperCase();
+const SHADES = { dark: 0.6, deep: 0.6, light: 1.4, pale: 1.6 };
+
+/**
+ * A reference hex for a colour NAME, when the name is one we know: "magenta",
+ * "dark magenta" (a shade of a known colour) or "blue violet" (two known colours
+ * mixed). Without it a name-only request gave the model words alone, and two
+ * neighbouring names ("blue violet", "dark magenta") came back alike.
+ * null when the name is not one we can place - the words alone are sent then.
+ */
+function hexForName(name) {
+  const key = name.toLowerCase().replace(/[\s-]+/g, ' ').trim();
+  const known = (k) => NAMED[k] || NAMED[k.replace(/ /g, '-')];
+  if (known(key)) return '#' + known(key);
+  const [first, ...rest] = key.split(' ');
+  const tail = rest.join(' ');
+  if (SHADES[first] && known(tail)) {
+    const f = SHADES[first];
+    return toHex(rgbOf('#' + known(tail)).map((v) => (f < 1 ? v * f : v + (255 - v) * (f - 1) / f)));
+  }
+  if (rest.length === 1 && known(first) && known(tail)) {
+    const a = rgbOf('#' + known(first));
+    const b = rgbOf('#' + known(tail));
+    return toHex(a.map((v, i) => (v + b[i]) / 2));
+  }
+  return null;
+}
 
 /**
  * Turns the caller's `color` into { name, hex, description, border, blouse }.
@@ -96,6 +124,14 @@ function parseColourVariant(raw) {
       name = s;
     }
   } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+    // Extra fields beside a name or hex are ignored, as they always were. An
+    // object with NEITHER but with other fields ({ "value": "Dark Magenta" }) was
+    // silently read as "no colour asked"; it is a mistake worth saying so.
+    const unknown = Object.keys(raw).filter((k) => !['name', 'hex', 'border', 'blouse'].includes(k));
+    const hasColour = ['name', 'hex'].some((k) => raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== '');
+    if (unknown.length && !hasColour) {
+      throw new InvalidColour(`color has unknown field${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `"${k}"`).join(', ')}. Use { "name", "hex", "border", "blouse" }.`);
+    }
     if (raw.hex !== undefined && raw.hex !== null && raw.hex !== '') {
       hex = normaliseHex(String(raw.hex));
       if (!hex) throw new InvalidColour(`color.hex "${raw.hex}" is not a valid hex code. Use #RRGGBB, for example "#0F5132".`);
@@ -116,10 +152,12 @@ function parseColourVariant(raw) {
     throw new InvalidColour('color needs a name or a hex code: { "name": "Bottle Green", "hex": "#0F5132" }.');
   }
 
+  const requested = hex || (name && titleCase(name));
   if (name) {
+    name = name.replace(/\s+/g, ' ');
     if (name.length > MAX_NAME) throw new InvalidColour(`color.name is too long (${name.length} characters; the most is ${MAX_NAME}).`);
     if (!/^[a-z][a-z' -]*$/i.test(name)) throw new InvalidColour('color.name may contain only letters, spaces, hyphens and apostrophes, for example "Bottle Green" or "Off-White".');
-    // Callers sometimes put the hex in the name. Take it as the hex instead.
+    if (!hex) hex = hexForName(name);
   } else {
     name = nearestName(hex);
   }
@@ -127,14 +165,14 @@ function parseColourVariant(raw) {
   const tone = hex ? toneWords(hex) : '';
   const description = [tone, name.toLowerCase()].filter(Boolean).join(' ');
 
-  return { name: titleCase(name), hex, description, border, blouse };
+  return { name: titleCase(name), hex, description, border, blouse, requested };
 }
 
 /** The public shape sent back to the caller, honest about accuracy. */
 function colourSummary(colour) {
   if (!colour) return null;
   return {
-    requestedColor: colour.hex || colour.name,
+    requestedColor: colour.requested || colour.hex || colour.name,
     colorName: colour.name,
     colorHex: colour.hex,
     colorAccuracy: 'approximate',
@@ -143,4 +181,4 @@ function colourSummary(colour) {
   };
 }
 
-module.exports = { parseColourVariant, colourSummary, normaliseHex, nearestName, toneWords, InvalidColour };
+module.exports = { parseColourVariant, colourSummary, normaliseHex, nearestName, toneWords, hexForName, InvalidColour };

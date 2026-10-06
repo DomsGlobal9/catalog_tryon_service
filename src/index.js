@@ -12,6 +12,7 @@ const { logBootStatus: logDiscoveryStatus } = require('./modules/discovery/disco
 const { requireServiceKey } = require('./middleware/auth');
 const { identify } = require('./middleware/identity');
 const shared = require('./lib/shared');
+const { publicMessage, publicStatus } = require('./lib/publicError');
 const { useSharedState: useDiscoverySharedState } = require('./modules/discovery/sharedState');
 
 const app = express();
@@ -68,9 +69,15 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/api/v1/draping', drapingRoutes);
 
 // Error Handling Middleware
+// A caller's mistake (bad JSON, an odd charset, a body over the limit) keeps its
+// own 4xx: the gateway's circuit breaker counts 5xx per service, so a 500 here
+// for a bad request would let one caller switch the whole service off. Only a
+// genuine crash is a 500, and its text stays in the log.
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, error: 'Internal Server Error', details: err.message });
+  const status = publicStatus(err);
+  if (status === 500) console.error(err.stack || err);
+  if (res.headersSent) return res.end();
+  res.status(status).json({ success: false, error: publicMessage(err, status === 500 ? 'Internal Server Error' : 'Bad request.') });
 });
 
 const server = app.listen(PORT, () => {

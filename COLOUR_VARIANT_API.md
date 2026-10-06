@@ -46,7 +46,7 @@ Three forms are accepted. Send the name **and** the hex when you have both: the 
 | :--- | :--- | :--- |
 | Object, name and hex | `{ "name": "Royal Blue", "hex": "#2745A8" }` | Uses both. Best results. |
 | Hex only | `"#2745A8"` or `{ "hex": "#2745A8" }` | Works out the nearest colour name and uses it (`#2745A8` → *Royal Blue*, `#0F5132` → *Bottle Green*, `#6D1A36` → *Wine*). `#RGB` short form is accepted. Case does not matter. |
-| Name only | `"Bottle Green"` or `{ "name": "Bottle Green" }` | Uses the name as it is. |
+| Name only | `"Bottle Green"` or `{ "name": "Bottle Green" }` | Uses the name. A name the service knows also gets a reference hex (since 6 October 2026): a plain colour (`"magenta"`), a shade of one (`"dark magenta"`, `"light pink"`) or a mix of two (`"blue violet"`, `"rose gold"`). Without it, two neighbouring names such as "blue violet" and "dark magenta" reached the model as words alone and could come back alike. |
 
 Rules for `name`: letters, spaces, hyphens and apostrophes only, up to 60 characters. Rules for `hex`: `#RRGGBB` or `#RGB`, with or without the `#`.
 
@@ -160,7 +160,7 @@ In the server's 5-call mode a second `STATUS` (`"Recolouring the front view to R
 | :--- | :--- |
 | `requestedColor` | The hex you sent, or the name if you sent no hex. |
 | `colorName` | The name used to make the picture. Worked out from the hex if you sent no name. Title case. |
-| `colorHex` | The hex, normalised to `#RRGGBB`, or `null` if you sent only a name. |
+| `colorHex` | The hex, normalised to `#RRGGBB`: yours, or the reference hex for a known name, or `null` for a name the service cannot place. `requestedColor` always shows what you sent. |
 | `colorAccuracy` | Always `"approximate"`. See section 6. |
 | `recolourBorder`, `recolourBlouse` | The switches as understood. |
 
@@ -240,7 +240,9 @@ Errors before the stream opens are plain JSON with the HTTP status. Errors after
 | `["red"]` | `color must be a colour name ("Bottle Green"), a hex code ("#0F5132"), or an object { "name", "hex", "border", "blouse" }.` |
 | a 61-character name | `color.name is too long (61 characters; the most is 60).` |
 
-`""`, `null` and `{}` mean "no colour" and are not errors.
+`""`, `null` and `{}` mean "no colour" and are not errors. When several of `color`, `colour` and `colorVariant` are sent, the first one that is filled in is used, so a blank `"color": ""` does not hide a real `"colour"`.
+
+An object with neither `name` nor `hex` but other fields (`{ "value": "Dark Magenta" }`) is refused: `color has unknown field "value". Use { "name", "hex", "border", "blouse" }.` Extra fields beside a `name` or `hex` are ignored, as before.
 
 ---
 

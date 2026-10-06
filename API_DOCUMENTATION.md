@@ -129,6 +129,14 @@ All three were verified end-to-end and produce identical output. A URL is the li
 it keeps the request body small and lets the service fetch the bytes itself, which is what makes a
 Design Discovery result usable directly: pass `fetchable.url` straight through as the garment.
 
+**What a link must be** (since 6 October 2026): `http://` or `https://`, on a **public** internet
+address, at most **15 MB**, downloaded within **20 seconds**, with up to 5 redirects. Links to private
+or internal addresses (`localhost`, `10.x`, `192.168.x`, cloud metadata addresses) are refused. A link
+that cannot be used ends the stream with an `ERROR` event such as
+`{"type":"ERROR","code":"IMAGE_NOT_FOUND","error":"An image link could not be downloaded (HTTP 404)."}`.
+Codes: `IMAGE_DOWNLOAD_FAILED`, `IMAGE_NOT_FOUND`, `IMAGE_TOO_LARGE`, `IMAGE_DOWNLOAD_TIMEOUT`,
+`IMAGE_SOURCE_NOT_ALLOWED`, `INVALID_IMAGE`.
+
 #### Category handling
 
 `category` is upper-cased, then resolved through an alias table before selecting the prompt:
@@ -175,7 +183,12 @@ the design, drape and model are the same as without `color`.
 | :--- | :--- | :--- |
 | Name and hex | `{ "name": "Royal Blue", "hex": "#2745A8" }` | The name steers the model; the hex is sent as a reference. Best results. |
 | Hex only | `"#2745A8"` or `{ "hex": "#2745A8" }` | The nearest colour name is worked out and used (`#2745A8` → *Royal Blue*; `#0F5132` → *Bottle Green*). |
-| Name only | `"Bottle Green"` | Used as it is. Letters, spaces, hyphens and apostrophes, up to 60 characters. |
+| Name only | `"Bottle Green"` | Letters, spaces, hyphens and apostrophes, up to 60 characters. A name the service knows also gets a reference hex: a plain colour (`"magenta"`), a shade of one (`"dark magenta"`, `"light pink"`) or a mix of two (`"blue violet"`, `"rose gold"`). Other names are sent as words only. |
+
+`color`, `colour` and `colorVariant` are all read; the first one that is **filled in** is used, so a
+blank `"color": ""` left by a form does not hide a real `"colour"` beside it. On the object form,
+extra fields beside `name`/`hex` are ignored, but an object with neither (`{ "value": "Red" }`) is
+refused with `INVALID_COLOR` instead of being silently treated as "no colour".
 
 Two optional switches on the object form, both `false` by default:
 
@@ -322,10 +335,20 @@ as `COLOR_VARIANT`).
 { "type": "COMPLETE", "jobId": "a1b2c3d4-..." }
 ```
 
-**`ERROR`** — generation failed *after* the stream opened. The stream then closes.
+**`ERROR`** — generation failed or was cancelled *after* the stream opened. The stream then closes.
 ```json
-{ "type": "ERROR", "error": "Gemini API Error: HTTP 500 - ..." }
+{ "type": "ERROR", "code": "GENERATION_FAILED", "error": "Generation failed. Please try again." }
 ```
+`error` is always a plain sentence written for your user; the image model's own error text is kept
+in our logs, never sent. `code` says what happened:
+
+| `code` | Meaning |
+| :--- | :--- |
+| `CANCELLED` | The job was cancelled (`cancel-job`) or **replaced** by a newer job with the same `clientId`. Not a finished catalog — do not count it as one. |
+| `IMAGE_…` / `INVALID_IMAGE` | A garment image or link could not be used (see *What a link must be*). |
+| `GENERATION_FAILED` | The image model failed after its retries. Safe to retry. |
+
+Before 6 October 2026 a replaced job's stream simply ended with no event, which looked like success.
 
 ### Error responses
 
@@ -334,14 +357,16 @@ Failures **before** the stream opens are ordinary JSON. Failures **after** it op
 
 | Status | Body | When |
 | :--- | :--- | :--- |
-| `400` | `"clientId and modelId are required."` | Either is missing |
+| `400` | `"clientId and modelId are required."` | Either is missing (also when there is no body at all) |
+| `400` | `"clientId and modelId must be text."` | `modelId` is a number or an object (a numeric `clientId` is accepted and read as text) |
+| `400` / `413` / `415` | `error` names the problem | Body is not valid JSON / over 50 MB / unsupported charset or `Content-Encoding` |
 | `400` | `"The primary garment image (fullDress / flat-lay) is strictly required."` | No `saree`/`full`/`fullDress` |
 | `401` | `"Unauthorized: Invalid or missing Service API Key"` | Bad or absent key |
 | `404` | `"AI Model not found"` | `modelId` is not in the database |
 | `429` | `"Service at capacity. Please retry shortly."` | Too many generations running right now; body includes `retryAfterSec`, `activeGenerations` and `maxConcurrent` |
 | `429` | `"Generation limit reached: N per hour. Retry in Ns."` | Your account's hourly generation allowance is used up; body includes `retryAfterSec` |
-| `500` | `"Generation failed"` + `details` | Failure before streaming began |
-| SSE `ERROR` | `error` message | Failure after streaming began |
+| `500` | `"Generation failed. Please try again."` | Unexpected failure before streaming began (no internal details are sent) |
+| SSE `ERROR` | `code` + `error` | Failure or cancellation after streaming began |
 
 Validation runs in that order, so a request missing several things reports the first problem only.
 
@@ -356,7 +381,12 @@ was busy does not count against your allowance.
 **Zombie killer.** Starting a new generation with a `clientId` that already has one running
 **aborts the old one**. This exists so a user refreshing the page does not leave orphaned work
 burning GPU time. If you run genuinely parallel jobs, give each a distinct `clientId` — otherwise
-they will cancel each other.
+they will cancel each other. The replaced job's stream ends with `{"type":"ERROR","code":"CANCELLED"}`,
+so you can tell it apart from a finished catalog. Two requests with the same `clientId` that arrive at
+the same moment can never both run: the newer one always wins.
+
+**Hanging up stops the work.** If your connection closes before `COMPLETE` (a timeout, a closed tab),
+the service stops the generation at once instead of finishing views nobody will receive.
 
 **Your jobs are yours.** Jobs are kept apart per API key account. Another customer who happens to use
 the same `clientId` can never replace or cancel your job, and you cannot touch theirs.
@@ -579,7 +609,7 @@ The men pipeline generates **one image per requested size**, not four views. Its
 | `SIZE_STATUS` | `{ size, status }` — a size has started generating |
 | `SIZE_READY` | `{ size, result }` — `result` is a `data:image/jpeg;base64,...` URI |
 | `COMPLETE` | All sizes done |
-| `ERROR` | Failed after the stream opened |
+| `ERROR` | `{ size, error }` — one size failed (the others carry on); or `{ code: "CANCELLED", error }` — the whole job was cancelled or replaced. **A cancelled job sends no `COMPLETE`** (before 6 October 2026 it sent `COMPLETE` with partial results). `error` is always a plain sentence. |
 
 A consumer written against the women pipeline's `VIEW_READY` will receive **nothing** here. Handle
 `SIZE_READY` and key by `size`.
@@ -610,7 +640,15 @@ every image twice. Fixed: the second emit is now a fallback that fires only if t
 | `400` | `"Invalid size. Allowed sizes are S, M, L, XL, XXL and XXXL."` | `sizeType: "standard"` with an unlisted size |
 | `400` | `"Invalid waist size. Allowed sizes are 28, 30, 32, 34, 36, 38, 40."` | `sizeType: "waist"` with an unlisted size |
 | `400` | `"Invalid sizeType."` | `sizeType` is neither `standard` nor `waist` |
+| `400` | `"This request would make N images; the most per request is 50. ..."` | sizes × tops is over 50. The same size sent twice is made once, so `["M","M"]` is one image. |
+| `400` | `"Every entry in tops must be an image link or base64 string."` | A `tops` entry is empty or not text |
 | `400` | `"User photo is required for size recommendation."` | `recommend-size` without `userPhoto` |
+| `429` | `"Size advice limit reached: 120 per hour. ..."` | `recommend-size` used more than 120 times in an hour by one account (each call is a paid model call) |
+| `424` | `"Size advice is unavailable right now. Please try again shortly."` | `recommend-size` when the model is down |
+
+Image links follow the same rules as the women pipeline (*What a link must be*).
+
+**Hanging up stops the work** here too: a closed connection stops every size still generating.
 
 Verified: a `SHERWANI` request with `sizes: ["M"]` and a flat-lay URL streamed `STATUS` →
 `SIZE_STATUS` → `SIZE_READY` carrying a 476 KB base64 JPEG → `COMPLETE`, in 12.2 s.

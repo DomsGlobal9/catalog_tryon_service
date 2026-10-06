@@ -43,28 +43,8 @@ function cachedBaseModel(url, produce) {
   return pending;
 }
 
-async function imageUrlToBase64(imageUrl) {
-
-  const response =
-    await fetch(imageUrl);
-
-  if (!response.ok) {
-
-    throw new Error(
-      `Image download failed: HTTP ${response.status}`
-    );
-
-  }
-
-  const arrayBuffer =
-    await response.arrayBuffer();
-
-  const buffer =
-    Buffer.from(arrayBuffer);
-
-  return buffer.toString('base64');
-
-}
+// Caller links: public addresses only, time and size capped (lib/fetchImage).
+const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
 
 
 // ============================================================
@@ -131,7 +111,7 @@ function getMimeType(value) {
 // 3. Raw base64
 // ============================================================
 
-async function imageInputToBase64(imageInput) {
+async function imageInputToBase64(imageInput, signal) {
 
   if (!imageInput) {
     return null;
@@ -151,7 +131,8 @@ async function imageInputToBase64(imageInput) {
   ) {
 
     return await imageUrlToBase64(
-      imageInput
+      imageInput,
+      { signal }
     );
 
   }
@@ -285,8 +266,10 @@ async function callGeminiImageGen(
   }
 
 
+  // GEMINI_BASE_URL points a test at a local stand-in, as in catalogAiService,
+  // so an end-to-end run costs nothing. Unset in production.
   const GEMINI_URL =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent';
+    `${(process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '')}/v1beta/models/gemini-3.1-flash-image:generateContent`;
 
 
   const payload = {
@@ -690,9 +673,18 @@ function selectEnvironment() {
   ];
 }
 
-async function prepareReferenceImages(inputs, isUserPhotoMode) {
+async function prepareReferenceImages(inputs, isUserPhotoMode, signal) {
   // Independent of one another - prepare concurrently rather than in series.
-  const resolve = async (v) => (v ? augmentedResize(await imageInputToBase64(v)) : null);
+  const resolve = async (v) => {
+    if (!v) return null;
+    if (typeof v !== 'string') throw new ImageFetchError('Garment images must be an image link or a base64 string.', 'INVALID_IMAGE');
+    const raw = await imageInputToBase64(v, signal);
+    try {
+      return await augmentedResize(raw);
+    } catch {
+      throw new ImageFetchError('A garment or user photo could not be read. Send a JPEG, PNG or WebP image.', 'INVALID_IMAGE');
+    }
+  };
 
   const [fullDress, topFront, bottom, userPhoto] = await Promise.all([
     resolve(inputs.fullDress),
@@ -1087,7 +1079,8 @@ Only maintain the exact same clean professional lighting from the body reference
     const preparedReferences =
       await prepareReferenceImages(
         { fullDress, topFront, bottom, userPhoto },
-        isUserPhotoMode
+        isUserPhotoMode,
+        abortSignal
       );
 
     const processedFullDress = preparedReferences.fullDress;

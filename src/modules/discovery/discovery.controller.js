@@ -40,12 +40,15 @@ function budgetBucket(req, clientId) {
   return req.account ? `account:${req.account}` : `client:${clientId}`;
 }
 
+/** clientId as one log line: a caller could put line breaks in it to forge log entries. */
+const forLog = (value) => String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+
 function logLine(searchId, clientId, resolved, sources, startedAt, extra = '') {
   const perSource = sources
     .map((s) => (s.status === 'ok' ? `${s.source}:${s.returned}${s.cached ? '(cache)' : ''}` : `${s.source}:ERR`))
     .join(' ');
   console.log(
-    `[Discovery] searchId=${searchId} client=${clientId} ` +
+    `[Discovery] searchId=${searchId} client=${forLog(clientId)} ` +
     `cat=${resolved.category || '-'}/${resolved.designType || '-'} src=${resolved.interpreted.source} ` +
     `[${perSource}] ${Date.now() - startedAt}ms${extra}`
   );
@@ -68,6 +71,9 @@ async function search(req, res, next) {
     // Throws ValidationError (400) for an unknown category, a design area that
     // does not belong to its garment, or an instruction nothing was found in.
     const resolved = resolveSearchInput(req.validated);
+    // Before charging, as the stream does: a switched-off deployment answers 424,
+    // and does not use up the caller's budget on calls it will never make.
+    if (!config.isConfigured) throw new NotConfiguredError();
     const plans = await planAndCharge(resolved, req, clientId);
     const { outcomes } = await searchSources(resolved, { plans });
 
@@ -95,7 +101,8 @@ async function search(req, res, next) {
       success: true,
       searchId,
       query: outcomes[0].query,
-      cached: succeeded.every((o) => o.cached),
+      // As documented: true only when EVERY source came from the cache.
+      cached: outcomes.every((o) => o.status === 'ok' && o.cached),
       interpreted: resolved.interpreted,
       results,
       sources,
@@ -108,7 +115,7 @@ async function search(req, res, next) {
       }
     });
   } catch (err) {
-    console.warn(`[Discovery] searchId=${searchId} client=${clientId} failed: ${err && err.message}`);
+    console.warn(`[Discovery] searchId=${searchId} client=${forLog(clientId)} failed: ${err && err.message}`);
     next(err);
   }
 }
@@ -210,7 +217,7 @@ async function searchStream(req, res, next) {
       searchId,
       status,
       total,
-      cached: succeeded.length > 0 && succeeded.every((o) => o.cached),
+      cached: outcomes.length > 0 && outcomes.every((o) => o.status === 'ok' && o.cached),
       hasMore: succeeded.some((o) => o.hasMore),
       sources: ordered,
       durationMs: Date.now() - startedAt

@@ -63,6 +63,9 @@ async function generate(req, res, next) {
   // The job can now be cancelled from anywhere (cancel endpoint, another server,
   // a newer job from the same client).
   admitted.job.signal.addEventListener('abort', () => abort.abort());
+  // A cancel that landed while the job was being listed has already fired; a
+  // listener added now would never hear it, and the job would run unstoppable.
+  if (admitted.job.signal.aborted) abort.abort();
 
   res.status(200);
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -112,12 +115,13 @@ async function generate(req, res, next) {
     // simplify a temple border into plain bands. Optional and never fatal.
     let descriptions = new Map();
     let boxes = new Map();
-    if (config.describe.enabled) {
+    // Cropping has its own switch: it used to run only when describing was on.
+    if (config.describe.enabled || config.crop.enabled) {
       send({ type: 'status', stage: 'reading-references', message: 'Reading the designs and fabrics.' });
       const describeStarted = Date.now();
       // The part each design is for is found at the same time, so it costs no wait.
       [descriptions, boxes] = await Promise.all([
-        describeReferences(referenceList(job), { signal: abort.signal }),
+        config.describe.enabled ? describeReferences(referenceList(job), { signal: abort.signal }) : new Map(),
         locateParts(job, { signal: abort.signal })
       ]);
       job.describeMs = Date.now() - describeStarted;
@@ -166,9 +170,11 @@ async function generate(req, res, next) {
         // kurta through the rules and a correction. When decoration spread beyond the
         // designed parts, the retry is shown tighter crops of the references.
         let retryParts = viewPrompt.parts;
+        let tightened = false;
         if (verdict.failures.some((f) => f.id === 'plain_rest' || f.id === 'plain_sleeves') && boxes.size) {
           const tight = await cropReferences(job, boxes, { tight: true });
           if (tight.length) {
+            tightened = true;
             retryParts = buildPrompt(viewJob, { descriptions: viewDescriptions, view: viewPrompt.review.view, frontPhoto: viewPrompt.frontPhoto }).parts;
             console.log(`[DesignStudio] requestId=${requestId} retry uses tighter crops: ${tight.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
           }
@@ -179,6 +185,10 @@ async function generate(req, res, next) {
         } catch (err) {
           if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
           break; // keep the first photograph rather than fail the request
+        } finally {
+          // The tight crops were for this one retry. The back view and the
+          // reference comparison that follow use the normal crops again.
+          if (tightened) await cropReferences(job, boxes);
         }
         attempts += retry.attempts;
         quality.regenerated = true;
@@ -212,7 +222,10 @@ async function generate(req, res, next) {
       send({ type: 'status', stage: 'checking', message: view === 'back' ? 'Comparing the back view with its references and the front view.' : 'Comparing the photograph with its references.' });
       let verdict = await reviewView(viewPrompt.review, { image: back.image, frontImage: view === 'back' ? front && front.image : null, references, signal: abort.signal });
       let regenerations = 0;
-      while (verdict.checked && verdict.failures.length && regenerations < config.pair.maxRegenerations) {
+      // Same time guard as the inspection: a correction is only made while the
+      // whole request can still finish in time.
+      while (verdict.checked && verdict.failures.length && regenerations < config.pair.maxRegenerations
+        && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
         regenerations++;
         console.log(`[DesignStudio] requestId=${requestId} ${view || 'front'} view does not match: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
         let retry;
@@ -273,7 +286,9 @@ async function generate(req, res, next) {
     });
     outcome = 'OK';
   } catch (err) {
-    if (err instanceof StudioError && err.code === 'CANCELLED') {
+    // A cancel can surface as any error from whatever was running (a check, a
+    // crop, a download); while the job is cancelled, it is reported as one.
+    if ((err instanceof StudioError && err.code === 'CANCELLED') || abort.signal.aborted) {
       outcome = 'CANCELLED';
       send({ type: 'error', jobId: admitted.job.id, code: 'CANCELLED', message: 'Generation was cancelled.', retryable: false });
     } else if (err instanceof StudioError) {
@@ -304,7 +319,9 @@ function imageOnly(event) {
     case 'start': return { type: 'start', jobId: event.jobId };
     case 'image': return { type: 'image', jobId: event.jobId, view: event.view, mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
     case 'done': return { type: 'done', jobId: event.jobId, status: event.status, views: event.views };
-    case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable };
+    // details carries what the docs promise (GENERATION_BLOCKED's reason, which
+    // image failed) - written for the caller, never upstream text.
+    case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable, ...(event.details ? { details: event.details } : {}) };
     default: return null; // status, brief
   }
 }

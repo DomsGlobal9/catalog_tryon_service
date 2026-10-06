@@ -37,6 +37,13 @@ const MEN_GARMENTS = new Set(['FORMALS', 'BLAZER', 'KURTA_PAJAMA', 'SHERWANI']);
 const DEFAULT_WOMEN_GARMENT = 'SAREE';
 const DEFAULT_MEN_GARMENT = 'FORMALS';
 
+// Express 5 leaves req.body undefined when a request has no JSON body; every
+// handler below reads fields off it, so give them an empty object to refuse.
+router.use((req, _res, next) => {
+  if (!req.body || typeof req.body !== 'object') req.body = {};
+  next();
+});
+
 router.post('/generate-catalog', (req, res, next) => {
   const raw = typeof req.body.category === 'string' ? req.body.category.trim() : '';
   const upper = raw.toUpperCase();

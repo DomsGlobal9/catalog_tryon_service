@@ -245,7 +245,8 @@ const image = await fetch(result.fetchable.url);
   signal. It is `true` if any platform returned a full page.
 - **`position`** is the rank inside the search that found the result, and is **not renumbered** after
   unusable results are removed — gaps (e.g. 38, 40, 41) are normal.
-- **`cached: true`** means the in-process cache answered (1 hour). It empties on restart.
+- **`cached: true`** means **every** platform you asked for was answered from the cache (1 hour); if one failed, it is `false`. The cache is shared by all servers through the database, so it survives a restart.
+- **Long searches are trimmed, not refused.** An `instruction` gives at most 12 keywords, like `keywords`. The search engine reads only the first 32 words, so keyword words are dropped from the end until the garment, design and platform words fit.
 
 ---
 
@@ -457,11 +458,12 @@ Before this queue, 8 such searches (32 calls) lost 7 calls to the provider's lim
 | :--- | :--- | :--- |
 | `400` | `VALIDATION_ERROR` | Bad body: unknown `source`, `recency` or `resultFilters` key; unknown `category`; a `designType` not of its garment; `designType` without `category`; an instruction with nothing searchable; no search terms. `details` names the field and what is valid. |
 | `400` | `INVALID_JSON` | Body was not valid JSON. |
+| `400` / `415` | `BAD_REQUEST` | The body could not be read: an unsupported `charset` or `Content-Encoding` (415), or a body shorter than its `Content-Length` (400). These were `500` before 6 October 2026. |
 | `401` | — | Missing or wrong `x-api-key`. |
 | `413` | `PAYLOAD_TOO_LARGE` | Body over 32 KB. |
 | `429` | `RATE_LIMIT_EXCEEDED` | Provider-call budget used up. Honour `Retry-After`. |
-| `424` | `PROVIDER_UNAVAILABLE` | `/search` only, when **every** platform failed (timed out, or the provider rejected us). |
-| `424` | `DISCOVERY_NOT_CONFIGURED` | Discovery is switched off on this deployment. |
+| `424` | `PROVIDER_UNAVAILABLE` | `/search` only, when **every** platform failed (timed out, or the provider rejected us). The provider's own wording is kept in our logs, never sent. |
+| `424` | `DISCOVERY_NOT_CONFIGURED` | Discovery is switched off on this deployment. Answered before any budget is charged, on both endpoints. |
 
 Example:
 

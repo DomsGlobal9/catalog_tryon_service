@@ -64,6 +64,9 @@ async function runSource(plan, resolved) {
       // A genuine bug, not an outage. Logged in full; reported to the caller
       // without internals.
       console.error(`[Discovery] source=${plan.source} unexpected error:`, err && err.stack ? err.stack : err);
+    } else if (err.providerDetail) {
+      // What the provider actually said - kept here, never sent to the caller.
+      console.warn(`[Discovery] source=${plan.source} provider said: ${err.providerDetail}`);
     }
     return {
       source: plan.source,

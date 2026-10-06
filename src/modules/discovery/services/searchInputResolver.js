@@ -11,6 +11,7 @@
 const taxonomy = require('../taxonomy');
 const { parseInstruction } = require('./instructionParser');
 const { ValidationError } = require('../lib/errors');
+const { config } = require('../discovery.config');
 
 /**
  * @param   {Object} input  Output of middleware/validate.js
@@ -48,7 +49,9 @@ function resolveSearchInput(input) {
     garment = taxonomy.getGarment(parsed.category);
   }
 
-  const keywords = explicitKeywords || (parsed ? parsed.keywords : []) || [];
+  // The documented 1-12 keywords holds for an instruction too: a long sentence
+  // used to become 100+ keywords.
+  const keywords = (explicitKeywords || (parsed ? parsed.keywords : []) || []).slice(0, config.search.maxKeywords);
 
   // A parsed designType is only usable for the garment it was resolved against.
   // The parser records that scope, so a mismatch can never be transplanted.

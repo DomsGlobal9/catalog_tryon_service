@@ -9,6 +9,16 @@ const int = (name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) =>
   const n = raw === undefined || raw === '' ? fallback : Number(raw);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
 };
+// on/off switches. Every switch reads on|true|1|yes and off|false|0|no the same
+// way: DESIGNSTUDIO_PAIR_CHECK=false used to leave the paid check ON, and
+// DESIGNSTUDIO_QA=true left it OFF, because each switch knew only one word.
+const flag = (name, fallback) => {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (['on', 'true', '1', 'yes'].includes(raw)) return true;
+  if (['off', 'false', '0', 'no'].includes(raw)) return false;
+  if (raw) console.warn(`[DesignStudio] ${name}="${process.env[name]}" is not on/off; using ${fallback ? 'on' : 'off'}.`);
+  return fallback;
+};
 const list = (name, fallback) =>
   (process.env[name] ? process.env[name].split(',') : fallback).map((s) => s.trim().toLowerCase()).filter(Boolean);
 
@@ -47,7 +57,7 @@ const config = {
   // alone lost temple motifs and small-motif colours. Never required - if this
   // call fails or times out, generation continues with the images only.
   describe: {
-    enabled: String(process.env.DESIGNSTUDIO_DESCRIBE || 'on').toLowerCase() !== 'off',
+    enabled: flag('DESIGNSTUDIO_DESCRIBE', true),
     model: process.env.DESIGNSTUDIO_DESCRIBE_MODEL || 'gemini-2.5-flash',
     // Per ATTEMPT. Measured: 8-10s normally, but two real runs hit 25s on one
     // attempt and, with a single shared limit, the retry never ran. Each attempt
@@ -73,7 +83,7 @@ const config = {
   // step returns (cropReferences.js). Never required.
   crop: {
     // Off by default to save calls (one per design picture). DESIGNSTUDIO_CROP=on.
-    enabled: String(process.env.DESIGNSTUDIO_CROP || 'off').toLowerCase() === 'on',
+    enabled: flag('DESIGNSTUDIO_CROP', false),
     // One small call per design picture, in parallel with the describe step.
     // Measured: boxes asked for inside the multi-picture describe call were loose
     // and changed between runs (a pallu box that missed the pallu).
@@ -101,14 +111,14 @@ const config = {
   // confirms the back photograph shows the same garment on the same person as
   // the front; if not, the back is made once more with the differences named.
   pair: {
-    enabled: String(process.env.DESIGNSTUDIO_PAIR_CHECK || 'on').toLowerCase() !== 'off',
+    enabled: flag('DESIGNSTUDIO_PAIR_CHECK', true),
     model: process.env.DESIGNSTUDIO_PAIR_MODEL || 'gemini-2.5-flash',
     timeoutMs: int('DESIGNSTUDIO_PAIR_TIMEOUT_MS', 30000, { min: 100 }),
     maxRegenerations: int('DESIGNSTUDIO_PAIR_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
   },
   qa: {
     // Off by default to save calls and the second image. DESIGNSTUDIO_QA=on.
-    enabled: String(process.env.DESIGNSTUDIO_QA || 'off').toLowerCase() === 'on',
+    enabled: flag('DESIGNSTUDIO_QA', false),
     model: process.env.DESIGNSTUDIO_QA_MODEL || 'gemini-2.5-flash',
     timeoutMs: int('DESIGNSTUDIO_QA_TIMEOUT_MS', 40000, { min: 100 }),
     maxOutputTokens: int('DESIGNSTUDIO_QA_MAX_TOKENS', 8192, { min: 256 }),
@@ -166,4 +176,4 @@ const config = {
   }
 };
 
-module.exports = { config };
+module.exports = { config, flag };

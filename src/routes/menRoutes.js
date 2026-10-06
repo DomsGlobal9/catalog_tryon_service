@@ -8,10 +8,19 @@ const router = express.Router();
 // offline for everyone including the women pipeline and discovery.
 function statusFor(error) {
   const msg = (error && error.message) || '';
+  if (error && error.expose && error.status) return error.status;
   if (/user photo is required|unable to read/i.test(msg)) return 400;
   if (/gemini|http 4\d\d|http 5\d\d/i.test(msg)) return 424;
   return 500;
 }
+
+// One request may ask for several sizes, and in mix-and-match several tops per
+// size; each pair is one paid image. Without a ceiling, `sizes: ["S" x 500]`
+// started 500 paid calls at once while counting as one generation.
+// 50 fits every real request: the bundled frontend sends all 7 waist sizes at
+// once, times each top uploaded for mix-and-match.
+const MAX_IMAGES_PER_REQUEST = Number(process.env.MEN_MAX_IMAGES_PER_REQUEST || 50);
+const SIZE_ADVICE_PER_HOUR = Number(process.env.SIZE_ADVICE_RATE_LIMIT_PER_HOUR || 120);
 
 
 
@@ -67,6 +76,9 @@ const BOTTOM_WEAR_BODY_REFERENCE_URLS = {
 // Running jobs are tracked in middleware/generationGuard.js, shared with the
 // women pipeline and visible to every server.
 const { admitGeneration, cancelGeneration } = require("../middleware/generationGuard");
+const { budgetKey } = require("../middleware/identity");
+const shared = require("../lib/shared");
+const { publicMessage } = require("../lib/publicError");
 
 
 let previousJobs =
@@ -129,11 +141,34 @@ async function runSSEGeneration(req, res, {
   // job for this client is stopped on whichever server runs it, and a refusal is
   // a JSON 429 sent before the stream opens.
 
+  if (typeof clientId === 'number') clientId = String(clientId);
+  if (typeof clientId !== 'string' || !clientId.trim()) {
+    return res.status(400).json({ error: "clientId must be text." });
+  }
+  // The same size twice is the same picture twice, paid twice.
+  validatedSizes = [...new Set(validatedSizes)];
+  const isMixAndMatch = categoryGroup === 'BOTTOM_WEAR' && Array.isArray(tops) && tops.length > 0;
+  if (isMixAndMatch && !tops.every((t) => typeof t === 'string' && t.trim())) {
+    return res.status(400).json({ error: "Every entry in tops must be an image link or base64 string." });
+  }
+  const imageCount = validatedSizes.length * (isMixAndMatch ? tops.length : 1);
+  if (imageCount > MAX_IMAGES_PER_REQUEST) {
+    return res.status(400).json({
+      error: `This request would make ${imageCount} images; the most per request is ${MAX_IMAGES_PER_REQUEST}. Send fewer sizes or tops.`
+    });
+  }
+
   const admitted = await admitGeneration(req, res, { clientId, pipeline: 'men' });
   if (!admitted) return;
 
   const controller = admitted.job;
   previousJobs += 1;
+
+  // The caller hung up: stop the paid calls nobody will receive. The response's
+  // close, not the request's - Express 5 has finished reading the request.
+  res.on('close', () => {
+    if (!res.writableFinished && !controller.signal.aborted) controller.abort();
+  });
 
 
   console.log("========================================");
@@ -161,7 +196,7 @@ async function runSSEGeneration(req, res, {
   });
 
   const sendEvent = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
 
@@ -210,7 +245,6 @@ async function runSSEGeneration(req, res, {
     // CONCURRENT GENERATION
     // --------------------------------------------------------
 
-    const isMixAndMatch = categoryGroup === 'BOTTOM_WEAR' && Array.isArray(tops) && tops.length > 0;
     const topsToProcess = isMixAndMatch ? tops : [null]; // If not mix and match, run once with null
 
     const generationJobs = [];
@@ -306,10 +340,12 @@ async function runSSEGeneration(req, res, {
               });
             }
           } catch (error) {
+            if (controller.signal.aborted) return; // reported once, below
             console.error(`Error generating size ${currentSize}:`, error);
             sendEvent({
               type: "ERROR",
-              error: error.message || String(error)
+              size: currentSize,
+              error: publicMessage(error, `Size ${currentSize} could not be generated. Please try again.`)
             });
           }
         })());
@@ -317,6 +353,13 @@ async function runSSEGeneration(req, res, {
     }
 
     await Promise.allSettled(generationJobs);
+
+    // Cancelled or replaced by a newer job: partial results are not a finished
+    // catalog, so no COMPLETE.
+    if (controller.signal.aborted) {
+      sendEvent({ type: "ERROR", code: "CANCELLED", error: "Generation was cancelled." });
+      return;
+    }
 
     sendEvent({
       type: "COMPLETE",
@@ -330,15 +373,16 @@ async function runSSEGeneration(req, res, {
 
     console.error(`MEN'S ${modeName} GENERATION ERROR:`, error);
 
-    if (error.name === "AbortError") {
+    if (error.name === "AbortError" || controller.signal.aborted) {
       sendEvent({
         type: "ERROR",
-        error: "Generation cancelled."
+        code: "CANCELLED",
+        error: "Generation was cancelled."
       });
     } else {
       sendEvent({
         type: "ERROR",
-        error: error.message || "Generation failed."
+        error: publicMessage(error)
       });
     }
 
@@ -387,6 +431,21 @@ router.post(
       }
 
 
+      // A paid Gemini call, so it has a budget like every generation (its own,
+      // so asking for size advice never uses up a shop's generations).
+      if (SIZE_ADVICE_PER_HOUR > 0) {
+        const clientId = typeof req.body.clientId === 'string' ? req.body.clientId : 'men-frontend';
+        const budget = await shared.rateLimiter.consume(`size-advice:${budgetKey(req, clientId)}`, 1,
+          { limit: SIZE_ADVICE_PER_HOUR, windowSec: 3600 });
+        if (!budget.allowed) {
+          res.set('Retry-After', String(budget.retryAfterSec));
+          return res.status(429).json({
+            error: `Size advice limit reached: ${SIZE_ADVICE_PER_HOUR} per hour. Retry in ${budget.retryAfterSec}s.`,
+            retryAfterSec: budget.retryAfterSec
+          });
+        }
+      }
+
       const result = await recommendSizeFromPhoto(userPhoto);
       return res.json({ success: true, ...result });
 
@@ -399,11 +458,12 @@ router.post(
       );
 
 
-      return res.status(statusFor(error)).json({
+      const status = statusFor(error);
+      return res.status(status).json({
 
-        error:
-          error.message ||
-          "Failed to recommend size."
+        error: status === 400
+          ? error.message
+          : publicMessage(error, "Size advice is unavailable right now. Please try again shortly.")
 
       });
 

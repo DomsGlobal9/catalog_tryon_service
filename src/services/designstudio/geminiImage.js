@@ -88,7 +88,10 @@ async function attempt(body, signal, timeoutMs) {
       // A 429 means two very different things. "Too many requests right now" is
       // worth retrying; a spent spending cap or exhausted billing quota never
       // succeeds on retry, so retrying only wastes the caller's time.
-      if (/spending cap|spend cap|billing|budget|exceeded its monthly/i.test(detail)) {
+      // Not "billing": Google's ordinary per-minute 429 says "check your plan and
+      // billing details" too, and that one clears in seconds. A spent DAILY quota
+      // names a PerDay quota id.
+      if (/spending cap|spend cap|budget|exceeded its monthly|PerDay/i.test(detail)) {
         console.error(`[DesignStudio] image model quota/spending cap reached: ${redact(detail).slice(0, 200)}`);
         throw new StudioError(
           'The image model has reached its spending cap or quota for this deployment. Generation is unavailable until that is raised.',
@@ -128,7 +131,8 @@ async function attempt(body, signal, timeoutMs) {
     }
     // 400: the model refused this input (or our request shape is wrong - logged).
     console.warn(`[DesignStudio] image model rejected the request (HTTP ${response.status}): ${message}`);
-    throw new StudioError(`The image model could not process this request: ${message}`, { status: 422, code: 'GENERATION_REJECTED' });
+    // Google's own wording stays in the log above; the caller gets what to do.
+    throw new StudioError('The image model could not process this request. Check the images and notes, then try again.', { status: 422, code: 'GENERATION_REJECTED' });
   }
 
   const result = extract(json);
@@ -217,8 +221,9 @@ async function generateImage(parts, { signal, onAttempt } = {}) {
     throw new StudioError(`The image model did not return an image after ${attempts} attempt${attempts === 1 ? '' : 's'}. Try again, or simplify the references.`,
       { status: 422, code: 'NO_IMAGE_RETURNED', retryable: true });
   }
+  console.warn(`[DesignStudio] image model unavailable after ${attempts} attempt(s): ${lastFailure ? lastFailure.message : 'time limit reached'}`);
   throw new StudioError(
-    `The image model is unavailable right now (${lastFailure ? lastFailure.message : 'time limit reached'}). Please retry shortly.`,
+    'The image model is unavailable right now. Please retry shortly.',
     { status: 424, code: 'MODEL_UNAVAILABLE', retryable: true }
   );
 }

@@ -162,11 +162,26 @@ async function offline() {
     && plainFront === sysConstants.getDynamicPrompt('FRONT', 'SAREE', frontSlots, 'bg', { colour: null }));
 
   eq('"#0F5132" -> Bottle Green, in words the model can use, hex kept as the reference',
-    parseColourVariant('#0F5132'), { name: 'Bottle Green', hex: '#0F5132', description: 'deep, rich bottle green', border: false, blouse: false });
-  eq('a plain name is enough', parseColourVariant('bottle green'), { name: 'Bottle Green', hex: null, description: 'bottle green', border: false, blouse: false });
+    parseColourVariant('#0F5132'), { name: 'Bottle Green', hex: '#0F5132', description: 'deep, rich bottle green', border: false, blouse: false, requested: '#0F5132' });
+  eq('a plain name is enough, and a known name gets its reference hex',
+    parseColourVariant('bottle green'), { name: 'Bottle Green', hex: '#1F4D2B', description: 'deep bottle green', border: false, blouse: false, requested: 'Bottle Green' });
   eq('a 3-digit hex expands, case is normalised', [parseColourVariant('#0f5').hex, parseColourVariant('6d1a36').hex], ['#00FF55', '#6D1A36']);
   eq('the object form with switches', parseColourVariant({ name: 'wine', hex: '#6d1a36', border: true, blouse: 'true' }),
-    { name: 'Wine', hex: '#6D1A36', description: 'deep, rich wine', border: true, blouse: true });
+    { name: 'Wine', hex: '#6D1A36', description: 'deep, rich wine', border: true, blouse: true, requested: '#6D1A36' });
+  // The reported case: "dark magenta" after "blue violet" came back the same
+  // colour. Name-only, the model got two neighbouring purple words and nothing else.
+  eq('"dark magenta" and "blue violet" get clearly different reference hexes',
+    [parseColourVariant('dark magenta').hex, parseColourVariant('Blue Violet').hex], ['#741254', '#574EB9']);
+  eq('a shade or mix of known colours gets a hex; an unknown name stays words only',
+    [parseColourVariant('light pink').hex, parseColourVariant('rose gold').hex, parseColourVariant('Onion').hex], ['#F7BFD3', '#DE9A6A', null]);
+  eq('extra spaces and capitals are tidied in the name', parseColourVariant('  DARK   magenta ').name, 'Dark Magenta');
+  eq('a hex without # still works, as before', parseColourVariant('FFFFFF').hex, '#FFFFFF');
+  eq('an extra field beside a name is ignored, as it always was',
+    parseColourVariant({ name: 'Wine', label: 'shop label' }).name, 'Wine');
+  check('an object with no name or hex but other fields is refused, not silently ignored',
+    (() => { try { parseColourVariant({ value: 'Dark Magenta' }); return false; } catch (e) { return e.code === 'INVALID_COLOR' && /"value"/.test(e.message); } })());
+  eq('the response still reports what was asked for, not the derived hex',
+    colourSummary(parseColourVariant('dark magenta')).requestedColor, 'Dark Magenta');
   eq('nothing asked -> null', [parseColourVariant(undefined), parseColourVariant(null), parseColourVariant(''), parseColourVariant('  '), parseColourVariant({})], [null, null, null, null, null]);
   const refused = (raw) => { try { parseColourVariant(raw); return null; } catch (e) { return e; } };
   check('bad input is refused as a 400 with code INVALID_COLOR and a message that says what to send',
@@ -340,6 +355,22 @@ async function offline() {
   await retryRescuesDroppedBody('services/catalogAiService', 'women');
   await retryRescuesDroppedBody('services/menAiService', 'men');
   if (realKey === undefined) delete process.env.GEMINI_API_KEY;
+
+  section('IMAGE LINKS  (catalog downloads reach public addresses only)');
+  const { downloadImage, isPublicAddress } = require(path.join(SRC, 'lib/fetchImage'));
+  const refusedAs = async (url) => { try { await downloadImage(url); return 'downloaded'; } catch (e) { return `${e.name}:${e.code}`; } };
+  const internal = ['http://127.0.0.1:4005/health', 'http://localhost:4005/health', 'http://169.254.169.254/latest/meta-data/',
+    'http://10.0.0.1/x.jpg', 'http://[::1]:4005/health', 'http://2130706433/x', 'http://0x7f000001/x', 'http://[::ffff:127.0.0.1]/x'];
+  eq('internal addresses (loopback, metadata, private, IPv6, numeric tricks) are all refused, and look the same as a dead link',
+    await Promise.all(internal.map(refusedAs)), internal.map(() => 'ImageFetchError:IMAGE_DOWNLOAD_FAILED'));
+  eq('only http and https', [await refusedAs('file:///etc/passwd'), await refusedAs('ftp://example.com/x.jpg'), await refusedAs('not a url')],
+    ['ImageFetchError:IMAGE_SOURCE_NOT_ALLOWED', 'ImageFetchError:IMAGE_SOURCE_NOT_ALLOWED', 'ImageFetchError:IMAGE_SOURCE_NOT_ALLOWED']);
+  eq('public addresses are public, private ones are not',
+    ['8.8.8.8', '104.18.1.1', '2606:4700::1', '192.168.1.5', '100.64.0.1', 'fd00::1', '::ffff:10.0.0.1'].map(isPublicAddress),
+    [true, true, true, false, false, false, false]);
+  const cancelled = new AbortController(); cancelled.abort();
+  eq('a cancelled job stops its download as a cancel, not an image error',
+    await (async () => { try { await downloadImage('https://example.com/x.jpg', { signal: cancelled.signal }); return 'downloaded'; } catch (e) { return e.name; } })(), 'AbortError');
 
   section('SECURITY  (no credential may be committed)');
   const fs = require('fs');
@@ -824,6 +855,38 @@ async function discoveryPlatformsAndStreaming() {
     } finally {
       useSharedState(null);
     }
+
+    section('ODD REQUESTS STAY 4xx  (a 500 here counts toward the gateway breaker for the whole slug)');
+    const raw = (headers, payload = JSON.stringify({ clientId: 'odd', keywords: ['red'] })) =>
+      fetch(base + '/search', { method: 'POST', headers, body: payload });
+    let odd = await raw({ 'Content-Type': 'application/json; charset=latin1' });
+    eq('an unsupported charset is a 415, not a 500', [odd.status, (await odd.json()).error.code], [415, 'BAD_REQUEST']);
+    odd = await raw({ 'Content-Type': 'application/json', 'Content-Encoding': 'x-foo' });
+    eq('an unknown Content-Encoding is a 415, not a 500', odd.status, 415);
+    odd = await raw({ 'Content-Type': 'application/json' }, '{"clientId":');
+    eq('broken JSON is still a 400 INVALID_JSON', [odd.status, (await odd.json()).error.code], [400, 'INVALID_JSON']);
+
+    section('PROVIDER TEXT STAYS IN OUR LOGS  (it can describe our account)');
+    cache.clear();
+    serper.search = async () => { throw new ProviderError('Serper returned HTTP 400.', 'Not enough credits on account x@y'); };
+    const warned = []; const realWarn = console.warn; console.warn = (...a) => warned.push(a.join(' '));
+    try {
+      res = await post('/search', { clientId: 'leak', keywords: ['credits', 'check'] });
+      body = await res.json();
+    } finally {
+      console.warn = realWarn;
+    }
+    eq('the caller gets 424 with the message only - no provider text', [res.status, body.error.code, body.error.details, JSON.stringify(body).includes('credits on account')],
+      [424, 'PROVIDER_UNAVAILABLE', undefined, false]);
+    check('...and our log has what the provider said', warned.some((w) => /provider said: Not enough credits/.test(w)));
+
+    section('NOT CONFIGURED  (the JSON search answers 424 like the stream, and charges nothing)');
+    rateLimit.reset();
+    config.isConfigured = false;
+    const notConfigured = [];
+    for (let i = 0; i < 25; i++) notConfigured.push((await post('/search', { clientId: 'nokey', keywords: ['k' + i] })).status);
+    eq('25 searches on a deployment with no key: every one is 424, none becomes 429', [...new Set(notConfigured)], [424]);
+    config.isConfigured = true;
   } finally {
     serper.search = realSearch;
     config.isConfigured = !!config.serper.apiKey;
@@ -887,6 +950,15 @@ async function sharedStateWithoutDatabase() {
   await job.finish();
   await job.finish();
   eq('finishing twice is harmless', registry.stats().runningHere, 0);
+  // Two requests for one key that both got past cancel() before either listed
+  // its job: the newer one must stop the older, so they never both run (and pay).
+  const racedOld = await registry.register('women:acct:race', 'women');
+  const racedNew = await registry.register('women:acct:race', 'women');
+  eq('two jobs listed for one key without a cancel between: the older stops, the newer runs',
+    [racedOld.signal.aborted, racedNew.signal.aborted, registry.stats().runningHere], [true, false, 1]);
+  const otherKey = await registry.register('women:acct:someone-else', 'women');
+  eq('...and a job under another key is untouched', otherKey.signal.aborted, false);
+  await racedOld.finish(); await racedNew.finish(); await otherKey.finish();
 
   section('GENERATION ADMISSION  (budget, capacity, replacing the previous job)');
   process.env.SHARED_STATE = 'off';
