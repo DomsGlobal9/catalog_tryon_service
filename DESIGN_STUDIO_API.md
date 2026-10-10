@@ -308,7 +308,28 @@ the way round, so they continue on the back.
 Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
 for both takes roughly **25–35 seconds longer** than a single photograph, plus about 35 seconds for each
 photograph that had to be made again. Measured on 10 October 2026, one front-and-back request per garment:
-saree 60–81 s, lehenga 75 s, sharara 49 s, gown 40–46 s, dupatta 45–120 s, petticoat 75 s, bottom wear 54–62 s.
+saree 60–81 s, lehenga 75 s, sharara 49 s, gown 40–46 s, dupatta 45–120 s, petticoat 75 s, bottom wear 54–62 s
+(local runs, no photograph made again). In production an Anarkali pair took **154 s** - most likely one photograph was made once more after the
+reference check (the default stream does not say) - so allow **240 seconds** on your side.
+
+#### Verified on 10 October 2026
+
+Reference pictures came from the live Design Discovery endpoint: for each design, the clearest of the first four usable results, picked before any photograph was made.
+
+| Garment | Designs sent | Front + back result |
+| :--- | :--- | :--- |
+| Saree | `PALLU`, `BORDER` | Correct pair: the border runs round the hem, one pallu, the same saree in both. First run: the pallu fell down the back while the front showed it in front - the back view now drapes it down the back on purpose. |
+| Lehenga | `SKIRT` | Correct first time: the skirt design continues round the back, plain choli back, the dupatta down the left side. |
+| Sharara | `FLARE_PANTS` | Correct first time: plain kurti back, the pants' embroidered hem continues round. |
+| Gown | `SKIRT_FLARE`, `BACK` | Correct after the fix: the keyhole back design on the bodice only, the skirt at the back as plain as in front. Before it, the `BACK` picture's leaf motifs spread onto the skirt and a waistband appeared. |
+| Dupatta | `BODY` | Correct after the fix: draped across the back, both ends hanging free. Before it, the model held the ends out. |
+| Petticoat | `BOTTOM_BORDER` | Correct first time: the lace border all the way round. |
+| Bottom wear | `LEG` | Correct: the print continues round, the waistband matches. One run added a small inset close-up to the back photograph; it did not happen again. |
+| Anarkali (production, through the gateway) | `FLARE`, `BACK` | Correct: the floral flare in both photographs; the back's dori tie-up with tassels on the bodice only; the `BACK` picture's own white flare did not leak in. |
+
+In production, 28 checks that make no image call also pass: every garment lists `front` and `back` in
+`/options`, a `views` value other than `front`/`back` is a `400` naming `views[0]`, and every combination
+of `views` is accepted and reaches the image checks.
 
 **Cost and time.** Two photographs cost two image calls and two reference checks, against one of each for
 a single photograph. Send `views: ["front"]` where a back photograph is not needed.
