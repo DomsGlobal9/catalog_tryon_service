@@ -296,7 +296,7 @@ that design out; leave `views` out to get both.
 
 | Garment | Back photograph |
 | :--- | :--- |
-| Saree | The same Nivi drape from behind: wrapped round the hips, the border along the hem all the way round, the plain blouse back. The pleats are at the front and not seen; the one pallu shows only where it lies over the left shoulder. |
+| Saree | The same Nivi drape from behind: wrapped round the hips, the border along the hem all the way round, the plain blouse back. The pleats are at the front and not seen. The pallu is draped the classic way for this photograph, over the left shoulder and down the back, so its whole design shows (the front photograph shows it hanging in front). |
 | Lehenga | The back of the choli and the skirt, the hem border all the way round; the dupatta falls down the left side, clear of the back. |
 | Dupatta | Draped like a shawl across the back and shoulders, both decorated ends hanging down the back, so its body, borders and ends show. (The front photograph drapes it round the neck with the ends in front.) |
 | Sharara, gown, petticoat, bottom wear | The same garment turned round. A gown or sharara with no `BACK` design has a plain back. |
