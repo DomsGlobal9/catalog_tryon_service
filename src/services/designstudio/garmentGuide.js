@@ -187,6 +187,7 @@ const GUIDE = {
     pairedWith: { pieces: 'churidar', plural: false, looks: 'a fitted churidar', colour: 'match' },
     poseHint: 'One hand lightly lifts the side of the flare so the panels open out and show their design.',
     areas: {
+      BACK: 'the back of the Anarkali\'s fitted bodice, above the waist seam: the back neck shape, any back opening or tie-up (dori) and the back bodice design. It does NOT decorate the flare: the back of the flare looks exactly like the flare in front',
       FLARE: 'the flared skirt below the waist seam: the number, colour blocking and design of its panels (kalis)',
       BORDER: 'the hem border: the wide decorative band around the bottom of the flare',
       WAIST_BELT: 'the waist seam band just under the bust, or the belt worn there'
@@ -220,6 +221,9 @@ const GUIDE = {
     pairedWith: null, // the product is the whole outfit
     poseHint: 'One hand lightly holds the skirt so its flare and hem are visible.',
     areas: {
+      // Measured (10 Oct 2026, paid run): a BACK photo of a whole gown put its gold
+      // leaves on the back of a skirt that was plain in front, and added a waistband.
+      BACK: 'the back of the gown\'s bodice, above the waist: the back neck shape, any back opening (keyhole, cut-out, tie-up) and the back bodice design. It does NOT decorate the skirt: the back of the skirt looks exactly like the skirt in front',
       SKIRT_FLARE: 'the skirt of the gown from the waist to the floor, including any train: its fullness, panels and design',
       BORDER_HEM: 'the hem border of the gown: the decorative band around the bottom of the skirt'
     }

@@ -969,6 +969,16 @@ async function runAll({ check, eq, section, SRC }) {
       && /a dupatta, a bag/.test(qa.viewChecklist({ view: 'back', product: 'blouse', garmentId: 'BLOUSE' }).find((c) => c.id === 'back_shown').question));
   check('lehenga back: the dupatta falls down the left side, clear of the choli and skirt', /falls straight down the LEFT side of the body/.test(backOf('LEHANGA', ['SKIRT']).text));
   check('gown back with no BACK design: a plain back, as for a blouse (a gown has a back panel area)', /its back is plain/.test(backOf('GOWN', ['NECK']).text));
+  // Measured in the 10 Oct paid run: a whole-gown BACK photo leaked its skirt leaves and a waistband onto the back.
+  const gownBack = buildPrompt(viewOf(fakeJob('GOWN', ['BACK', 'SKIRT_FLARE']), new Map(), 'back').job, { view: 'back', frontPhoto: prepared }).text;
+  check('gown and anarkali: a BACK design is the back of the bodice only, never the skirt or flare',
+    /back of the gown's bodice, above the waist[\s\S]*does NOT decorate the skirt/.test(gownBack)
+      && /back of the Anarkali's fitted bodice, above the waist seam[\s\S]*does NOT decorate the flare/.test(backOf('ANARKALI', ['BACK']).text));
+  check('every back photo keeps the front photo\'s plain parts plain and adds no waistband or band the front lacks',
+    /a plain skirt, flare or sleeve stays plain, and no waistband, belt, band or trim appears that this photograph does not show/.test(gownBack));
+  check('...and says it again as the final check, the last word before the image is made (what fixed it in the paid run)',
+    /Final check against the front view \[Image \d+\]: every part that shows in both photographs/.test(gownBack)
+      && !/Final check against the front view/.test(buildPrompt(viewOf(fakeJob('GOWN', ['BACK']), new Map(), 'back').job, { view: 'back' }).text));
   check('the saree front photograph keeps the front drape',
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);

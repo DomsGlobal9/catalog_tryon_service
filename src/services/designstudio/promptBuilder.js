@@ -561,7 +561,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       g.backDrapeChanges
         ? `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint and the way the ${g.product} is draped change, as described under THE GARMENT. Do not redesign or recolour anything that this photograph already shows.`
         : `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
-      `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`
+      `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`,
+      // Measured: a back photo added a waistband and put a back reference's motifs on a skirt that was plain in front.
+      `Every part that continues round the body keeps exactly its look from this photograph: a plain skirt, flare or sleeve stays plain, and no waistband, belt, band or trim appears that this photograph does not show. Only a design reference assigned to the back adds anything new, and only on the part it is assigned to.`
     ].join('\n'));
     addImage(frontPhoto, 'front view');
   }
@@ -738,6 +740,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // A perceptual test the model can check works better than naming the band.
     ...(pair && job.garmentId === 'SAREE' ? ['The blouse is sleeveless: its armholes and neckline are finished only with a narrow folded edge of the same plain cloth - no trim, piping, edge line or border of any width or colour.'] : []),
     ...(pair && job.garmentId === 'LEHANGA' ? ['The choli sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth - no trim, piping, edge line or border of any width or colour.'] : []),
+    // Measured twice on a gown: a whole-garment BACK photo put its skirt leaves and a waist band on
+    // the back while the front skirt was plain, despite the rule in the FRONT VIEW block.
+    ...(frontPhotoNumber ? [`Final check against the front view [Image ${frontPhotoNumber}]: every part that shows in both photographs (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same in both. If that part is plain in the front view it is plain here - no motifs, no band, no belt, no border that the front view does not have. Only the back of the bodice or back panel may carry the back design.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
     'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
