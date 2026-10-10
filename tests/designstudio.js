@@ -947,9 +947,13 @@ async function runAll({ check, eq, section, SRC }) {
   // The seven garments that gained a back view (10 Oct 2026): what their back photograph is told.
   const backOf = (garmentId, areas) => buildPrompt(viewOf(fakeJob(garmentId, areas), new Map(), 'back').job, { view: 'back' });
   const sareeBack = backOf('SAREE', ['PALLU', 'BORDER', 'PLEAT']);
-  check('saree back: the same Nivi drape from behind, pleats not visible, the one pallu only over the left shoulder, never down the back',
+  // Measured in the 10 Oct paid run: the pallu fell down the back whatever the prompt said,
+  // so the back photograph is re-draped that way on purpose and says so.
+  check('saree back: Nivi drape from behind, pleats not visible, the one pallu over the left shoulder and down the back, and the re-drape is stated',
     /seen from behind/.test(sareeBack.text) && /pleats are at the front of the body and are not visible from behind/.test(sareeBack.text)
-      && /does NOT hang down the back/.test(sareeBack.text) && !/hangs down the front of the left side, fully open and facing the camera/.test(sareeBack.text));
+      && /hangs straight down the back to about the knees/.test(sareeBack.text) && /It is the saree's only pallu/.test(sareeBack.text)
+      && !/hangs down the front of the left side, fully open and facing the camera/.test(sareeBack.text)
+      && /Only the viewpoint and the way the saree is draped change/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'back').job, { view: 'back', frontPhoto: prepared }).text));
   eq('saree back: a PLEAT design is front-only; PALLU and BORDER still reach the back photograph',
     viewOf(fakeJob('SAREE', ['PALLU', 'BORDER', 'PLEAT']), new Map(), 'back').job.designs.map((d) => d.areaId), ['PALLU', 'BORDER']);
   check('saree back: borders and body continue round the back (not "the back is plain")',

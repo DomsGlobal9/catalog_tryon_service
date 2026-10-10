@@ -66,14 +66,17 @@ const GUIDE = {
       // forearm produced TWO pallus, one on each arm. One sentence, one pallu.
       'The saree has exactly ONE pallu: a single continuous length that crosses the chest, passes over the LEFT shoulder and hangs down the front of the left side, fully open and facing the camera so all of its design is visible. Do not show a pallu on the right side, over the right arm, or anywhere twice.'
     ],
-    // The same Nivi drape as the front photograph, seen from behind. Used in place
-    // of `construction` for the back view: the front pleats and the open pallu face
-    // the other way, and asking for them here would put them on the back.
+    // Used in place of `construction` for the back view. Measured (10 Oct 2026,
+    // paid run): told to keep the pallu over the shoulder only, the image model
+    // still let it fall down the back - the classic drape, and the better back
+    // photograph, since the whole pallu shows. So the back photograph is re-draped
+    // that way on purpose, and says so.
+    backDrapeChanges: true,
     back: [
-      'The same classic Nivi drape as the front photograph, seen from behind: the saree wraps smoothly around the hips and falls straight to the ankles, with its border running along the hem all the way round.',
-      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain sleeveless blouse with no border at its armholes or neckline. Its back is plain, with a simple back neckline.',
+      'The classic Nivi drape seen from behind: the saree wraps smoothly around the hips and falls straight to the ankles, with its border running along the hem all the way round.',
+      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain sleeveless blouse with no border at its armholes or neckline.',
       'The front pleats are at the front of the body and are not visible from behind.',
-      'The saree has exactly ONE pallu, the same one as in the front photograph: from behind, only the part of it lying over the LEFT shoulder shows, gathered neatly on the shoulder with its border edge visible. It does NOT hang down the back, and no second pallu appears anywhere.'
+      'For this back photograph the pallu is draped the classic way: it passes over the LEFT shoulder and hangs straight down the back to about the knees, opened out flat so its full design and end border are clearly visible. It is the saree\'s only pallu: no second pallu, and nothing over the right shoulder.'
     ],
     // Measured: "plain unless a design reference describes it" let a pallu design
     // move onto the blouse. A saree has no blouse areas, so nothing describes it.
@@ -136,6 +139,8 @@ const GUIDE = {
     back: [
       'For this back photograph the dupatta is draped differently: across the upper back and over both shoulders, opened out to its full width so its body and both long borders are spread flat across the back.',
       'Both decorated ends hang straight down the back, side by side and at the same height, each opened out flat so its end design and any tassels are clearly visible.',
+      // Measured (10 Oct 2026, paid run): the model held both ends out at arm's length.
+      'The ends hang freely by their own weight: the hands do not hold, lift or spread the dupatta, and the arms hang relaxed at the sides.',
       'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them.'
     ],
     styling: null,
