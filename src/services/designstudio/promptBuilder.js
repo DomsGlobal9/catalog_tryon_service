@@ -558,7 +558,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     addText([
       `[Image ${n}] THE FRONT VIEW of this exact ${g.product}, already photographed.`,
       `This photograph is the ground truth for everything that must stay the same: the ${g.product}'s fabric colour and texture, its cut and fit, sleeve length and sleeve ends, hem length, ${pair ? `the ${pair.pieces} worn with it, ` : ''}the model (same person, same hair, same jewellery), the backdrop and the lighting.`,
-      `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
+      g.backDrapeChanges
+        ? `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint and the way the ${g.product} is draped change, as described under THE GARMENT. Do not redesign or recolour anything that this photograph already shows.`
+        : `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
       `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`
     ].join('\n'));
     addImage(frontPhoto, 'front view');
@@ -687,7 +689,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
   if (view === 'back') {
-    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: hair is pinned up or brought forward over one shoulder; the arms hang relaxed at the sides with the hands visible beside the hips - never clasped behind the back, never on the hips - and nothing (hair, hands, jewellery, a dupatta) covers any part of the back.`);
+    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: hair is pinned up or brought forward over one shoulder; the arms hang relaxed at the sides with the hands visible beside the hips - never clasped behind the back, never on the hips - and nothing (hair, hands, jewellery${job.garmentId === 'DUPATTA' ? '' : ', a dupatta'}) covers any part of the back.`);
     if (frontPhotoNumber) modelLines.push(`The same person as in [Image ${frontPhotoNumber}], with the same hair and jewellery, seen from behind.`);
   } else if (pose === 'back') {
     modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);

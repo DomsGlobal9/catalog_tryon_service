@@ -130,9 +130,11 @@ const GUIDE = {
       'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. The two ends hanging side by side are mirror images of each other.'
     ],
     // Seen from behind, the front drape is only a strip across the neck. The back
-    // view drapes it like a shawl so the body, borders and both ends show.
+    // view re-drapes it across the back so the body, borders and both ends show.
+    // ("Shawl" is not said: the model rules forbid a shawl.)
+    backDrapeChanges: true,
     back: [
-      'Drape the dupatta like a shawl: across the upper back and over both shoulders, opened out to its full width so its body and both long borders are spread flat across the back.',
+      'For this back photograph the dupatta is draped differently: across the upper back and over both shoulders, opened out to its full width so its body and both long borders are spread flat across the back.',
       'Both decorated ends hang straight down the back, side by side and at the same height, each opened out flat so its end design and any tassels are clearly visible.',
       'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them.'
     ],

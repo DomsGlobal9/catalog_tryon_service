@@ -218,7 +218,7 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
       'The sleeves are identical to the front view: same length, shape and sleeve ends.'],
     ['same_person', 'Is it the same person in both photographs - the same build, skin tone, hair colour and hair style?',
       'The same person as the front view, with the same hair and skin tone.'],
-    ['back_shown', `Does the BACK photograph show the back of the ${product} squarely to the camera, with the whole back visible and nothing (hair, hands, a dupatta, a bag) covering any part of it?`,
+    ['back_shown', `Does the BACK photograph show the back of the ${product} squarely to the camera, with the whole back visible and nothing (hair, hands, ${review.garmentId === 'DUPATTA' ? '' : 'a dupatta, '}a bag) covering any part of it?`,
       `The back of the ${product} faces the camera squarely and is completely visible; hair is pinned up or brought forward, and nothing covers the back.`],
     ['no_front_on_back', `Is it true that the BACK photograph does NOT show the front neckline, front panel or placket of the ${product} (that is, it is not actually a front or three-quarter-front view)?`,
       `The photograph is a true back view: the front of the ${product} is not visible.`],

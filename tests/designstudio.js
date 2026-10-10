@@ -955,7 +955,14 @@ async function runAll({ check, eq, section, SRC }) {
   check('saree back: borders and body continue round the back (not "the back is plain")',
     /continuing exactly as in the front photograph/.test(sareeBack.text) && !/its back is plain/.test(sareeBack.text));
   const dupattaBack = backOf('DUPATTA', ['BODY']).text;
-  check('dupatta back: draped like a shawl with both ends down the back', /like a shawl/.test(dupattaBack) && /Both decorated ends hang straight down the back/.test(dupattaBack));
+  check('dupatta back: re-draped across the back with both ends down it, and the prompt says the drape changes on purpose',
+    /draped differently: across the upper back and over both shoulders/.test(dupattaBack) && /Both decorated ends hang straight down the back/.test(dupattaBack)
+      && /Only the viewpoint and the way the dupatta is draped change/.test(buildPrompt(viewOf(fakeJob('DUPATTA', ['BODY']), new Map(), 'back').job, { view: 'back', frontPhoto: prepared }).text));
+  check('dupatta back: never told "no dupatta covers the back" or "shawl" (the dupatta IS the product there)',
+    !/jewellery, a dupatta\) covers/.test(dupattaBack) && !/like a shawl/i.test(dupattaBack));
+  check('...and the photo check does not count the dupatta itself as covering the back',
+    !/a dupatta, a bag/.test(qa.viewChecklist({ view: 'back', product: 'dupatta', garmentId: 'DUPATTA' }).find((c) => c.id === 'back_shown').question)
+      && /a dupatta, a bag/.test(qa.viewChecklist({ view: 'back', product: 'blouse', garmentId: 'BLOUSE' }).find((c) => c.id === 'back_shown').question));
   check('lehenga back: the dupatta falls down the left side, clear of the choli and skirt', /falls straight down the LEFT side of the body/.test(backOf('LEHANGA', ['SKIRT']).text));
   check('gown back with no BACK design: a plain back, as for a blouse (a gown has a back panel area)', /its back is plain/.test(backOf('GOWN', ['NECK']).text));
   check('the saree front photograph keeps the front drape',
