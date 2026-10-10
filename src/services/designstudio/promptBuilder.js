@@ -118,7 +118,7 @@ const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
  * front's neckline embroidery onto the back yoke. Each view is shown only the
  * references it can display.
  */
-const FRONT_ONLY_AREAS = new Set(['FRONT', 'NECK', 'BUTTON', 'POCKET']);
+const FRONT_ONLY_AREAS = new Set(['FRONT', 'NECK', 'BUTTON', 'POCKET', 'PLEAT']); // a saree's pleats are at the front
 const BACK_ONLY_AREAS = new Set(['BACK']);
 function visibleIn(view, areaId) {
   if (view === 'front') return !BACK_ONLY_AREAS.has(areaId);
@@ -296,7 +296,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   // A named view decides the pose outright; otherwise (single-photo garments) a
   // BACK design turns the model around.
   const pose = view || (needsBack ? 'back' : 'front');
-  if (needsBack && !view) {
+  // Only when one photograph has to show it all; with views it gets its own back photo.
+  if (needsBack && !view && !job.views) {
     // Measured on a real kurti (BACK + NECK): the back yoke came out perfectly and
     // the neckline could not be seen at all. Say so rather than let a caller wonder.
     const hiddenByBackPose = job.designs
@@ -572,7 +573,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   addText([
     'THE GARMENT',
     g.outfit,
-    bullets(g.construction),
+    bullets(view === 'back' && g.back ? g.back : g.construction),
     ...extrasLines(job, g).map((l) => `- ${l}`),
     ...(g.styling ? [g.styling] : [])
   ].join('\n'));
@@ -640,7 +641,12 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     designRules.push(`This is the FRONT view. The back of the ${g.product} is photographed separately with its own reference and is not part of this picture: do not show or invent any back design here.`);
   }
   if (view === 'back' && !job.designs.some((d) => BACK_AREAS.has(d.areaId))) {
-    designRules.push(`No design reference was sent for the back of the ${g.product}: its back is plain, in the ${g.product}'s own fabric, with a simple neckline that matches the front's construction and no decoration.`);
+    // A saree, lehenga, dupatta, petticoat or bottom wear has no back panel to
+    // design: its borders, body and prints simply run all the way round.
+    const hasBackPanel = taxonomy.getDesignTypes(job.garmentId).some((a) => BACK_AREAS.has(a.id));
+    designRules.push(hasBackPanel
+      ? `No design reference was sent for the back of the ${g.product}: its back is plain, in the ${g.product}'s own fabric, with a simple neckline that matches the front's construction and no decoration.`
+      : `From behind, the ${g.product} shows the same designs that run all the way round it - its borders, hem bands, body motifs and prints - continuing exactly as in the front photograph. Nothing is added on the back that the front does not already have.`);
   }
   addText(['HOW TO USE THE DESIGN REFERENCES', bullets(designRules)].join('\n'));
 

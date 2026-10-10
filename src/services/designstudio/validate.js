@@ -207,9 +207,9 @@ const schema = z.object({
     note: text(config.limits.maxNoteChars).optional()
   }).strict().optional(),
   modelGender: z.enum(MODEL_GENDERS).optional(),
-  // Which sides to photograph. Only garments with a back (blouse, kurti,
-  // anarkali, salwar suit, sherwani) can give a back view; they give both by
-  // default. Others always give the front only.
+  // Which sides to photograph: ["front"], ["back"] or both. Every garment gives
+  // both by default (since 10 Oct 2026; before, only blouse, kurti, anarkali,
+  // salwar suit and sherwani had a back view).
   views: z.array(z.enum(['front', 'back'])).min(1).max(2).optional(),
   notes: text(config.limits.maxNotesChars).optional()
 }).strict();
@@ -360,10 +360,6 @@ function resolveRequest(rawBody) {
         [{ field: 'views', code: 'VIEW_NOT_AVAILABLE' }]);
     }
     views = sides.filter((s) => views.includes(s)); // front before back, always
-    // A one-sided garment makes one photograph either way; naming it used to
-    // send it down the two-sided path, which dropped a BACK design and ran the
-    // paid pair check. The default path turns the model for a BACK design.
-    if (sides.length === 1) views = null;
   }
 
   return {

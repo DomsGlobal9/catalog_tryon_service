@@ -66,6 +66,15 @@ const GUIDE = {
       // forearm produced TWO pallus, one on each arm. One sentence, one pallu.
       'The saree has exactly ONE pallu: a single continuous length that crosses the chest, passes over the LEFT shoulder and hangs down the front of the left side, fully open and facing the camera so all of its design is visible. Do not show a pallu on the right side, over the right arm, or anywhere twice.'
     ],
+    // The same Nivi drape as the front photograph, seen from behind. Used in place
+    // of `construction` for the back view: the front pleats and the open pallu face
+    // the other way, and asking for them here would put them on the back.
+    back: [
+      'The same classic Nivi drape as the front photograph, seen from behind: the saree wraps smoothly around the hips and falls straight to the ankles, with its border running along the hem all the way round.',
+      'The blouse under it is NOT a matching blouse piece cut from the saree: it is a separate plain sleeveless blouse with no border at its armholes or neckline. Its back is plain, with a simple back neckline.',
+      'The front pleats are at the front of the body and are not visible from behind.',
+      'The saree has exactly ONE pallu, the same one as in the front photograph: from behind, only the part of it lying over the LEFT shoulder shows, gathered neatly on the shoulder with its border edge visible. It does NOT hang down the back, and no second pallu appears anywhere.'
+    ],
     // Measured: "plain unless a design reference describes it" let a pallu design
     // move onto the blouse. A saree has no blouse areas, so nothing describes it.
     styling: null,
@@ -119,6 +128,13 @@ const GUIDE = {
       // where a mismatch cannot hide.
       'Drape the dupatta around the back of the neck so that BOTH long ends hang straight down the front of the body, one over each shoulder, side by side and at the same height, each opened out flat so its body, borders and decorated end are clearly visible.',
       'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them. The two ends hanging side by side are mirror images of each other.'
+    ],
+    // Seen from behind, the front drape is only a strip across the neck. The back
+    // view drapes it like a shawl so the body, borders and both ends show.
+    back: [
+      'Drape the dupatta like a shawl: across the upper back and over both shoulders, opened out to its full width so its body and both long borders are spread flat across the back.',
+      'Both decorated ends hang straight down the back, side by side and at the same height, each opened out flat so its end design and any tassels are clearly visible.',
+      'A dupatta\'s two ends are identical: the same end design in the same colours and metallic finish, and the same tassels where it has them.'
     ],
     styling: null,
     // Full length. Not waist-up: its ends and tassels hang to about the knee. And
@@ -266,6 +282,11 @@ const GUIDE = {
       'Let the skirt fall in rich, even folds with plenty of volume, with the hem border running all the way round.',
       'Pin the dupatta at the left shoulder and let it fall behind the arm, so it frames the outfit without hiding the skirt.'
     ],
+    back: [
+      'The same lehenga choli as the front photograph, seen from behind: the skirt falls in rich, even folds with plenty of volume, with the hem border running all the way round.',
+      'The back of the choli is fully visible, with its back neckline and any tie-up.',
+      'The dupatta stays pinned at the left shoulder and falls straight down the LEFT side of the body, beside the arm, so it covers neither the back of the choli nor the back of the skirt.'
+    ],
     // Same loophole as the saree: no lehenga area covers the choli or the dupatta.
     styling: null,
     pairedWith: { pieces: 'choli and dupatta', plural: true, looks: 'a fitted short choli blouse and a light dupatta', colour: 'match' },
@@ -297,6 +318,8 @@ const GUIDE = {
 const FRAMINGS = new Set(['full', 'three-quarter', 'waist-up']);
 for (const [id, guide] of Object.entries(GUIDE)) {
   if (guide.framing === undefined) guide.framing = 'full';
+  // Every garment is photographed front and back by default (product decision, 10 Oct 2026).
+  if (guide.sides === undefined) guide.sides = ['front', 'back'];
   if (!FRAMINGS.has(guide.framing)) throw new Error(`Unknown framing "${guide.framing}" for ${id}`);
 }
 

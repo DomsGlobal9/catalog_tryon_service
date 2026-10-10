@@ -762,12 +762,18 @@ async function runAll({ check, eq, section, SRC }) {
   eq('lining, backing and a BORDER fabric on a garment with no border area are ignored; a main-fabric id instead of a picture is refused with the fix named',
     [libJob.fabrics.length + resolveRequest({ ...libraryPayload, garment_key: 'saree', parts: { pallu_design: { image_url: cloud('ok.png') } } }).fabrics.length, code(() => resolveRequest({ ...libraryPayload, fabrics: { MAIN_FABRIC: ['639c8187-eb4c-4287-a09e-eea363334a32'] } }))],
     [3, 'FABRIC_ID_NOT_IMAGE']);
-  eq('views: a blouse gives both by default, can be limited to one, always front before back; a saree cannot give a back',
+  eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
-      resolveRequest(body({ garment: 'KURTHI', designs: [{ area: 'NECK', image: IMG }], views: ['back', 'front'] })).views,
-      resolveRequest(body()).views, code(() => resolveRequest(body({ views: ['back'] })))],
-    [['front', 'back'], ['front'], ['front', 'back'], null, 'VIEW_NOT_AVAILABLE']);
+      resolveRequest(body({ garment: 'KURTHI', designs: [{ area: 'NECK', image: IMG }], views: ['back', 'front'] })).views],
+    [['front', 'back'], ['front'], ['front', 'back']]);
+  // Product decision, 10 Oct 2026: every garment is front and back by default.
+  const sevenNew = [['SAREE', 'PALLU'], ['LEHANGA', 'SKIRT'], ['SHARARA', 'FLARE_PANTS'], ['GOWN', 'SKIRT_FLARE'], ['DUPATTA', 'BODY'], ['PETTICOAT', 'FLARE'], ['BOTTOM_WEAR', 'LEG']];
+  eq('the seven garments that were front-only (saree, lehenga, sharara, gown, dupatta, petticoat, bottom wear) now give front and back by default',
+    sevenNew.map(([garment, area]) => resolveRequest(body({ garment, designs: [{ area, image: IMG }] })).views.join('+')), sevenNew.map(() => 'front+back'));
+  eq('...and any of them can still ask for one side',
+    [resolveRequest(body({ views: ['back'] })).views, resolveRequest(body({ garment: 'GOWN', designs: [{ area: 'SKIRT_FLARE', image: IMG }], views: ['front'] })).views], [['back'], ['front']]);
+  eq('every one of the 12 garments has both sides', Object.entries(S('garmentGuide').GUIDE).filter(([, g]) => g.sides.join('+') !== 'front+back').map(([id]) => id), []);
   eq('each view is shown only what it can display: FRONT, NECK, BUTTON, POCKET are front-only, BACK is back-only, sleeves/hems/borders/prints show in both',
     [['FRONT', 'NECK', 'BUTTON', 'BACK', 'SLEEVE', 'HAND', 'HEMLINE', 'PRINT', 'COLLAR_NECK'].map((a) => (visibleIn('front', a) ? 'F' : '-') + (visibleIn('back', a) ? 'B' : '-')).join(' ')],
     ['F- F- F- -B FB FB FB FB FB']);
@@ -929,12 +935,31 @@ async function runAll({ check, eq, section, SRC }) {
 
   const back = buildPrompt(fakeJob('BLOUSE', ['BACK']));
   eq('a BACK design turns the model so the back is visible', [back.pose, /looking back over the shoulder/.test(back.text)], ['back', true]);
+  // Every job now has views, so FRONT and BACK designs each get their own photograph:
+  // the old "one photograph cannot show both" warning would be false.
   const both = buildPrompt(fakeJob('KURTHI', ['FRONT', 'BACK']));
-  eq('FRONT and BACK together: back pose plus an honest warning', [both.pose, both.warnings.length], ['back', 1]);
-  const backAndNeck = buildPrompt(fakeJob('KURTHI', ['BACK', 'NECK', 'PRINT']));
-  check('any front-facing area behind a BACK pose is named in the warning (measured: a NECK design was invisible)',
-    backAndNeck.warnings.length === 1 && /leaves NECK partly or fully hidden/.test(backAndNeck.warnings[0]) && !/PRINT/.test(backAndNeck.warnings[0]),
-    backAndNeck.warnings[0]);
+  eq('FRONT and BACK together on a job with views: no "one photograph" warning', both.warnings, []);
+  const singlePhoto = buildPrompt({ ...fakeJob('KURTHI', ['BACK', 'NECK', 'PRINT']), views: null });
+  check('only a job with no views at all (one photograph) still gets the honest warning naming NECK',
+    singlePhoto.warnings.length === 1 && /leaves NECK partly or fully hidden/.test(singlePhoto.warnings[0]) && !/PRINT/.test(singlePhoto.warnings[0]),
+    singlePhoto.warnings[0]);
+
+  // The seven garments that gained a back view (10 Oct 2026): what their back photograph is told.
+  const backOf = (garmentId, areas) => buildPrompt(viewOf(fakeJob(garmentId, areas), new Map(), 'back').job, { view: 'back' });
+  const sareeBack = backOf('SAREE', ['PALLU', 'BORDER', 'PLEAT']);
+  check('saree back: the same Nivi drape from behind, pleats not visible, the one pallu only over the left shoulder, never down the back',
+    /seen from behind/.test(sareeBack.text) && /pleats are at the front of the body and are not visible from behind/.test(sareeBack.text)
+      && /does NOT hang down the back/.test(sareeBack.text) && !/hangs down the front of the left side, fully open and facing the camera/.test(sareeBack.text));
+  eq('saree back: a PLEAT design is front-only; PALLU and BORDER still reach the back photograph',
+    viewOf(fakeJob('SAREE', ['PALLU', 'BORDER', 'PLEAT']), new Map(), 'back').job.designs.map((d) => d.areaId), ['PALLU', 'BORDER']);
+  check('saree back: borders and body continue round the back (not "the back is plain")',
+    /continuing exactly as in the front photograph/.test(sareeBack.text) && !/its back is plain/.test(sareeBack.text));
+  const dupattaBack = backOf('DUPATTA', ['BODY']).text;
+  check('dupatta back: draped like a shawl with both ends down the back', /like a shawl/.test(dupattaBack) && /Both decorated ends hang straight down the back/.test(dupattaBack));
+  check('lehenga back: the dupatta falls down the left side, clear of the choli and skirt', /falls straight down the LEFT side of the body/.test(backOf('LEHANGA', ['SKIRT']).text));
+  check('gown back with no BACK design: a plain back, as for a blouse (a gown has a back panel area)', /its back is plain/.test(backOf('GOWN', ['NECK']).text));
+  check('the saree front photograph keeps the front drape',
+    /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
   const ref = buildPrompt(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }));
   check('a model photo: dress that exact person, ignore their outfit', /Dress the exact person shown in \[Image 2\]/.test(ref.text) && /ignore their original outfit/.test(ref.text));
@@ -1071,6 +1096,9 @@ async function runAll({ check, eq, section, SRC }) {
     headers: { 'Content-Type': 'application/json', 'x-gateway-client-id': `studio-acct-${++account}`, ...headers },
     body: typeof payload === 'string' ? payload : JSON.stringify(payload)
   });
+  // These tests are about the stream itself, so they ask for one photograph; the
+  // front-and-back default has tests of its own below.
+  const oneView = (over = {}) => body({ views: ['front'], ...over });
   const readEvents = async (res) => {
     const text = await res.text();
     return { text, events: text.split('\n\n').filter((f) => f.startsWith('data: ')).map((f) => JSON.parse(f.slice(6))) };
@@ -1080,9 +1108,8 @@ async function runAll({ check, eq, section, SRC }) {
     const opt = await (await fetch(base + '/options')).json();
     eq('GET /options lists 12 garments with their areas, limits and 3:4', [opt.garments.length, opt.garments.find((g) => g.id === 'SAREE').designAreas.length, opt.limits.maxDesigns, opt.model.aspectRatio, opt.garments.find((g) => g.id === 'SHERWANI').defaultModelGender],
       [12, 8, 6, '3:4', 'female']);
-    eq('GET /options says which garments give a back view too',
-      ['BLOUSE', 'KURTHI', 'ANARKALI', 'SUIT', 'SHERWANI', 'SAREE', 'GOWN'].map((id) => opt.garments.find((g) => g.id === id).views.join('+')),
-      ['front+back', 'front+back', 'front+back', 'front+back', 'front+back', 'front', 'front']);
+    eq('GET /options says every garment gives a front and a back view',
+      opt.garments.filter((g) => g.views.join('+') !== 'front+back').map((g) => g.id), []);
     eq('GET /options says what each product is worn with, and the default colour',
       [opt.garments.find((g) => g.id === 'SAREE').pairedWith, opt.garments.find((g) => g.id === 'BLOUSE').pairedWith.pieces, opt.garments.find((g) => g.id === 'GOWN').pairedWith],
       [{ pieces: 'blouse', defaultColour: 'matches the main fabric' }, 'skirt', null]);
@@ -1105,15 +1132,15 @@ async function runAll({ check, eq, section, SRC }) {
     // Happy path, with a draft image and a busy first answer.
     calls = script([() => new Response('busy', { status: 503 }), () => answer([imagePart(DRAFT, true), imagePart(FINAL)])]);
     res = await post('/generate', {
-      clientId: 'shop-1', garment: 'saree',
+      clientId: 'shop-1', garment: 'saree', views: ['front'],
       designs: [{ area: 'PALLU', image: IMG }, { area: 'BORDER', image: cloud('ok.png'), note: 'keep the peacocks' }],
       fabrics: [{ image: IMG, name: 'Banarasi silk' }]
     });
     eq('a good request opens an event stream', [res.status, res.headers.get('content-type')], [200, 'text/event-stream; charset=utf-8']);
     let { events } = await readEvents(res);
-    eq('events: start, reading references, brief, generating, retry, checking, image, done',
+    eq('events: start, reading references, brief, generating (the view), generating, retry, inspection, reference check, image, done',
       [events.map((e) => e.type), events.filter((e) => e.type === 'status').map((e) => e.stage)],
-      [['start', 'status', 'brief', 'status', 'status', 'status', 'image', 'done'], ['reading-references', 'generating', 'generating', 'checking']]);
+      [['start', 'status', 'brief', 'status', 'status', 'status', 'status', 'status', 'image', 'done'], ['reading-references', 'generating', 'generating', 'generating', 'checking', 'checking']]);
     eq('the brief event tells the caller what was understood from each reference',
       events[2].references.map((r) => r.ref), [1, 2]);
     eq('the first status is the describe step', events[1].stage, 'reading-references');
@@ -1134,27 +1161,27 @@ async function runAll({ check, eq, section, SRC }) {
     // The describe step failing must not stop a generation.
     describe._setFetch(describeAnswer('service down', 503));
     script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'no-brief' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'no-brief' }))));
     eq('if the describe step fails there is no brief, and the image still arrives',
-      [events.map((e) => e.type), events.some((e) => e.type === 'brief')], [['start', 'status', 'status', 'status', 'image', 'done'], false]);
+      [events.map((e) => e.type), events.some((e) => e.type === 'brief')], [['start', 'status', 'status', 'status', 'status', 'status', 'image', 'done'], false]);
     describe._setFetch(describeAnswer(goodDescription));
 
     // A refusal inside the stream.
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
-    ({ events } = await readEvents(await post('/generate', body())));
-    eq('a refusal arrives as an error event and the stream ends, no image', [events.map((e) => e.type), events[events.length - 1].code], [['start', 'status', 'brief', 'status', 'error'], 'GENERATION_BLOCKED']);
+    ({ events } = await readEvents(await post('/generate', oneView())));
+    eq('a refusal arrives as an error event and the stream ends, no image', [events.map((e) => e.type), events[events.length - 1].code], [['start', 'status', 'brief', 'status', 'status', 'error'], 'GENERATION_BLOCKED']);
 
     // The default a caller gets: the photograph only, no text about how it was made.
     const streamCfg = S('config').config.stream;
     streamCfg.detail = 'image';
     script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'image-only' }))));
     eq('by default the stream carries only start (jobId), the image and done - no brief, warnings, status text, quality or timings',
       events.map((e) => [e.type, Object.keys(e).sort().join(',')]),
       [['start', 'jobId,type'], ['image', 'height,image,jobId,mimeType,type,view,width'], ['done', 'jobId,status,type,views']]);
     check('...and the image is still the full photograph', /^data:image\/jpeg;base64,\/9j\//.test(events[1].image));
     script([() => answer([], { promptFeedback: { blockReason: 'SAFETY' } })]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'image-only-2' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'image-only-2' }))));
     eq('...and an error keeps its code, message, retryable flag and the documented details',
       events.map((e) => [e.type, Object.keys(e).sort().join(',')]), [['start', 'jobId,type'], ['error', 'code,details,jobId,message,retryable,type']]);
     eq('...GENERATION_BLOCKED carries details.reason, as the docs promise', [events[1].code, events[1].details], ['GENERATION_BLOCKED', { reason: 'SAFETY' }]);
@@ -1209,20 +1236,18 @@ async function runAll({ check, eq, section, SRC }) {
       [['back'], false, true]);
     qa._setFetch(qaAnswer());
 
-    // A one-sided garment with a BACK design and views: ["front"]: the back
-    // design used to be dropped silently and a paid pair check run.
-    let qaCalls = 0;
-    qa._setFetch(async (...a) => { qaCalls++; return qaAnswer()(...a); });
+    // Since 10 Oct 2026 a gown is front and back too: the BACK design belongs to the back photograph.
     const gownCalls = script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', { clientId: 'gown-front', garment: 'GOWN', designs: [{ area: 'BACK', image: IMG }], views: ['front'] })));
-    eq('GOWN with a BACK design and views: ["front"]: one photograph, the BACK design reaches the image model, no pair check',
-      [events.filter((e) => e.type === 'image').length, imagesIn(gownCalls[0]), qaCalls, events[events.length - 1].type], [1, 1, 1, 'done']);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'gown-both', garment: 'GOWN', designs: [{ area: 'BACK', image: IMG }, { area: 'NECK', image: IMG }] })));
+    eq('GOWN with BACK and NECK designs, no views: front then back; NECK in the front call only, BACK in the back call only',
+      [events.filter((e) => e.type === 'image').map((e) => e.view), imagesIn(gownCalls[0]), imagesIn(gownCalls[1]), /THE FRONT VIEW of this exact gown/.test(textOf(gownCalls[1])), events[events.length - 1].type],
+      [['front', 'back'], 1, 2, true, 'done']);
     qa._setFetch(qaAnswer());
 
     // Cancelled while the photograph is being checked: CANCELLED, not "failed unexpectedly".
     qa._setFetch(async (url, opts) => new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(opts.signal.reason))));
     script([() => answer([imagePart(FINAL)])]);
-    const checking = post('/generate', body({ clientId: 'cancel-in-check' }), { headers: { 'x-gateway-client-id': 'acct-check-cancel' } });
+    const checking = post('/generate', oneView({ clientId: 'cancel-in-check' }), { headers: { 'x-gateway-client-id': 'acct-check-cancel' } });
     await new Promise((r) => setTimeout(r, 250));
     const cancelCheck = await (await post('/cancel', { clientId: 'cancel-in-check' }, { headers: { 'x-gateway-client-id': 'acct-check-cancel' } })).json();
     ({ events } = await readEvents(await checking));
@@ -1238,9 +1263,9 @@ async function runAll({ check, eq, section, SRC }) {
       opts.signal.addEventListener('abort', () => { clearTimeout(timer); reject(opts.signal.reason); });
     })]);
     slow();
-    const running = post('/generate', body({ clientId: 'slow-client' }), { headers: { 'x-gateway-client-id': 'acct-cancel' } });
+    const running = post('/generate', oneView({ clientId: 'slow-client' }), { headers: { 'x-gateway-client-id': 'acct-cancel' } });
     await new Promise((r) => setTimeout(r, 200));
-    const busy = await post('/generate', body({ clientId: 'someone-else' }));
+    const busy = await post('/generate', oneView({ clientId: 'someone-else' }));
     const busyJson = await busy.json();
     eq('while the only slot is busy, another customer gets 429 with Retry-After', [busy.status, busy.headers.get('retry-after'), /capacity/.test(busyJson.error)], [429, '10', true]);
     const wrongOwner = await (await post('/cancel', { clientId: 'slow-client' }, { headers: { 'x-gateway-client-id': 'acct-other' } })).json();
@@ -1253,7 +1278,7 @@ async function runAll({ check, eq, section, SRC }) {
 
     slow();
     const leaving = new AbortController();
-    const leaverRes = await post('/generate', body({ clientId: 'leaver' }), { signal: leaving.signal });
+    const leaverRes = await post('/generate', oneView({ clientId: 'leaver' }), { signal: leaving.signal });
     const reader = leaverRes.body.getReader();
     await reader.read();
     leaving.abort();
@@ -1263,23 +1288,23 @@ async function runAll({ check, eq, section, SRC }) {
     res = await post('/cancel', {});
     eq('cancel without clientId is 400', res.status, 400);
     script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'after' }))));
-    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'status', 'image', 'done']);
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'after' }))));
+    eq('the service works normally after all of that', events.map((e) => e.type), ['start', 'status', 'brief', 'status', 'status', 'status', 'status', 'image', 'done']);
 
     // ── The quality gate ──
     const SECOND = (await sharp({ create: { width: 768, height: 1024, channels: 3, background: '#113355' } }).png().toBuffer()).toString('base64');
     const blueOf = async (e) => Math.round((await sharp(Buffer.from(e.image.split(',')[1], 'base64')).stats()).channels[2].mean);
     eq('an inspected photograph that passes is reported as checked and passed, not regenerated',
-      events[events.length - 1].quality, { checked: true, passed: true, regenerated: false, failures: [] });
+      events[events.length - 1].quality, { checked: true, passed: true, regenerated: false, failures: [], references: { checked: true, passed: true, failures: [] }, pair: { checked: true, passed: true, failures: [] } });
 
     qa._setFetch(qaSequence(qaAnswer(['supporting_plain']), qaAnswer()));
     calls = script([() => answer([imagePart(FINAL)]), () => answer([imagePart(SECOND)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-regen' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'qa-regen' }))));
     const regenDone = events[events.length - 1];
     const firstBlue = await blueOf({ image: `data:image/png;base64,${FINAL}` });
     eq('a failed inspection regenerates once with the fault named, and the corrected photograph is returned',
       [events.filter((e) => e.type === 'status').map((e) => e.stage), regenDone.quality, calls.length, (await blueOf(events.find((e) => e.type === 'image'))) !== firstBlue],
-      [['reading-references', 'generating', 'checking', 'regenerating', 'checking'], { checked: true, passed: true, regenerated: true, failures: [] }, 2, true]);
+      [['reading-references', 'generating', 'generating', 'checking', 'regenerating', 'checking', 'checking'], { checked: true, passed: true, regenerated: true, failures: [], references: { checked: true, passed: true, failures: [] }, pair: { checked: true, passed: true, failures: [] } }, 2, true]);
     const regenParts = calls[1].body.contents[0].parts;
     const correctionPart = regenParts[regenParts.length - 1].text;
     check('the regeneration carries the inspector\'s correction as the last instruction',
@@ -1288,20 +1313,20 @@ async function runAll({ check, eq, section, SRC }) {
 
     qa._setFetch(qaSequence(qaAnswer(['supporting_plain']), qaAnswer(['supporting_plain', 'no_text'])));
     calls = script([() => answer([imagePart(FINAL)]), () => answer([imagePart(SECOND)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-worse' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'qa-worse' }))));
     eq('a regeneration that inspects worse is discarded: the first photograph is returned with its fault reported',
       [events[events.length - 1].quality.failures.map((f) => f.check), events[events.length - 1].quality.regenerated, (await blueOf(events.find((e) => e.type === 'image'))) === firstBlue],
       [['supporting_plain'], true, true]);
 
     qa._setFetch(async () => new Response('inspector down', { status: 500 }));
     calls = script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-down' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'qa-down' }))));
     eq('if the inspection itself fails, the photograph is still returned, reported unchecked, with no regeneration',
-      [events.some((e) => e.type === 'image'), events[events.length - 1].quality, calls.length], [true, { checked: false, passed: null, regenerated: false, failures: [] }, 1]);
+      [events.some((e) => e.type === 'image'), events[events.length - 1].quality, calls.length], [true, { checked: false, passed: null, regenerated: false, failures: [], references: { checked: false, passed: null, failures: [] }, pair: { checked: false, passed: null, failures: [] } }, 1]);
 
     qa._setFetch(qaAnswer(['supporting_plain']));
     calls = script([() => answer([imagePart(FINAL)]), () => new Response(JSON.stringify({ error: { message: 'Request contains an invalid argument.' } }), { status: 400 })]);
-    ({ events } = await readEvents(await post('/generate', body({ clientId: 'qa-regen-fails' }))));
+    ({ events } = await readEvents(await post('/generate', oneView({ clientId: 'qa-regen-fails' }))));
     eq('if the regeneration itself fails, the first photograph is returned instead of an error',
       [events.some((e) => e.type === 'image'), events.some((e) => e.type === 'error'), events[events.length - 1].quality.failures.map((f) => f.check)],
       [true, false, ['supporting_plain']]);
@@ -1311,6 +1336,8 @@ async function runAll({ check, eq, section, SRC }) {
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);
   } finally {
     console.log = realLog; console.warn = realWarn; console.error = realError;
+    // This section's check results go to `logs` with the app's own lines; DS_TEST_LOG=<file> keeps them.
+    if (process.env.DS_TEST_LOG) require('fs').writeFileSync(process.env.DS_TEST_LOG, logs.join('\n'));
     gemini._setFetch((...a) => fetch(...a));
     imageInput._setFetch((...a) => fetch(...a));
     if (server.closeAllConnections) server.closeAllConnections();

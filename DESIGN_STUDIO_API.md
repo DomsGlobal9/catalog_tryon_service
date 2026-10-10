@@ -14,7 +14,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
-| **Output** | JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up). **Two photographs (front and back)** for a blouse, kurti, anarkali, salwar suit or sherwani; one for the rest |
+| **Output** | JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up). **Two photographs (front and back)** for every garment by default; `views` can ask for one side |
 
 ---
 
@@ -60,7 +60,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `productName` | string, ≤120 | No | e.g. `"Bridal Banarasi Saree"`. Used as a hint to the style and occasion. No text is ever drawn into the image. |
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
 | `modelGender` | `female` or `male` | No | Defaults to `female` for every garment (the `SHERWANI` here is a women's sherwani-style jacket; the men's sherwani is made by the Catalog Try-On men pipeline). |
-| `views` | string[] | No | Which photographs to make: `["front", "back"]` (the default for a blouse, kurti, anarkali, salwar suit and sherwani), `["front"]` or `["back"]`. Other garments only have a front; asking them for a back is a `400`. See *Front and back*. |
+| `views` | string[] | No | Which photographs to make: `["front", "back"]` (the default, for every garment), `["front"]` or `["back"]`. See *Front and back*. |
 | `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
@@ -268,9 +268,9 @@ A good model photo:
 
 ### Front and back
 
-A blouse, kurti, anarkali, salwar suit or sherwani has a front and a back that both matter, and one
-photograph cannot show both. These five garments therefore give **two photographs** by default, in this
-order:
+Every garment has a front and a back that both matter, and one photograph cannot show both. Every
+garment therefore gives **two photographs** by default, in this order (since 10 October 2026; before,
+only the blouse, kurti, anarkali, salwar suit and sherwani did, and the rest gave one front photograph):
 
 1. **Front.** The model faces the camera. The `FRONT`, `NECK`, `BUTTON` and `POCKET` designs are
    shown here, along with everything that shows from both sides (sleeves, hems, borders, collars,
@@ -288,14 +288,28 @@ With **no `BACK` design**, the back photograph is still made, plain, in the garm
 only one side, send `views: ["front"]` or `views: ["back"]`. The order is always front then back.
 With `views: ["back"]` alone there is no front photograph, so the checks that compare back with front are skipped; the back is still checked against its references.
 
-For a garment with only a front (saree, gown, sharara...), `views` changes nothing: one photograph is made, exactly as if `views` were left out. A `BACK` design on such a garment turns the model around as usual (before 6 October 2026, `views: ["front"]` dropped that design without saying so).
+A design that only shows from one side goes only to that photograph: `BACK` to the back; `FRONT`, `NECK`,
+`BUTTON`, `POCKET` and a saree's `PLEAT` to the front. So `views: ["front"]` with a `BACK` design leaves
+that design out; leave `views` out to get both.
+
+**How the draped garments look from behind** (the same outfit as the front photograph):
+
+| Garment | Back photograph |
+| :--- | :--- |
+| Saree | The same Nivi drape from behind: wrapped round the hips, the border along the hem all the way round, the plain blouse back. The pleats are at the front and not seen; the one pallu shows only where it lies over the left shoulder. |
+| Lehenga | The back of the choli and the skirt, the hem border all the way round; the dupatta falls down the left side, clear of the back. |
+| Dupatta | Draped like a shawl across the back and shoulders, both decorated ends hanging down the back, so its body, borders and ends show. (The front photograph drapes it round the neck with the ends in front.) |
+| Sharara, gown, petticoat, bottom wear | The same garment turned round. A gown or sharara with no `BACK` design has a plain back. |
+
+Borders, hem bands, body motifs and prints of a saree, lehenga, dupatta, petticoat or bottom wear run all
+the way round, so they continue on the back.
 
 Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
 for both takes roughly **25–35 seconds longer** than a single photograph, plus about 35 seconds for each
 photograph that had to be made again.
 
-The other garments (saree, lehenga, dupatta, gown, sharara, petticoat, bottom wear) always give one
-photograph, from the front.
+**Cost and time.** Two photographs cost two image calls and two reference checks, against one of each for
+a single photograph. Send `views: ["front"]` where a back photograph is not needed.
 
 ### How a request is answered, in two steps
 
@@ -500,6 +514,5 @@ Inside the stream (`error` event):
 - **A trim that is the design is kept.** A `WAISTBAND` photo whose waistband is a pearl-and-tassel
   fringe gives a fringed waistband; tassels are only removed where they are not the named part (the
   ends of a dupatta photographed whole, a saree pallu).
-- **One photograph shows one side.** For the five two-sided garments both sides are photographed (see
-  *Front and back*). For any other garment a `BACK` design turns the model around and front areas in
-  the same request are then hidden.
+- **One photograph shows one side.** Every garment is photographed from both sides by default (see
+  *Front and back*); with `views` set to one side, the other side's designs are not shown.
