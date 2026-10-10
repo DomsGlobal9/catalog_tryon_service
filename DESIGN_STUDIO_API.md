@@ -298,18 +298,114 @@ that design out; leave `views` out to get both.
 | :--- | :--- |
 | Saree | The same Nivi drape from behind: wrapped round the hips, the border along the hem all the way round, the plain blouse back. The pleats are at the front and not seen. The pallu is draped the classic way for this photograph, over the left shoulder and down the back, so its whole design shows (the front photograph shows it hanging in front). |
 | Lehenga | The back of the choli and the skirt, the hem border all the way round; the dupatta falls down the left side, clear of the back. |
-| Dupatta | Draped like a shawl across the back and shoulders, both decorated ends hanging down the back, so its body, borders and ends show. (The front photograph drapes it round the neck with the ends in front.) |
+| Dupatta | Re-draped across the back and over both shoulders, both decorated ends hanging freely down the back, so its body, borders and ends show. (The front photograph drapes it round the neck with the ends in front.) |
 | Sharara, gown, petticoat, bottom wear | The same garment turned round. A gown or sharara with no `BACK` design has a plain back. |
+| Gown, Anarkali with a `BACK` design | The `BACK` design decorates the **back of the bodice only** (neck shape, keyhole or tie-up, back yoke). The skirt or flare at the back looks exactly like it does in the front photograph, even when the `BACK` picture shows a whole garment with motifs on its skirt. |
 
 Borders, hem bands, body motifs and prints of a saree, lehenga, dupatta, petticoat or bottom wear run all
 the way round, so they continue on the back.
 
 Each photograph arrives as its own `image` event with a `view` of `"front"` or `"back"`. A request
 for both takes roughly **25–35 seconds longer** than a single photograph, plus about 35 seconds for each
-photograph that had to be made again.
+photograph that had to be made again. Measured on 10 October 2026, one front-and-back request per garment:
+saree 60–81 s, lehenga 75 s, sharara 49 s, gown 40–46 s, dupatta 45–120 s, petticoat 75 s, bottom wear 54–62 s.
 
 **Cost and time.** Two photographs cost two image calls and two reference checks, against one of each for
 a single photograph. Send `views: ["front"]` where a back photograph is not needed.
+
+#### Example requests
+
+In every example `image` is a Cloudinary `https://res.cloudinary.com/...` link or base64
+(`"data:image/jpeg;base64,/9j/4AAQ..."`); the links below are placeholders.
+
+**1. Front and back (the default) - a saree from a pallu and a border design.** No `views`, so two
+photographs come back: `front`, then `back`.
+
+```json
+{
+  "clientId": "acme-retail",
+  "productName": "Teal Banarasi Silk Saree",
+  "garment": "SAREE",
+  "designs": [
+    { "area": "PALLU",  "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/pallu-paisley.jpg" },
+    { "area": "BORDER", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/border-peacock.jpg" }
+  ],
+  "fabrics": [
+    { "image": "https://res.cloudinary.com/acme/image/upload/v1/fabrics/teal-silk.jpg", "name": "Banarasi silk", "color": "teal", "colorHex": "#0E7C7B" }
+  ]
+}
+```
+
+**2. Front only.** Half the cost and time. A `BACK` design sent with `views: ["front"]` is left out.
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "LEHANGA",
+  "views": ["front"],
+  "designs": [
+    { "area": "SKIRT",  "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/lehenga-skirt.jpg" },
+    { "area": "BORDER", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/lehenga-hem.jpg" }
+  ]
+}
+```
+
+**3. Back only.** No front photograph is made, so nothing is compared with one; the back is still
+checked against its references.
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "BLOUSE",
+  "views": ["back"],
+  "designs": [
+    { "area": "BACK", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/keyhole-back.jpg", "note": "keep the tie-up latkans" }
+  ]
+}
+```
+
+**4. A garment with its own back design - a gown.** `SKIRT_FLARE` goes on both photographs; `BACK`
+decorates the back of the bodice in the back photograph only.
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "GOWN",
+  "designs": [
+    { "area": "SKIRT_FLARE", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/gown-skirt.jpg" },
+    { "area": "BACK",        "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/gown-keyhole-back.jpg" }
+  ],
+  "fabrics": [ { "image": "https://res.cloudinary.com/acme/image/upload/v1/fabrics/red-crepe.jpg", "color": "red" } ]
+}
+```
+
+**5. A dupatta, with base64 instead of a link.**
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "DUPATTA",
+  "designs": [
+    { "area": "BODY",      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..." },
+    { "area": "PALLU_END", "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..." }
+  ]
+}
+```
+
+**What comes back** for examples 1, 4 and 5 (the default `image` stream; base64 shortened):
+
+```
+data: {"type":"start","jobId":"6c1f2a9e-..."}
+
+data: {"type":"image","jobId":"6c1f2a9e-...","view":"front","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ..."}
+
+data: {"type":"image","jobId":"6c1f2a9e-...","view":"back","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,/9j/4AAQ..."}
+
+data: {"type":"done","jobId":"6c1f2a9e-...","status":"ok","views":["front","back"]}
+```
+
+Example 2 sends one `image` (`"view":"front"`) and `"views":["front"]`; example 3 one `image`
+(`"view":"back"`) and `"views":["back"]`.
 
 ### How a request is answered, in two steps
 
