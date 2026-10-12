@@ -1107,7 +1107,8 @@ async function runAll({ check, eq, section, SRC }) {
       qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).length], [['same_face'], false, 0]);
   check('a model photo, back view: the same room and light as the front photo, turned round there - not their original pose, not a studio',
     /The same room, background, light and framing as the front view photograph \[Image 2\], with the person turned round in the same spot/.test(refBack.text)
-      && /Pose: standing full length with the back squarely to the camera/.test(refBack.text) && !/Keep their exact pose/.test(refBack.text) && !/seamless, plain studio backdrop/.test(refBack.text));
+      && /Pose: standing full length with the back squarely to the camera/.test(refBack.text) && !/Keep their exact pose/.test(refBack.text) && !/seamless, plain studio backdrop/.test(refBack.text)
+      && /their own hair, in its own style, is brought forward over one shoulder - never put up in a bun/.test(refBack.text) && !/hair is pinned up/.test(refBack.text));
   check('sherwani: a woman (a womens sherwani-style jacket), her mid-twenties', /a woman in her mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text) && /Tailor it sharply to a woman's figure/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
   check('no fabric given: the model is told to choose one, not left to guess', /No fabric reference was given/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
   const low = fakeJob('SAREE', ['PALLU']);
