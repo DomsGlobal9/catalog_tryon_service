@@ -128,6 +128,8 @@ export default function DesignStudioApp() {
   const [modelKind, setModelKind] = useState('generated');
   const [modelImage, setModelImage] = useState(null);
   const [modelGender, setModelGender] = useState('');
+  const [presentation, setPresentation] = useState('model'); // model | mannequin | sketch
+  const [viewsChoice, setViewsChoice] = useState(''); // '' = the default (front and back)
 
   // pairWith: the supporting piece worn with the product (a saree's blouse).
   const [pairColor, setPairColor] = useState('');
@@ -280,6 +282,9 @@ export default function DesignStudioApp() {
       payload[catalogue ? 'modelImageUrl' : 'modelImage'] = imageValue(modelImage);
     }
     if (modelGender) payload.modelGender = modelGender;
+    // Sent only when not the default, so a model request is exactly what it always was.
+    if (presentation !== 'model') payload.presentation = presentation;
+    if (viewsChoice) payload.views = viewsChoice.split('+');
 
     const pair = {};
     if (clean(pairColor)) pair[catalogue ? 'colour' : 'color'] = clean(pairColor);
@@ -288,7 +293,7 @@ export default function DesignStudioApp() {
     if (Object.keys(pair).length) payload.pairWith = pair;
     return payload;
   }, [clientId, garment, productName, notes, shape, designs, fabrics, modelKind, modelImage, modelGender,
-    pairColor, pairColorHex, pairNote, areas]);
+    presentation, viewsChoice, pairColor, pairColorHex, pairNote, areas]);
 
   // Built once per change, not once per render: a few megabytes of base64 must
   // not be stringified again every time a checkbox moves.
@@ -496,6 +501,24 @@ export default function DesignStudioApp() {
         </div>
 
         <h4>The model</h4>
+        <div className="ds-row">
+          <div className="ds-field">
+            <label>presentation <span className="ds-hint">how the garment is shown</span></label>
+            <select value={presentation} onChange={(e) => setPresentation(e.target.value)} disabled={running}>
+              {((options && options.presentations) || ['model', 'mannequin', 'sketch']).map((p) => (
+                <option key={p} value={p}>{{ model: 'model - on a person', mannequin: 'mannequin - on a dress form', sketch: 'sketch - one illustration sheet' }[p] || p}</option>
+              ))}
+            </select>
+          </div>
+          <div className="ds-field">
+            <label>views <span className="ds-hint">{presentation === 'sketch' ? 'figures on the sheet' : 'photographs made'}</span></label>
+            <select value={viewsChoice} onChange={(e) => setViewsChoice(e.target.value)} disabled={running}>
+              <option value="">(default: front and back)</option>
+              <option value="front">front only</option>
+              <option value="back">back only</option>
+            </select>
+          </div>
+        </div>
         <div className="ds-row">
           <div className="ds-field">
             <label>model</label>
@@ -916,6 +939,16 @@ export default function DesignStudioApp() {
               <div className="ds-kv"><span className="ds-label">bytes</span>{kb(image.bytes)}</div>
               <div className="ds-kv"><span className="ds-label">type</span>{image.mimeType}</div>
               <div className="ds-kv"><span className="ds-label">delivered as</span>data:image/jpeg;base64</div>
+              {image.annotations && (
+                <div className="ds-kv">
+                  <span className="ds-label">labels on the sheet</span>
+                  <ul className="ds-annotations">
+                    {image.annotations.map((a) => (
+                      <li key={a.part}><strong>{a.label}</strong> <span className="ds-hint">{a.on.join(' + ')}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="ds-result-actions">
                 {blobUrl && <a className="ds-secondary" href={blobUrl} download={`${(productName || garment).replace(/\W+/g, '-').toLowerCase()}.jpg`}>Download</a>}
                 {blobUrl && <a className="ds-secondary" href={blobUrl} target="_blank" rel="noreferrer">Open full size</a>}

@@ -191,11 +191,17 @@ async function reviewImage(review, image, { signal } = {}) {
  */
 // Checks that compare the back photograph with the front one. Without a front
 // photograph (views: ["back"] alone) they have nothing to compare with.
-const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_person', 'same_studio', 'same_supporting']);
+const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_person', 'same_mannequin', 'same_studio', 'same_supporting']);
 
 function viewChecklist(review, references = [], { withFront = true } = {}) {
   const product = review.product;
+  const onMannequin = review.presentation === 'mannequin';
   const checks = [];
+  // The most likely way a mannequin photo goes wrong: the image model puts a person in it.
+  if (onMannequin) {
+    checks.push(['no_person', `Is the ${product} shown on a headless dress-form mannequin, with no person, no head, no face and no hands anywhere in the photograph?`,
+      `Show the ${product} on a headless dress-form mannequin on a stand: no person, no head, no face, no hands.`]);
+  }
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back
   // became a deep U. The photograph is compared with the reference picture itself.
   for (const r of references) {
@@ -216,8 +222,11 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
       `The back view is the same ${product} as the front view in cloth and cut: identical fabric base colour and shade, texture, fit and length. Its decoration follows the back design reference, not the front's.`],
     ['same_sleeves', `Are the sleeves the same in both photographs - the same length, the same shape (puff, fitted, flared), the same fabric and the same sleeve-end finish?`,
       'The sleeves are identical to the front view: same length, shape and sleeve ends.'],
-    ['same_person', 'Is it the same person in both photographs - the same build, skin tone, hair colour and hair style?',
-      'The same person as the front view, with the same hair and skin tone.'],
+    onMannequin
+      ? ['same_mannequin', 'Is it the same mannequin in both photographs - the same headless dress form on the same stand?',
+        'The same headless dress form on the same stand as the front view.']
+      : ['same_person', 'Is it the same person in both photographs - the same build, skin tone, hair colour and hair style?',
+        'The same person as the front view, with the same hair and skin tone.'],
     ['back_shown', `Does the BACK photograph show the back of the ${product} squarely to the camera, with the whole back visible and nothing (hair, hands, ${review.garmentId === 'DUPATTA' ? '' : 'a dupatta, '}a bag) covering any part of it?`,
       `The back of the ${product} faces the camera squarely and is completely visible; hair is pinned up or brought forward, and nothing covers the back.`],
     ['no_front_on_back', `Is it true that the BACK photograph does NOT show the front neckline, front panel or placket of the ${product} (that is, it is not actually a front or three-quarter-front view)?`,
@@ -229,8 +238,10 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
     checks.push(['same_supporting', `Is the ${review.pair.pieces} worn with the ${product} the same colour and style in both photographs?`,
       `The ${review.pair.pieces} is the same colour and style as in the front view.`]);
   }
-  checks.push(['arms_clear', 'Are the arms hanging at the sides with the hands visible beside the hips - not clasped behind the back, not on the hips, not covering any part of the garment?',
-    'The arms hang relaxed at the sides with the hands visible beside the hips; nothing covers the back of the garment.']);
+  if (!onMannequin) {
+    checks.push(['arms_clear', 'Are the arms hanging at the sides with the hands visible beside the hips - not clasped behind the back, not on the hips, not covering any part of the garment?',
+      'The arms hang relaxed at the sides with the hands visible beside the hips; nothing covers the back of the garment.']);
+  }
   return checks.filter(([id]) => withFront || !NEEDS_FRONT.has(id)).map(([id, question, correction]) => ({ id, question, correction }));
 }
 const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
@@ -246,7 +257,7 @@ async function reviewView(review, { image, frontImage = null, references = [], s
   if (!config.pair.enabled || !config.gemini.apiKey() || !checklist.length) return unchecked('disabled');
   const isBack = review.view === 'back' && frontImage;
   const text = [
-    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on a model. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}.`,
+    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on ${review.presentation === 'mannequin' ? 'a headless dress-form mannequin' : 'a model'}. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}.`,
     'Answer each check strictly: pass=true only when it is clearly satisfied. When something differs, answer pass=false and say what differs in evidence (under 25 words).',
     'Answer every check, using its id.',
     '',

@@ -21,6 +21,21 @@ const { taxonomy, garmentGuide } = require('./garmentGuide');
 
 const MODEL_GENDERS = ['female', 'male'];
 
+// How the garment is shown. model = on a person (the default, as before 12 Oct 2026);
+// mannequin = on a headless dress form; sketch = one fashion-illustration sheet.
+const PRESENTATIONS = ['model', 'mannequin', 'sketch'];
+// Spellings a caller is likely to type for each (lower-case, spaces and dashes removed).
+const PRESENTATION_ALIASES = {
+  model: 'model', human: 'model', person: 'model', photo: 'model',
+  mannequin: 'mannequin', manikin: 'mannequin', maniquin: 'mannequin', maniquine: 'mannequin', mannequine: 'mannequin', mannikin: 'mannequin', dressform: 'mannequin', dummy: 'mannequin',
+  sketch: 'sketch', illustration: 'sketch', drawing: 'sketch', croquis: 'sketch', fashionsketch: 'sketch'
+};
+const canonicalPresentation = (value) => {
+  if (typeof value !== 'string') return value;
+  const key = value.toLowerCase().replace(/[\s_-]+/g, '');
+  return PRESENTATION_ALIASES[key] || value.trim().toLowerCase();
+};
+
 const text = (max) => z.string().trim().max(max);
 const imageField = z.string({ error: 'must be a base64 image or an https link' }).trim().min(1, 'must not be empty');
 
@@ -211,6 +226,7 @@ const schema = z.object({
   // both by default (since 10 Oct 2026; before, only blouse, kurti, anarkali,
   // salwar suit and sherwani had a back view).
   views: z.array(z.enum(['front', 'back'])).min(1).max(2).optional(),
+  presentation: z.preprocess(canonicalPresentation, z.enum(PRESENTATIONS, { error: `must be one of ${PRESENTATIONS.join(', ')}` })).optional(),
   notes: text(config.limits.maxNotesChars).optional()
 }).strict();
 
@@ -362,7 +378,14 @@ function resolveRequest(rawBody) {
     views = sides.filter((s) => views.includes(s)); // front before back, always
   }
 
+  const presentation = input.presentation || 'model';
+  if (presentation !== 'model' && input.modelImage) {
+    throw validation(`modelImage dresses a real person, so it cannot be used with presentation "${presentation}". Send it with presentation "model", or leave it out.`,
+      [{ field: 'modelImage', code: 'PRESENTATION_CONFLICT' }]);
+  }
+
   return {
+    presentation,
     clientId: input.clientId,
     productName: input.productName || null,
     garmentId: garment.id,
@@ -385,4 +408,4 @@ function resolveRequest(rawBody) {
   };
 }
 
-module.exports = { resolveRequest, canonicaliseFields, classifyImage, hostAllowed, MODEL_GENDERS, schema };
+module.exports = { resolveRequest, canonicaliseFields, classifyImage, hostAllowed, MODEL_GENDERS, PRESENTATIONS, schema };

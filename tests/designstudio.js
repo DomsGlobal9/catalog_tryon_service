@@ -979,6 +979,68 @@ async function runAll({ check, eq, section, SRC }) {
   check('...and says it again as the final check, the last word before the image is made (what fixed it in the paid run)',
     /Final check against the front view \[Image \d+\]: every part that shows in both photographs/.test(gownBack)
       && !/Final check against the front view/.test(buildPrompt(viewOf(fakeJob('GOWN', ['BACK']), new Map(), 'back').job, { view: 'back' }).text));
+
+  // ── PRESENTATIONS (12 Oct 2026): model (default), mannequin, sketch ──
+  section('DESIGN STUDIO: PRESENTATIONS  (model, mannequin, sketch)');
+  const presentationOf = (over) => { try { return resolveRequest(body(over)).presentation; } catch (e) { return `${e.code}:${(e.details || [])[0] && e.details[0].field}`; } };
+  eq('presentation: absent = model; values and the spellings callers type are understood; anything else is a 400 on the field',
+    [presentationOf({}), presentationOf({ presentation: 'Mannequin' }), presentationOf({ presentation: 'maniquine' }), presentationOf({ presentation: 'dress-form' }),
+      presentationOf({ presentation: 'SKETCH' }), presentationOf({ presentation: 'illustration' }), presentationOf({ presentation: 'robot' }), presentationOf({ presentation: 7 })],
+    ['model', 'mannequin', 'mannequin', 'mannequin', 'sketch', 'sketch', 'VALIDATION_ERROR:presentation', 'VALIDATION_ERROR:presentation']);
+  eq('a reference person (modelImage) only goes with model: 400 PRESENTATION_CONFLICT on modelImage otherwise',
+    ['mannequin', 'sketch', 'model'].map((p) => { try { return resolveRequest(body({ presentation: p, modelImage: IMG })).model.kind; } catch (e) { return (e.details || [])[0].code; } }),
+    ['PRESENTATION_CONFLICT', 'PRESENTATION_CONFLICT', 'reference']);
+  const withPresentation = (garmentId, areas, presentation, extra = {}) => fakeJob(garmentId, areas, { ...extra, ...(presentation ? { presentation } : {}) });
+  check('model prompts are the same with or without presentation: "model" (all 12 garments, front and back)',
+    S('garmentGuide').taxonomy.GARMENT_IDS.every((gid) => {
+      const area = S('garmentGuide').taxonomy.getDesignTypes(gid)[0].id;
+      return ['front', 'back'].every((v) => buildPrompt(viewOf(withPresentation(gid, [area]), new Map(), v).job, { view: v, frontPhoto: v === 'back' ? prepared : null }).text
+        === buildPrompt(viewOf(withPresentation(gid, [area], 'model'), new Map(), v).job, { view: v, frontPhoto: v === 'back' ? prepared : null }).text);
+    }));
+
+  const manFront = buildPrompt(viewOf(withPresentation('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' });
+  const manJob = withPresentation('SAREE', ['PALLU'], 'mannequin');
+  const manF = buildPrompt(viewOf(manJob, new Map(), 'front').job, { view: 'front' });
+  const manB = buildPrompt(viewOf(manJob, new Map(), 'back').job, { view: 'back', frontPhoto: prepared });
+  check('mannequin: a headless dress form, no model section, no person anywhere; the garment sections are the same as for a model',
+    /dressed on a headless dress-form mannequin/.test(manF.text) && /THE MANNEQUIN/.test(manF.text) && !/\nTHE MODEL\n/.test(manF.text)
+      && /It has NO head, NO face, NO wig and NO hair/.test(manF.text) && /Exactly one mannequin and no person/.test(manF.text)
+      && !/Exactly one person in the frame/.test(manF.text) && !/inset swatches, mannequin,/.test(manF.text)
+      && manF.text.split('THE GARMENT')[1].split('WHAT THE')[0] === manFront.text.split('THE GARMENT')[1].split('WHAT THE')[0]);
+  check('mannequin back: made from the front photo on "this same mannequin", the mannequin turned round, the saree back drape kept',
+    /on this same mannequin/.test(manB.text) && /the mannequin \(the same dress form on the same stand\)/.test(manB.text)
+      && /The mannequin is turned round so its back faces the camera squarely/.test(manB.text) && /hangs straight down the back to about the knees/.test(manB.text));
+  eq('mannequin framing: a blouse on a bust form, a saree full length with the stand base',
+    [/of a bust form, from just above its neck down to the hips/.test(buildPrompt(viewOf(withPresentation('BLOUSE', ['NECK'], 'mannequin'), new Map(), 'front').job, { view: 'front' }).text),
+      /showing the whole mannequin, the whole saree and the base of the stand/.test(manF.text)], [true, true]);
+  const manChecks = qa.viewChecklist(manB.review, [], { withFront: true }).map((c) => c.id);
+  eq('mannequin photo checks: "no person" added, "same mannequin" instead of "same person", no "arms at the sides"',
+    [manChecks.includes('no_person'), manChecks.includes('same_mannequin'), manChecks.includes('same_person'), manChecks.includes('arms_clear'),
+      qa.viewChecklist(manF.review, []).map((c) => c.id)], [true, true, false, false, ['no_person']]);
+
+  const sketchDesc = new Map([[1, { motifs: 'large gold zari paisleys, with vines', technique: 'woven zari' }], [2, { motifs: 'peacocks and temple motifs' }]]);
+  const sketchJob = withPresentation('SAREE', ['PALLU', 'BORDER', 'PLEAT'], 'sketch', { fabrics: [{ image: IMG, name: 'Banarasi silk', color: 'teal' }] });
+  for (const f of sketchJob.fabrics) f.image = prepared;
+  const sk = buildPrompt(sketchJob, { descriptions: sketchDesc });
+  check('sketch: one hand-drawn sheet, front and back figures side by side, watercolour on paper, no photo rules',
+    /Create one fashion design presentation sheet: a hand-drawn illustration of a brand-new saree, shown from the FRONT and from the BACK side by side/.test(sk.text)
+      && /THE FIGURES/.test(sk.text) && /on the LEFT, the FRONT view/.test(sk.text) && /THE ILLUSTRATION/.test(sk.text) && /soft watercolour washes with fine, confident ink outlines/.test(sk.text)
+      && /Not a photograph and not a 3D render/.test(sk.text) && !/\nTHE PHOTOGRAPH\n/.test(sk.text) && !/Photorealistic/.test(sk.text) && /Return only the finished illustration sheet/.test(sk.text));
+  check('sketch: the back figure follows the back drape (saree pallu down the back), said as "the back figure"',
+    /In the BACK figure of the sheet:[\s\S]*For the back figure the pallu is draped the classic way/.test(sk.text));
+  eq('sketch labels come from the order and the reading of the references: area, short description, fabric, worn with',
+    sk.annotations.map((a) => [a.label, a.on.join('+')]),
+    [['Pallu: large gold zari paisleys', 'front+back'], ['Border: peacocks and temple motifs', 'front+back'], ['Pleat', 'front'], ['Fabric: teal Banarasi silk', 'front+back'], ['Worn with: plain blouse', 'front+back']]);
+  check('...and every label is written into the prompt word for word, with what it points to',
+    sk.annotations.every((a) => sk.text.includes(`- "${a.label}" - pointing to ${a.pointsTo}`)) && /Spell every word exactly as written above/.test(sk.text));
+  check('sketch is not judged by the photograph checks (review is null)', sk.review === null);
+  const longLabels = buildPrompt(withPresentation('GOWN', ['SKIRT_FLARE', 'BACK', 'NECK', 'SLEEVE', 'WAIST', 'BORDER_HEM'], 'sketch'),
+    { descriptions: new Map([[1, { motifs: 'Très élégant (hand-worked) zardozi florals with very long trailing stems' }]]) }).annotations;
+  check('labels: at most 8, at most 40 characters, plain ASCII, no bracketed asides',
+    longLabels.length <= 8 && longLabels.every((a) => a.label.length <= 40 && /^[\x20-\x7E]+$/.test(a.label) && !/\(/.test(a.label)), JSON.stringify(longLabels.map((a) => a.label)));
+  const frontOnlySheet = buildPrompt(withPresentation('GOWN', ['BACK', 'NECK'], 'sketch', { views: ['front'] }));
+  eq('a front-only sheet: one figure; the BACK design has nowhere to point, so it gets no label',
+    [/One full-length figure/.test(frontOnlySheet.text), frontOnlySheet.annotations.map((a) => a.part)], [true, ['NECK']]);
   check('the saree front photograph keeps the front drape',
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
@@ -1264,6 +1326,36 @@ async function runAll({ check, eq, section, SRC }) {
       [events.filter((e) => e.type === 'image').map((e) => e.view), imagesIn(gownCalls[0]), imagesIn(gownCalls[1]), /THE FRONT VIEW of this exact gown/.test(textOf(gownCalls[1])), events[events.length - 1].type],
       [['front', 'back'], 1, 2, true, 'done']);
     qa._setFetch(qaAnswer());
+
+    // Presentations over the real endpoint.
+    eq('GET /options lists the presentations', opt.presentations, ['model', 'mannequin', 'sketch']);
+    const manCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'mannequin-1', garment: 'SAREE', presentation: 'maniquine', designs: [{ area: 'PALLU', image: IMG }] })));
+    eq('mannequin over HTTP: start says so, front then back, two image calls, both prompts on a headless dress form, done says so',
+      [events[0].presentation, events.filter((e) => e.type === 'image').map((e) => e.view), manCalls.length,
+        manCalls.every((c) => /headless dress-form mannequin/.test(textOf(c)) && !/One professional Indian fashion model/.test(textOf(c))), events[events.length - 1].presentation],
+      ['mannequin', ['front', 'back'], 2, true, 'mannequin']);
+    const sketchCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'sketch-1', garment: 'SAREE', presentation: 'sketch', designs: [{ area: 'PALLU', image: IMG }, { area: 'BORDER', image: IMG }] })));
+    const sheet = events.find((e) => e.type === 'image');
+    eq('sketch over HTTP: ONE image call, one "sheet" image with its figures and labels, done lists both sides',
+      [sketchCalls.length, events.filter((e) => e.type === 'image').length, sheet.view, sheet.views, sheet.annotations.map((a) => a.part), events[events.length - 1].views, events[events.length - 1].presentation],
+      [1, 1, 'sheet', ['front', 'back'], ['PALLU', 'BORDER', 'WORN_WITH'], ['front', 'back'], 'sketch']);
+    check('...the image model got the illustration prompt with the label list', /THE ILLUSTRATION/.test(textOf(sketchCalls[0])) && /LABELS - write exactly these/.test(textOf(sketchCalls[0])));
+    streamCfg.detail = 'image';
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'sketch-2', garment: 'GOWN', presentation: 'sketch', views: ['back'], designs: [{ area: 'BACK', image: IMG }] })));
+    eq('the default image-only stream carries presentation, the sheet\'s views and the labels - they are for the caller',
+      events.map((e) => [e.type, Object.keys(e).sort().join(',')]),
+      [['start', 'jobId,presentation,type'], ['image', 'annotations,height,image,jobId,mimeType,type,view,views,width'], ['done', 'jobId,presentation,status,type,views']]);
+    script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'model-unchanged', garment: 'SAREE', views: ['front'], designs: [{ area: 'PALLU', image: IMG }] })));
+    eq('...while a model request\'s image-only stream is exactly as before (no presentation, no annotations)',
+      events.map((e) => [e.type, Object.keys(e).sort().join(',')]),
+      [['start', 'jobId,type'], ['image', 'height,image,jobId,mimeType,type,view,width'], ['done', 'jobId,status,type,views']]);
+    streamCfg.detail = 'full';
+    res = await post('/generate', { clientId: 'x', garment: 'SAREE', presentation: 'sketch', modelImage: IMG, designs: [{ area: 'PALLU', image: IMG }] });
+    eq('sketch with a modelImage: refused 400 before any image work', [res.status, (await res.json()).error.details[0].code], [400, 'PRESENTATION_CONFLICT']);
 
     // Cancelled while the photograph is being checked: CANCELLED, not "failed unexpectedly".
     qa._setFetch(async (url, opts) => new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(opts.signal.reason))));

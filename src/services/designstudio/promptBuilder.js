@@ -314,15 +314,31 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   }
 
   // ── 1. TASK ────────────────────────────────────────────────────────────────
+  // presentation: model (a person, as before 12 Oct 2026), mannequin or sketch. Every
+  // switch below leaves the model wording exactly as it was.
+  const presentation = job.presentation || 'model';
+  const onMannequin = presentation === 'mannequin';
+  const isSketch = presentation === 'sketch';
+  // The figures on a sketch sheet: both sides by default, or the one side asked for.
+  const sheetViews = isSketch ? (job.views || ['front', 'back']) : null;
+  const sheetBoth = isSketch && sheetViews.length === 2;
+  const wearsIt = onMannequin ? 'the mannequin wears' : isSketch ? 'the figure wears' : 'the model wears';
+  const picture = isSketch ? 'illustration' : 'photograph';
   const productLine = job.productName
-    ? `The finished product is sold as "${clean(job.productName)}" - treat that name as a hint to the style and occasion only, and never draw any text into the image.`
+    ? `The finished product is sold as "${clean(job.productName)}" - treat that name as a hint to the style and occasion only, and never draw ${isSketch ? 'that name or any text other than the labels listed below' : 'any text'} into the image.`
     : null;
+  const viewWords = view === 'back' ? ', photographed FROM THE BACK' : view === 'front' ? ', photographed from the front' : '';
+  const taskLine = onMannequin
+    ? `Create one photorealistic e-commerce catalogue photograph of a brand-new ${g.product} dressed on a headless dress-form mannequin${viewWords}, `
+    : isSketch
+      ? `Create one fashion design presentation sheet: a hand-drawn illustration of a brand-new ${g.product}${sheetBoth ? ', shown from the FRONT and from the BACK side by side' : sheetViews[0] === 'back' ? ', shown from the BACK' : ', shown from the front'}, `
+      : `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}${viewWords}, `;
   addText([
     'TASK',
-    `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}${view === 'back' ? ', photographed FROM THE BACK' : view === 'front' ? ', photographed from the front' : ''}, ` +
+    taskLine +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
-    ...(pair ? [`The ${g.product} is the only product in this photograph. Every design reference below belongs to the ${g.product} and to nothing else the model wears.`] : []),
+    ...(pair ? [`The ${g.product} is the only product in this ${picture}. Every design reference below belongs to the ${g.product} and to nothing else ${wearsIt}.`] : []),
     ...(productLine ? [productLine] : []),
     '',
     'REFERENCE IMAGES'
@@ -557,10 +573,10 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     frontPhotoNumber = n;
     addText([
       `[Image ${n}] THE FRONT VIEW of this exact ${g.product}, already photographed.`,
-      `This photograph is the ground truth for everything that must stay the same: the ${g.product}'s fabric colour and texture, its cut and fit, sleeve length and sleeve ends, hem length, ${pair ? `the ${pair.pieces} worn with it, ` : ''}the model (same person, same hair, same jewellery), the backdrop and the lighting.`,
+      `This photograph is the ground truth for everything that must stay the same: the ${g.product}'s fabric colour and texture, its cut and fit, sleeve length and sleeve ends, hem length, ${pair ? `the ${pair.pieces} worn with it, ` : ''}${onMannequin ? 'the mannequin (the same dress form on the same stand)' : 'the model (same person, same hair, same jewellery)'}, the backdrop and the lighting.`,
       g.backDrapeChanges
-        ? `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint and the way the ${g.product} is draped change, as described under THE GARMENT. Do not redesign or recolour anything that this photograph already shows.`
-        : `Make the BACK view of this same ${g.product} on this same model. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
+        ? `Make the BACK view of this same ${g.product} on this same ${onMannequin ? 'mannequin' : 'model'}. Only the viewpoint and the way the ${g.product} is draped change, as described under THE GARMENT. Do not redesign or recolour anything that this photograph already shows.`
+        : `Make the BACK view of this same ${g.product} on this same ${onMannequin ? 'mannequin' : 'model'}. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
       `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`,
       // Measured: a back photo added a waistband and put a back reference's motifs on a skirt that was plain in front.
       `Every part that continues round the body keeps exactly its look from this photograph: a plain skirt, flare or sleeve stays plain, and no waistband, belt, band or trim appears that this photograph does not show. Only a design reference assigned to the back adds anything new, and only on the part it is assigned to.`
@@ -578,6 +594,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     'THE GARMENT',
     g.outfit,
     bullets(view === 'back' && g.back ? g.back : g.construction),
+    // A sketch sheet shows both sides at once: the back figure follows the back drape.
+    ...(sheetBoth && g.back ? ['In the BACK figure of the sheet:', bullets(g.back.map((l) => l.replace(/this back photograph/g, 'the back figure')))] : []),
     ...extrasLines(job, g).map((l) => `- ${l}`),
     ...(g.styling ? [g.styling] : [])
   ].join('\n'));
@@ -587,7 +605,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     const is = pair.plural ? 'are' : 'is';
     const it = pair.plural ? 'them' : 'it';
     const lines = [
-      `The product is the ${g.product}. The ${pair.pieces} ${is} NOT the product: ${pair.plural ? 'they only complete' : 'it only completes'} the photograph.`,
+      `The product is the ${g.product}. The ${pair.pieces} ${is} NOT the product: ${pair.plural ? 'they only complete' : 'it only completes'} the ${picture}.`,
       `The ${pair.pieces}: ${pair.looks}.`,
       // Measured three times: a supporting piece copied the outfit of a person in a
       // reference photo (a black crop T-shirt twice, a green and a black churidar).
@@ -601,7 +619,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     lines.push(pair.note
       ? `Customer note for the ${pair.pieces}: ${pair.note}. Follow it, but still put no design reference on ${it}.`
       : `The ${pair.pieces} ${is} plain and solid, with neat, simple finishing only, so all attention stays on the ${g.product}.`);
-    addText(['WHAT THE MODEL WEARS WITH IT', bullets(lines)].join('\n'));
+    addText([onMannequin ? 'WHAT THE MANNEQUIN WEARS WITH IT' : isSketch ? 'WHAT THE FIGURE WEARS WITH IT' : 'WHAT THE MODEL WEARS WITH IT', bullets(lines)].join('\n'));
   }
 
   // ── 4. DESIGN RULES ────────────────────────────────────────────────────────
@@ -683,7 +701,35 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     addText(['FABRIC', 'No fabric reference was given. Choose one premium, realistic fabric whose colour and texture suit the designs best, and use it consistently across the garment.'].join('\n'));
   }
 
-  // ── 6. THE MODEL ───────────────────────────────────────────────────────────
+  // ── 6. THE MODEL (or the mannequin, or the figures of a sketch) ────────────
+  const formWord = job.model.gender === 'male' ? 'man' : 'woman';
+  if (onMannequin) {
+    const formLines = [
+      `A headless dress-form mannequin on a slim, plain stand: a smooth, matte form in a neutral linen or ivory colour, shaped like a ${formWord}'s figure at a standard size. It has NO head, NO face, NO wig and NO hair - the form ends cleanly at the neck.`,
+      'Where the garment has sleeves, soft plain mannequin arms sit inside them so the sleeves hang naturally; with no sleeves, the form has no arms. No hands are visible.',
+      `The ${g.product} is dressed on the form the way a good store dresses it: pinned and draped neatly, every drape and fold falling naturally${g.framing === 'full' ? ', and the hem hanging freely above the base of the stand' : ''}.`
+    ];
+    if (view === 'back') {
+      formLines.push(`The mannequin is turned round so its back faces the camera squarely: the whole back of the ${g.product} is flat to the camera and completely visible, and nothing covers any part of it.`);
+      if (frontPhotoNumber) formLines.push(`The same mannequin and stand as in [Image ${frontPhotoNumber}], seen from behind.`);
+    } else {
+      formLines.push(`The mannequin stands square to the camera, turned very slightly, so the whole front of the ${g.product} is visible.`);
+    }
+    formLines.push('No person, no model, no hands and no face anywhere in the photograph.');
+    formLines.push('Nothing (another piece of clothing, a tag or a pin) may cover any area that has a design reference.');
+    addText(['THE MANNEQUIN', bullets(formLines)].join('\n'));
+  } else if (isSketch) {
+    const figureLines = [
+      sheetBoth
+        ? `Two full-length figures of the same slender, elegant ${formWord}, drawn in a classic fashion-illustration style with naturally elongated proportions: on the LEFT, the FRONT view, facing forward; on the RIGHT, the BACK view, the same ${formWord} seen from behind with the head turned slightly to one side.`
+        : `One full-length figure of a slender, elegant ${formWord}, drawn in a classic fashion-illustration style with naturally elongated proportions, seen from the ${sheetViews[0] === 'back' ? 'BACK, with the head turned slightly to one side' : 'front'}.`,
+      ...(sheetBoth ? [`Both figures wear the identical ${g.product}: the same fabric, colours, cut and designs, each figure showing what can be seen from its side.`] : []),
+      'A simple, softly drawn face and hair, the hair styled away from the neckline and the back. Minimal jewellery that never covers any design, and elegant plain footwear.',
+      'A relaxed, natural standing pose with the arms at the sides, clear of the garment.',
+      'Nothing from the people in the reference photographs is copied: not their face, hairstyle, jewellery or makeup.'
+    ];
+    addText(['THE FIGURES', bullets(figureLines)].join('\n'));
+  } else {
   const modelLines = [];
   if (job.model.kind === 'reference') {
     modelLines.push(`Dress the exact person shown in [Image ${job.model.imageNumber}]. Keep the same face and identity, skin tone, hair, body shape and proportions. Replace only their clothing with the new garment, and ignore their original outfit, pose, background and lighting.`);
@@ -702,15 +748,32 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   modelLines.push('Nothing from the people in the design or fabric reference photographs is copied: not their hairstyle, hair flowers or gajra, jewellery, bindi or makeup. No flowers or accessories in the hair.');
   modelLines.push('Nothing (hair, hands, jewellery or other clothing) may cover any area that has a design reference.');
   addText(['THE MODEL', bullets(modelLines)].join('\n'));
+  }
 
-  // ── 7. THE PHOTOGRAPH ──────────────────────────────────────────────────────
+  // ── 7. THE PHOTOGRAPH (or THE ILLUSTRATION) ────────────────────────────────
+  const annotations = isSketch ? sketchLabels(job, descriptions, sheetViews, g, pair) : null;
+  if (isSketch) {
+    addText(['THE ILLUSTRATION', bullets([
+      `A fashion design presentation sheet in ${config.gemini.aspectRatio} portrait format: soft watercolour washes with fine, confident ink outlines on clean white textured watercolour paper.`,
+      sheetBoth
+        ? 'The two figures stand side by side, full length, the front view on the left and the back view on the right, each filling most of the height of the sheet, with generous white margins on both outer sides for the labels.'
+        : 'The figure stands full length in the middle of the sheet, filling most of its height, with generous white margins on both sides for the labels.',
+      'The fabric colours, motifs and their placement are painted faithfully to the references, clearly enough to recognise every design; metallic zari reads as soft gold or silver paint.',
+      'A faint soft shadow under the feet. No background scene, props or furniture.'
+    ]), [
+      'LABELS - write exactly these, word for word, in neat, legible dark-grey hand lettering in the margins, each joined to its part by a thin curved leader line ending in a small arrow:',
+      ...annotations.map((a) => `- "${a.label}" - pointing to ${a.pointsTo}${sheetBoth ? (a.on.length === 2 ? ' (on either figure)' : ` on the ${a.on[0].toUpperCase()} figure`) : ''}`),
+      'Spell every word exactly as written above. No other text of any kind: no title, heading, product name, signature, logo or watermark.'
+    ].join('\n')].join('\n'));
+  } else {
   addText(['THE PHOTOGRAPH', bullets([
-    framingLine(g),
+    onMannequin ? mannequinFramingLine(g) : framingLine(g),
     'A seamless, plain studio backdrop in soft light warm grey with a smooth floor sweep. No props, furniture, plants, patterns or text.',
-    'Soft, even, diffused studio lighting from a large key light with gentle fill, and a soft natural shadow at the feet.',
-    'Camera at chest height with a natural 85 mm portrait perspective and no distortion.',
+    `Soft, even, diffused studio lighting from a large key light with gentle fill, and a soft natural shadow at the ${onMannequin ? 'base of the stand' : 'feet'}.`,
+    `Camera at chest height${onMannequin ? ' of the form' : ''} with a natural 85 mm portrait perspective and no distortion.`,
     'Pin-sharp focus on the garment so the weave, thread work and metallic detail are crisp. Neutral white balance so every colour matches the references.'
   ])].join('\n'));
+  }
 
   // Measured: a NECK reference that was a whole peach blouse scattered with teal
   // flowers put those flowers all over a red blouse. When the main fabric is known
@@ -724,8 +787,12 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     : null;
   // ── 8. QUALITY BAR ─────────────────────────────────────────────────────────
   addText(['QUALITY BAR', bullets([
-    'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
-    `Exactly one complete ${g.product}, with exactly one of each of its parts. Never show a part twice, never mirror a decorated panel onto the other side, and never add an extra drape, shawl, stole or dupatta that this garment does not have.`,
+    onMannequin
+      ? 'Photorealistic, like a real high-end product photograph in a fashion store\'s catalogue. Not an illustration, painting or 3D render.'
+      : isSketch
+        ? 'A hand-drawn fashion illustration in watercolour and ink, like a designer\'s presentation sheet. Not a photograph and not a 3D render.'
+        : 'Photorealistic, like a real high-end fashion catalogue shoot. Not an illustration, painting or 3D render.',
+    `${sheetBoth ? 'On each figure: e' : 'E'}xactly one complete ${g.product}, with exactly one of each of its parts. Never show a part twice, never mirror a decorated panel onto the other side, and never add an extra drape, shawl, stole or dupatta that this garment does not have.`,
     // Measured three times in real saree photos: the saree border repeated as gold
     // bands on the blouse sleeves, despite the blouse being described as plain.
     // The final check, right before the image is made, is where it is named.
@@ -744,8 +811,16 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // the back while the front skirt was plain, despite the rule in the FRONT VIEW block.
     ...(frontPhotoNumber ? [`Final check against the front view [Image ${frontPhotoNumber}]: every part that shows in both photographs (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same in both. If that part is plain in the front view it is plain here - no motifs, no band, no belt, no border that the front view does not have. Only the back of the bodice or back panel may carry the back design.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
-    `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
-    'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
+    onMannequin
+      ? 'Exactly one mannequin and no person: no head, face, hands, legs or feet - only the form, its stand and the garment.'
+      : isSketch
+        ? (sheetBoth ? 'Exactly two figures of the same person - the front view and the back view - with natural, well-drawn hands and feet.' : 'Exactly one figure, with natural, well-drawn hands and feet.')
+        : `Anatomically correct face, hands, fingers${g.framing === 'full' ? ' and feet' : ''}. Exactly one person in the frame.`,
+    onMannequin
+      ? 'No collage, split screen, inset swatches, person, duplicated parts, text, watermark, logo or brand name anywhere in the image.'
+      : isSketch
+        ? 'No photograph, collage, inset swatches, mannequin or dress form, and no text other than the labels listed above.'
+        : 'No collage, split screen, inset swatches, mannequin, duplicated limbs, text, watermark, logo or brand name anywhere in the image.'
   ])].join('\n'));
 
   // ── 9. CUSTOMER NOTES ──────────────────────────────────────────────────────
@@ -753,7 +828,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     addText(['CUSTOMER NOTES', `The customer also asked: "${clean(job.notes)}". Follow this unless it contradicts the reference images or the rules above.`].join('\n'));
   }
 
-  addText('Return only the finished photograph.');
+  addText(isSketch ? 'Return only the finished illustration sheet.' : 'Return only the finished photograph.');
 
   const areasSent = new Set(job.designs.map((d) => d.areaId));
   Object.assign(review, {
@@ -768,9 +843,65 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     noDupatta: !areasSent.has('DUPATTA') && job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA',
     noTassels: (job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL')) || job.garmentId === 'SAREE',
     onePallu: job.garmentId === 'SAREE',
-    fabricColours: job.fabrics.filter((f) => f.color || f.colorHex).map((f) => ({ name: f.name, colour: [f.color, f.colorHex].filter(Boolean).join(' '), appliesTo: f.appliesTo || 'MAIN' }))
+    fabricColours: job.fabrics.filter((f) => f.color || f.colorHex).map((f) => ({ name: f.name, colour: [f.color, f.colorHex].filter(Boolean).join(' '), appliesTo: f.appliesTo || 'MAIN' })),
+    ...(onMannequin ? { presentation } : {})
   });
-  return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review };
+  // A sketch is not judged by the photograph checks (a watercolour is not a photo).
+  return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review: isSketch ? null : review, annotations };
+}
+
+/** Where the mannequin and its stand sit in the frame, per the garment's framing. */
+function mannequinFramingLine(g) {
+  const ratio = config.gemini.aspectRatio;
+  if (g.framing === 'waist-up') {
+    return `A catalogue photograph in ${ratio} of a bust form, from just above its neck down to the hips, so the ${g.product} fills most of the photograph and every detail of it is large and sharp. The ${g.product} itself is never cropped - all of it, including both sleeves and its full hem, is inside the frame.`;
+  }
+  if (g.framing === 'three-quarter') {
+    return `A catalogue photograph in ${ratio} of the mannequin from just above its neck down to below the knees, so the ${g.product} fills most of the photograph. The ${g.product} itself is never cropped - both of its hanging ends and any tassels are fully inside the frame.`;
+  }
+  return `A full-length catalogue photograph in ${ratio} showing the whole mannequin, the whole ${g.product} and the base of the stand, with a little space above the neck of the form and below the base. Nothing is cropped.`;
+}
+
+const SKETCH_MAX_LABELS = 8;
+const SKETCH_MAX_LABEL_CHARS = 40;
+
+/** Plain ASCII, at most `max` characters, cut at a word. Fewer odd letters, fewer misspellings. */
+function labelText(text, max = SKETCH_MAX_LABEL_CHARS) {
+  const plain = String(text).normalize('NFKD').replace(/[^\x20-\x7E]/g, '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+  if (plain.length <= max) return plain.replace(/[,;:.\s-]+$/, '');
+  return plain.slice(0, max + 1).replace(/\s+\S*$/, '').replace(/[,;:.\s-]+$/, '');
+}
+
+/** The first few words of what the describe step saw: "paisley and floral butis, ..." -> "paisley and floral butis". */
+function shortDescription(info, note) {
+  const source = (info && (info.motifs || info.technique)) || note || '';
+  if (/^\s*(?:-|none|no\b|plain|n\/?a)/i.test(source)) return '';
+  return source.split(/[,;.]/)[0].split(/\s+/).slice(0, 5).join(' ');
+}
+
+/**
+ * The labels written on a sketch sheet - built here from the order and what was read
+ * from the references, never invented by the image model. Also returned to the caller
+ * as JSON, so the words are usable even if the drawing misspells one.
+ * @returns {{ part: string, label: string, on: string[], pointsTo: string }[]}
+ */
+function sketchLabels(job, descriptions, sheetViews, g, pair) {
+  const labels = [];
+  job.designs.forEach((d, k) => {
+    const on = sheetViews.filter((v) => visibleIn(v, d.areaId));
+    if (!on.length) return; // a BACK design on a front-only sheet has nowhere to point
+    const short = shortDescription(descriptions.get(k + 1), d.note);
+    const name = d.areaName.replace(/\s+design$/i, ''); // "Pallu Design" -> "Pallu": the label has 40 characters
+    labels.push({ part: d.areaId, label: labelText(short ? `${name}: ${short}` : name), on, pointsTo: `the ${partWords(d.areaId, g.product)}` });
+  });
+  const main = job.fabrics.find((f) => !f.appliesTo);
+  if (main) {
+    const info = descriptions.get(job.designs.length + main.index + 1);
+    const words = [main.color, main.name || main.material].filter(Boolean).join(' ') || (info && info.colours) || '';
+    if (words) labels.push({ part: 'FABRIC', label: labelText(`Fabric: ${words}`), on: [...sheetViews], pointsTo: `the main fabric of the ${g.product}` });
+  }
+  if (pair) labels.push({ part: 'WORN_WITH', label: labelText(`Worn with: plain ${pair.pieces}`), on: [...sheetViews], pointsTo: `the ${pair.pieces}` });
+  return labels.slice(0, SKETCH_MAX_LABELS).filter((l) => l.label);
 }
 
 module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind };

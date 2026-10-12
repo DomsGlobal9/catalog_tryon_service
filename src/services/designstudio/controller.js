@@ -19,7 +19,7 @@
 const crypto = require('crypto');
 const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
-const { resolveRequest } = require('./validate');
+const { resolveRequest, PRESENTATIONS } = require('./validate');
 const { prepareImages } = require('./imageInput');
 const { buildPrompt, referenceList, pairing, viewOf, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
@@ -104,6 +104,7 @@ async function generate(req, res, next) {
         return pair ? { pieces: pair.pieces, colour: pair.colour, from: pair.from, note: pair.note } : null;
       })(),
       model: job.model.kind,
+      presentation: job.presentation,
       pose: prompt.pose,
       views: job.views || [prompt.pose], // the photographs this request will make, in order
       framing: prompt.framing, // full | three-quarter | waist-up
@@ -248,7 +249,9 @@ async function generate(req, res, next) {
 
     // Which photographs to make. A two-sided garment gives front then back;
     // everything else gives one photograph (turned around only for a BACK design).
-    const views = job.views || [null];
+    // A sketch is ONE sheet with the front and back figures on it: one image, one call.
+    const isSketch = job.presentation === 'sketch';
+    const views = isSketch ? [null] : (job.views || [null]);
     const results = [];
     let frontResult = null;
     for (const view of views) {
@@ -263,11 +266,13 @@ async function generate(req, res, next) {
       ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
       if (view) result = await matchReferences(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
       if (view === 'front') frontResult = result;
-      results.push({ view: view || viewPrompt.pose, result, quality });
+      results.push({ view: isSketch ? 'sheet' : view || viewPrompt.pose, result, quality });
       send({
         type: 'image',
         jobId: admitted.job.id,
-        view: view || viewPrompt.pose,
+        view: isSketch ? 'sheet' : view || viewPrompt.pose,
+        // The sheet's figures and the exact words of its labels, usable as text.
+        ...(isSketch ? { views: job.views, annotations: (viewPrompt.annotations || []).map(({ part, label, on }) => ({ part, label, on })) } : {}),
         mimeType: result.image.mimeType,
         width: result.image.width,
         height: result.image.height,
@@ -279,7 +284,8 @@ async function generate(req, res, next) {
       type: 'done',
       jobId: admitted.job.id,
       status: 'ok',
-      views: results.map((r) => r.view),
+      presentation: job.presentation,
+      views: isSketch ? job.views : results.map((r) => r.view),
       attempts,
       quality: results.length === 1 ? results[0].quality : Object.fromEntries(results.map((r) => [r.view, r.quality])),
       timings: { prepareMs: job.prepareMs, describeMs: job.describeMs || 0, generateMs: Date.now() - generationStarted, totalMs: Date.now() - startedAt }
@@ -316,9 +322,10 @@ async function generate(req, res, next) {
  */
 function imageOnly(event) {
   switch (event.type) {
-    case 'start': return { type: 'start', jobId: event.jobId };
-    case 'image': return { type: 'image', jobId: event.jobId, view: event.view, mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
-    case 'done': return { type: 'done', jobId: event.jobId, status: event.status, views: event.views };
+    // presentation is named only when it is not the default, so a model request's stream is unchanged.
+    case 'start': return { type: 'start', jobId: event.jobId, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}) };
+    case 'image': return { type: 'image', jobId: event.jobId, view: event.view, ...(event.annotations ? { views: event.views, annotations: event.annotations } : {}), mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
+    case 'done': return { type: 'done', jobId: event.jobId, status: event.status, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}), views: event.views };
     // details carries what the docs promise (GENERATION_BLOCKED's reason, which
     // image failed) - written for the caller, never upstream text.
     case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable, ...(event.details ? { details: event.details } : {}) };
@@ -364,6 +371,8 @@ function options(_req, res) {
       formats: ['jpeg', 'png', 'webp', 'avif', 'heic']
     },
     modelGenders: ['female', 'male'],
+    // How the garment is shown: on a person (default), on a dress-form mannequin, or as one sketch sheet.
+    presentations: PRESENTATIONS,
     garments: taxonomy.GARMENTS.map((g) => ({
       id: g.id,
       name: g.name,
