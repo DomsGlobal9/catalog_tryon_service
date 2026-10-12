@@ -61,6 +61,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `modelImage` | string | No | A photo of the person to dress, to keep the same face and body across your products. Without it, a professional model is created for you. |
 | `modelGender` | `female` or `male` | No | Defaults to `female` for every garment (the `SHERWANI` here is a women's sherwani-style jacket; the men's sherwani is made by the Catalog Try-On men pipeline). |
 | `views` | string[] | No | Which photographs to make: `["front", "back"]` (the default, for every garment), `["front"]` or `["back"]`. See *Front and back*. |
+| `presentation` | `model`, `mannequin` or `sketch` | No | How the garment is shown. `model` (the default): on a person, as always. `mannequin`: on a headless dress-form mannequin. `sketch`: one fashion-illustration sheet with labels. See *Presentations*. |
 | `pairWith` | object | No | What the model wears **with** the product — a saree's blouse, a blouse's saree. See *The product, and what it is worn with*. |
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
@@ -428,6 +429,120 @@ data: {"type":"done","jobId":"6c1f2a9e-...","status":"ok","views":["front","back
 Example 2 sends one `image` (`"view":"front"`) and `"views":["front"]`; example 3 one `image`
 (`"view":"back"`) and `"views":["back"]`.
 
+### Presentations: a model, a mannequin, or a sketch
+
+The same designs and fabrics can be shown three ways. Leave `presentation` out and nothing changes: the
+garment is photographed on a person, exactly as before this option existed (12 October 2026).
+
+| `presentation` | What comes back | Image calls |
+| :--- | :--- | :--- |
+| `model` (default) | Photographs on a person, front and back | 2 |
+| `mannequin` | The same garment on a headless dress-form mannequin on a stand, front and back, plain studio | 2 |
+| `sketch` | **One** fashion-illustration sheet: soft watercolour and ink on white paper, the front and back figures side by side, with hand-lettered labels pointing to the designed parts | 1 |
+
+The value is not case-sensitive, and the usual spellings are understood: `maniquine`, `manikin`,
+`dress-form` and `dummy` mean `mannequin`; `illustration`, `drawing` and `croquis` mean `sketch`.
+Anything else is a `400` on the field `presentation`.
+
+**Mannequin.** The garment is dressed on the form the way a good store dresses it - saree, lehenga and
+dupatta drapes pinned in place - with no head, face, hands or person anywhere. Front and back work as for
+the model: the back photograph is made from the front one, with the mannequin turned round. A blouse is
+shown on a bust form, waist-up. `modelGender` chooses a female or male form. A photograph checker makes
+sure no person appears and that front and back show the same mannequin.
+
+**Sketch.** One sheet in one image call, so it costs half of a front-and-back photograph. `views` decides
+the figures on the sheet: both (the default), or one. The image arrives as one `image` event with
+`view: "sheet"`, the `views` on it, and `annotations` - the exact words of every label:
+
+```json
+{ "type": "image", "jobId": "6c1f...", "view": "sheet", "views": ["front", "back"],
+  "annotations": [
+    { "part": "PALLU",     "label": "Pallu: gold zari paisleys",       "on": ["front", "back"] },
+    { "part": "BORDER",    "label": "Border: peacocks and temple",     "on": ["front", "back"] },
+    { "part": "FABRIC",    "label": "Fabric: teal Banarasi silk",      "on": ["front", "back"] },
+    { "part": "WORN_WITH", "label": "Worn with: plain blouse",         "on": ["front"] }
+  ],
+  "mimeType": "image/jpeg", "width": 896, "height": 1200, "image": "data:image/jpeg;base64,/9j/4AAQ..." }
+```
+
+The labels are written by the service, never invented by the image model: one per design area (its name
+and a few words of what the reference shows), one for the main fabric, one for what the garment is worn
+with - at most 8, at most 40 characters each, plain letters. `on` says which figure the label belongs to:
+a `BACK` design only on the back figure, `FRONT`, `NECK`, `BUTTON`, `POCKET` and a saree's `PLEAT` only on
+the front one. An image model can misspell hand lettering; `annotations` always has the exact words, so
+show them as text in your app if a word on the drawing comes out wrong.
+
+Each label is drawn once. A sheet with both figures also carries one small caption under each figure,
+"FRONT" and "BACK"; there is no other text on it.
+
+`modelImage` dresses a real person, so it only goes with `model`: with `mannequin` or `sketch` it is a `400`
+(`PRESENTATION_CONFLICT` on `modelImage`). With `mannequin` or `sketch`, `start` and `done` also carry
+`presentation`.
+
+#### Verified on 12 October 2026
+
+References from the live Design Discovery endpoint, the clearest of the first four results for each design.
+
+| Request | Result |
+| :--- | :--- |
+| Mannequin - saree (`PALLU`, `BORDER`) | Headless dress form on a stand, no person; the same saree front and back; the border round the hem. First run: with no arm to rest on, the pallu stuck out sideways in mid-air - hanging parts are now pinned and fall straight down. 56-61 s. |
+| Mannequin - blouse (`NECK`) | A bust form, waist-up; the zardozi neckline on the front only, a plain back. 40 s. |
+| Mannequin - lehenga (`SKIRT`) | The skirt design all the way round, a tie-up choli back, the dupatta down the left side. 48 s. |
+| Sketch - saree (`PALLU`, `BORDER`) | Watercolour and ink, front and back figures, the pallu in front on the front figure and down the back on the back figure; every label spelled exactly. First run: labels were drawn beside both figures and "FRONT"/"BACK" twice - now each design label once and one caption per figure. 31-32 s, one image call. |
+| Sketch - anarkali (`FLARE`, `BACK`) | The floral flare on both figures, the dori tie-up with tassels on the back figure only. 19 s. |
+| Sketch - gown (`SKIRT_FLARE`, `BACK`) | Front correct. On the back figure, the `BACK` picture's leaves and colour spread onto the back of the skirt (see below). 25-31 s. |
+
+**Known limits of `sketch`:**
+- A `BACK` reference that pictures a **whole garment** can spread its motifs and colour onto the back of
+  the skirt in a sketch (the back figure is drawn in the same call as the front, so it cannot be checked
+  against a finished front picture the way the back photograph is). Send a **close-up of the back bodice**
+  and a **fabric** - the test above sent neither.
+- Lettering is drawn by the image model. Every word was spelled right in the tests, but `annotations` is the
+  reliable copy.
+
+#### Example requests
+
+**Mannequin - a lehenga, front and back:**
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "LEHANGA",
+  "presentation": "mannequin",
+  "designs": [
+    { "area": "SKIRT",  "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/lehenga-skirt.jpg" },
+    { "area": "BORDER", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/lehenga-hem.jpg" }
+  ]
+}
+```
+
+**Sketch - a saree, both figures on one sheet:**
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "SAREE",
+  "presentation": "sketch",
+  "designs": [
+    { "area": "PALLU",  "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/pallu-paisley.jpg" },
+    { "area": "BORDER", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/border-peacock.jpg" }
+  ],
+  "fabrics": [ { "image": "https://res.cloudinary.com/acme/image/upload/v1/fabrics/teal-silk.jpg", "name": "Banarasi silk", "color": "teal" } ]
+}
+```
+
+**Sketch - the back only, one figure:**
+
+```json
+{
+  "clientId": "acme-retail",
+  "garment": "BLOUSE",
+  "presentation": "sketch",
+  "views": ["back"],
+  "designs": [ { "area": "BACK", "image": "https://res.cloudinary.com/acme/image/upload/v1/designs/keyhole-back.jpg" } ]
+}
+```
+
 ### How a request is answered, in two steps
 
 1. **The references are read.** A text model looks at every picture you sent and writes down what it
@@ -556,7 +671,7 @@ generations. The cancelled stream ends with an `error` event whose code is `CANC
 ## `GET /api/v1/designstudio/options`
 
 Everything needed to build a valid request: the 12 garments with their design areas, default model
-gender, `framing`, `views` (`["front"]` or `["front", "back"]`), and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
+gender, `framing`, `views` (`["front"]` or `["front", "back"]`), the `presentations` (`model`, `mannequin`, `sketch`), and `pairedWith` (what each is worn with, and its default colour), the limits, and the accepted image sources and formats. Build your pickers from this rather than
 hard-coding the lists.
 
 ---

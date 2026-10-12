@@ -1030,7 +1030,7 @@ async function runAll({ check, eq, section, SRC }) {
     /In the BACK figure of the sheet:[\s\S]*For the back figure the pallu is draped the classic way/.test(sk.text));
   eq('sketch labels come from the order and the reading of the references: area, short description, fabric, worn with',
     sk.annotations.map((a) => [a.label, a.on.join('+')]),
-    [['Pallu: large gold zari paisleys', 'front+back'], ['Border: peacocks and temple motifs', 'front+back'], ['Pleat', 'front'], ['Fabric: teal Banarasi silk', 'front+back'], ['Worn with: plain blouse', 'front+back']]);
+    [['Pallu: large gold zari paisleys', 'front+back'], ['Border: peacocks and temple motifs', 'front+back'], ['Pleat', 'front'], ['Fabric: teal Banarasi silk', 'front+back'], ['Worn with: plain blouse', 'front']]);
   check('...and every label is written into the prompt word for word, with what it points to',
     sk.annotations.every((a) => sk.text.includes(`- "${a.label}" - pointing to ${a.pointsTo}`)) && /Spell every word exactly as written above/.test(sk.text));
   check('sketch is not judged by the photograph checks (review is null)', sk.review === null);
@@ -1041,6 +1041,23 @@ async function runAll({ check, eq, section, SRC }) {
   const frontOnlySheet = buildPrompt(withPresentation('GOWN', ['BACK', 'NECK'], 'sketch', { views: ['front'] }));
   eq('a front-only sheet: one figure; the BACK design has nowhere to point, so it gets no label',
     [/One full-length figure/.test(frontOnlySheet.text), frontOnlySheet.annotations.map((a) => a.part)], [true, ['NECK']]);
+  // Measured in the 12 Oct paid run, and fixed:
+  check('sketch: each label written once (it was drawn beside both figures), one FRONT and one BACK caption allowed',
+    /written ONCE, beside whichever figure shows it best/.test(sk.text) && !/on either figure/.test(sk.text) && /Each label appears exactly once on the sheet/.test(sk.text)
+      && /one small caption: "FRONT" under the front figure and "BACK" under the back figure, once each/.test(sk.text)
+      && /No other text of any kind: no caption, title/.test(frontOnlySheet.text));
+  check('sketch: a final check that both figures show the same skirt, hem and sleeves (a gown sheet\'s back leaves spread onto the skirt)',
+    /Final check between the two figures: every part that shows on both/.test(sk.text) && !/Final check between the two figures/.test(frontOnlySheet.text));
+  eq('labels never end on a joining word ("small geometric shapes in a")',
+    buildPrompt(withPresentation('ANARKALI', ['BACK'], 'sketch'), { descriptions: new Map([[1, { motifs: 'small geometric shapes in a lattice, red' }]]) }).annotations.map((a) => a.label),
+    ['Back: small geometric shapes', 'Worn with: plain churidar']);
+  eq('labels are cut at a phrase break, never mid-phrase (both measured in the 12 Oct paid run), and read in lower case after the colon',
+    [buildPrompt(withPresentation('SAREE', ['BORDER'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Large peacock motifs facing each other in pairs' }]]) }).annotations[0].label,
+      buildPrompt(withPresentation('GOWN', ['BACK'], 'sketch'), { descriptions: new Map([[1, { motifs: 'large stylized leaves with central veins' }]]) }).annotations[0].label,
+      buildPrompt(withPresentation('SAREE', ['PALLU'], 'sketch'), { descriptions: new Map([[1, { motifs: 'paisley and floral butis' }]]) }).annotations[0].label],
+    ['Border: large peacock motifs', 'Back: large stylized leaves', 'Pallu: paisley and floral butis']);
+  check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air)',
+    /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text));
   check('the saree front photograph keeps the front drape',
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);

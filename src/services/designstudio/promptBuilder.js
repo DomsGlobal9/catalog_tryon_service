@@ -707,7 +707,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     const formLines = [
       `A headless dress-form mannequin on a slim, plain stand: a smooth, matte form in a neutral linen or ivory colour, shaped like a ${formWord}'s figure at a standard size. It has NO head, NO face, NO wig and NO hair - the form ends cleanly at the neck.`,
       'Where the garment has sleeves, soft plain mannequin arms sit inside them so the sleeves hang naturally; with no sleeves, the form has no arms. No hands are visible.',
-      `The ${g.product} is dressed on the form the way a good store dresses it: pinned and draped neatly, every drape and fold falling naturally${g.framing === 'full' ? ', and the hem hanging freely above the base of the stand' : ''}.`
+      `The ${g.product} is dressed on the form the way a good store dresses it: pinned and draped neatly, every drape and fold falling naturally${g.framing === 'full' ? ', and the hem hanging freely above the base of the stand' : ''}.`,
+      // Measured (12 Oct 2026, paid run): with no arm to rest on, a saree pallu stuck out sideways in mid-air.
+      'Nothing floats or is held out in the air: every hanging part (a pallu, a dupatta, its ends) is pinned in place and falls straight down by its own weight, close to the form.'
     ];
     if (view === 'back') {
       formLines.push(`The mannequin is turned round so its back faces the camera squarely: the whole back of the ${g.product} is flat to the camera and completely visible, and nothing covers any part of it.`);
@@ -762,8 +764,12 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       'A faint soft shadow under the feet. No background scene, props or furniture.'
     ]), [
       'LABELS - write exactly these, word for word, in neat, legible dark-grey hand lettering in the margins, each joined to its part by a thin curved leader line ending in a small arrow:',
-      ...annotations.map((a) => `- "${a.label}" - pointing to ${a.pointsTo}${sheetBoth ? (a.on.length === 2 ? ' (on either figure)' : ` on the ${a.on[0].toUpperCase()} figure`) : ''}`),
-      'Spell every word exactly as written above. No other text of any kind: no title, heading, product name, signature, logo or watermark.'
+      // Measured (12 Oct 2026, paid run): "on either figure" got every label written twice.
+      ...annotations.map((a) => `- "${a.label}" - pointing to ${a.pointsTo}${sheetBoth ? (a.on.length === 2 ? ' (written ONCE, beside whichever figure shows it best)' : ` on the ${a.on[0].toUpperCase()} figure`) : ''}`),
+      'Each label appears exactly once on the sheet. Spell every word exactly as written above.',
+      sheetBoth
+        ? 'Beneath each figure, one small caption: "FRONT" under the front figure and "BACK" under the back figure, once each. No other text of any kind: no title, heading, product name, signature, logo or watermark.'
+        : 'No other text of any kind: no caption, title, heading, product name, signature, logo or watermark.'
     ].join('\n')].join('\n'));
   } else {
   addText(['THE PHOTOGRAPH', bullets([
@@ -809,6 +815,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     ...(pair && job.garmentId === 'LEHANGA' ? ['The choli sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth - no trim, piping, edge line or border of any width or colour.'] : []),
     // Measured twice on a gown: a whole-garment BACK photo put its skirt leaves and a waist band on
     // the back while the front skirt was plain, despite the rule in the FRONT VIEW block.
+    // Measured (12 Oct 2026, paid run): on a gown sheet the BACK design's leaves spread onto the back of the skirt.
+    ...(sheetBoth ? ['Final check between the two figures: every part that shows on both (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same on both. If a part is plain on the front figure it is plain on the back figure - no motifs, band, belt or border there that the front does not have. Only the back of the bodice or back panel of the back figure may carry the back design.'] : []),
     ...(frontPhotoNumber ? [`Final check against the front view [Image ${frontPhotoNumber}]: every part that shows in both photographs (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same in both. If that part is plain in the front view it is plain here - no motifs, no band, no belt, no border that the front view does not have. Only the back of the bodice or back panel may carry the back design.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     onMannequin
@@ -868,15 +876,22 @@ const SKETCH_MAX_LABEL_CHARS = 40;
 /** Plain ASCII, at most `max` characters, cut at a word. Fewer odd letters, fewer misspellings. */
 function labelText(text, max = SKETCH_MAX_LABEL_CHARS) {
   const plain = String(text).normalize('NFKD').replace(/[^\x20-\x7E]/g, '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
-  if (plain.length <= max) return plain.replace(/[,;:.\s-]+$/, '');
-  return plain.slice(0, max + 1).replace(/\s+\S*$/, '').replace(/[,;:.\s-]+$/, '');
+  const cut = plain.length <= max ? plain : plain.slice(0, max + 1).replace(/\s+\S*$/, '');
+  return cut.replace(/(?:\s+(?:a|an|the|in|on|of|with|and|or|at|for|to|by|from))+$/i, '').replace(/[,;:.\s-]+$/, '');
 }
 
 /** The first few words of what the describe step saw: "paisley and floral butis, ..." -> "paisley and floral butis". */
 function shortDescription(info, note) {
   const source = (info && (info.motifs || info.technique)) || note || '';
   if (/^\s*(?:-|none|no\b|plain|n\/?a)/i.test(source)) return '';
-  return source.split(/[,;.]/)[0].split(/\s+/).slice(0, 5).join(' ');
+  // The first phrase only, at most five words, never ending on a joining word. Measured (12 Oct 2026):
+  // "Large peacock motifs facing ..." and "large stylized leaves with central ..." were cut mid-phrase.
+  const phrase = source.split(/[,;.:(]/)[0]
+    .split(/\s+(?:with|in|on|of|facing|arranged|set|along|across|forming|over|around|between|within|featuring|alternating)\s+/i)[0];
+  const words = phrase.trim().split(/\s+/).slice(0, 5);
+  while (words.length > 1 && /^(a|an|the|in|on|of|with|and|or|at|for|to|by|from|its|their)$/i.test(words[words.length - 1])) words.pop();
+  const text = words.join(' ');
+  return text.charAt(0).toLowerCase() + text.slice(1); // "Pallu: large paisley motifs"
 }
 
 /**
@@ -900,7 +915,8 @@ function sketchLabels(job, descriptions, sheetViews, g, pair) {
     const words = [main.color, main.name || main.material].filter(Boolean).join(' ') || (info && info.colours) || '';
     if (words) labels.push({ part: 'FABRIC', label: labelText(`Fabric: ${words}`), on: [...sheetViews], pointsTo: `the main fabric of the ${g.product}` });
   }
-  if (pair) labels.push({ part: 'WORN_WITH', label: labelText(`Worn with: plain ${pair.pieces}`), on: [...sheetViews], pointsTo: `the ${pair.pieces}` });
+  // Pointed at the first figure only: left free to choose, it was drawn beside both (12 Oct 2026).
+  if (pair) labels.push({ part: 'WORN_WITH', label: labelText(`Worn with: plain ${pair.pieces}`), on: [sheetViews[0]], pointsTo: `the ${pair.pieces}` });
   return labels.slice(0, SKETCH_MAX_LABELS).filter((l) => l.label);
 }
 
