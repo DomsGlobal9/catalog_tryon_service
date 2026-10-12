@@ -322,6 +322,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   // The figures on a sketch sheet: both sides by default, or the one side asked for.
   const sheetViews = isSketch ? (job.views || ['front', 'back']) : null;
   const sheetBoth = isSketch && sheetViews.length === 2;
+  // The caller's own photo (only allowed with presentation "model").
+  const realPerson = job.model.kind === 'reference';
   const wearsIt = onMannequin ? 'the mannequin wears' : isSketch ? 'the figure wears' : 'the model wears';
   const picture = isSketch ? 'illustration' : 'photograph';
   const productLine = job.productName
@@ -332,17 +334,27 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     ? `Create one photorealistic e-commerce catalogue photograph of a brand-new ${g.product} dressed on a headless dress-form mannequin${viewWords}, `
     : isSketch
       ? `Create one fashion design presentation sheet: a hand-drawn illustration of a brand-new ${g.product}${sheetBoth ? ', shown from the FRONT and from the BACK side by side' : sheetViews[0] === 'back' ? ', shown from the BACK' : ', shown from the front'}, `
-      : `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}${viewWords}, `;
+      : realPerson
+        // Measured: "Create a photograph of a woman wearing..." with the person photo
+        // sent last treated it as a hint and drew a new face. Framed as an edit of
+        // that photo, shown first, the person is kept.
+        ? `Edit the PERSON PHOTO: dress this exact real person in a brand-new ${g.product}${viewWords}, `
+        : `Create one photorealistic e-commerce catalogue photograph of a ${wearerWord} wearing a brand-new ${g.product}${viewWords}, `;
   addText([
     'TASK',
     taskLine +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
+    ...(realPerson ? ['The result is a photograph of this same real person: anyone who knows them must recognise them at once. Only their clothing, pose, background and lighting change - never their face, hair or body.'] : []),
     ...(pair ? [`The ${g.product} is the only product in this ${picture}. Every design reference below belongs to the ${g.product} and to nothing else ${wearsIt}.`] : []),
     ...(productLine ? [productLine] : []),
     '',
     'REFERENCE IMAGES'
   ].join('\n'));
+  if (realPerson) {
+    addText('PERSON PHOTO: the real person to dress. Their face, hair and body must stay exactly as they are here.');
+    addImage(job.model.image, 'model');
+  }
 
   // ── 2. REFERENCES ──────────────────────────────────────────────────────────
   // What the describe step saw in a reference, as lines under its label.
@@ -558,13 +570,6 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     }
   }
 
-  if (job.model.kind === 'reference') {
-    n += 1;
-    addText(`[Image ${n}] MODEL: the person to dress in the new garment.`);
-    addImage(job.model.image, 'model');
-    job.model.imageNumber = n;
-  }
-
   // The back view is made from the finished front photograph, so the two are one
   // garment on one person: same colour, cut, sleeves, hem, hair and studio.
   let frontPhotoNumber = null;
@@ -735,7 +740,12 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   } else {
   const modelLines = [];
   if (job.model.kind === 'reference') {
-    modelLines.push(`Dress the exact person shown in [Image ${job.model.imageNumber}]. Keep the same face and identity, skin tone, hair, body shape and proportions. Replace only their clothing with the new garment, and ignore their original outfit, pose, background and lighting.`);
+    modelLines.push(
+      'Dress the exact person in the PERSON PHOTO. This is a real customer, not a model: keep their face exactly as it is - the same face shape, eyes, eyebrows, nose, lips, jawline, skin tone and skin texture, any moles or marks, and their age. Do not beautify, slim, smooth or re-age the face, change the makeup, or replace it with a different face.',
+      'Keep their hair (the same colour, length, texture and parting) and their body (the same height, build and proportions).',
+      'Replace only their clothing with the new garment; their original outfit, background and lighting are not used.'
+    );
+    if (pose !== 'back') modelLines.push('The face is fully visible, evenly lit and in sharp focus, turned to the camera as in the PERSON PHOTO.');
   } else {
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
@@ -853,7 +863,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     noTassels: (job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL')) || job.garmentId === 'SAREE',
     onePallu: job.garmentId === 'SAREE',
     fabricColours: job.fabrics.filter((f) => f.color || f.colorHex).map((f) => ({ name: f.name, colour: [f.color, f.colorHex].filter(Boolean).join(' '), appliesTo: f.appliesTo || 'MAIN' })),
-    ...(onMannequin ? { presentation } : {})
+    ...(onMannequin ? { presentation } : {}),
+    // Internal only (the review is never sent to callers): the face is checked against it.
+    ...(realPerson ? { personPhoto: job.model.image } : {})
   });
   // A sketch is not judged by the photograph checks (a watercolour is not a photo).
   return { parts, text: textLog.join('\n\n'), warnings, pose, framing: g.framing, imageCount: n, review: isSketch ? null : review, annotations };

@@ -202,6 +202,12 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
     checks.push(['no_person', `Is the ${product} shown on a headless dress-form mannequin, with no person, no head, no face and no hands anywhere in the photograph?`,
       `Show the ${product} on a headless dress-form mannequin on a stand: no person, no head, no face, no hands.`]);
   }
+  // Measured: with the caller's own photo the image model drew a different face.
+  // From behind the face is barely seen, so only a front-facing pose is judged.
+  if (review.personPhoto && review.pose !== 'back' && review.view !== 'back') {
+    checks.push(['same_face', 'Ignoring the clothes, pose, background and lighting: is the person in the PHOTOGRAPH clearly the same real person as in the PERSON photo - the same face (face shape, eyes, nose, lips), skin tone and hair - and not a different or prettified face?',
+      'Keep the exact face of the person in the PERSON PHOTO: the same face shape, eyes, eyebrows, nose, lips, skin tone and hair. Do not replace, beautify or re-age the face.']);
+  }
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back
   // became a deep U. The photograph is compared with the reference picture itself.
   for (const r of references) {
@@ -257,7 +263,7 @@ async function reviewView(review, { image, frontImage = null, references = [], s
   if (!config.pair.enabled || !config.gemini.apiKey() || !checklist.length) return unchecked('disabled');
   const isBack = review.view === 'back' && frontImage;
   const text = [
-    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on ${review.presentation === 'mannequin' ? 'a headless dress-form mannequin' : 'a model'}. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}.`,
+    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on ${review.presentation === 'mannequin' ? 'a headless dress-form mannequin' : 'a model'}. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}${checklist.some((c) => c.id === 'same_face') ? '; the PERSON picture is the real customer who must be the one wearing it' : ''}.`,
     'Answer each check strictly: pass=true only when it is clearly satisfied. When something differs, answer pass=false and say what differs in evidence (under 25 words).',
     'Answer every check, using its id.',
     '',
@@ -266,6 +272,7 @@ async function reviewView(review, { image, frontImage = null, references = [], s
   const parts = [{ text }, { text: 'PHOTOGRAPH:' }, { inlineData: { mimeType: image.mimeType, data: image.base64 } }];
   for (const r of references) parts.push({ text: `REFERENCE ${r.ref} (${r.part}):` }, { inlineData: { mimeType: r.image.mimeType, data: r.image.base64 } });
   if (isBack) parts.push({ text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } });
+  if (checklist.some((c) => c.id === 'same_face')) parts.push({ text: 'PERSON photo:' }, { inlineData: { mimeType: review.personPhoto.mimeType, data: review.personPhoto.base64 } });
   const timeout = AbortSignal.timeout(config.pair.timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {

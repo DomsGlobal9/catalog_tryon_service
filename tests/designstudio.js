@@ -1089,8 +1089,20 @@ async function runAll({ check, eq, section, SRC }) {
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
   const ref = buildPrompt(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }));
-  check('a model photo: dress that exact person, ignore their outfit', /Dress the exact person shown in \[Image 2\]/.test(ref.text) && /ignore their original outfit/.test(ref.text));
-  check('a model photo without a gender is "a model", not assumed', /photograph of a model wearing/.test(ref.text));
+  check('a model photo: framed as an edit of that photo, the face, hair and body spelled out as unchangeable, their outfit not used',
+    /^TASK\nEdit the PERSON PHOTO: dress this exact real person in a brand-new saree/.test(ref.text) && /anyone who knows them must recognise them at once/.test(ref.text)
+      && /keep their face exactly as it is - the same face shape, eyes, eyebrows, nose, lips, jawline/.test(ref.text) && /Do not beautify, slim, smooth or re-age the face/.test(ref.text)
+      && /their original outfit, background and lighting are not used/.test(ref.text) && /The face is fully visible, evenly lit and in sharp focus/.test(ref.text));
+  const firstImage = ref.parts.findIndex((p) => p.inlineData);
+  eq('a model photo is the FIRST image the image model sees, unnumbered; the design is still [Image 1]',
+    [/^PERSON PHOTO: the real person to dress/.test(ref.parts[firstImage - 1].text), /\[Image 1\] DESIGN for PALLU/.test(ref.text), /\[Image 2\]/.test(ref.text)], [true, true, false]);
+  check('a model photo without a gender is not assumed to be a woman', !/\bwoman\b|\bher\b/.test(ref.text.split('THE PHOTOGRAPH')[0]));
+  const refFront = buildPrompt(viewOf(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }), new Map(), 'front').job, { view: 'front' });
+  const refBack = buildPrompt(viewOf(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }), new Map(), 'back').job, { view: 'back', frontPhoto: prepared });
+  eq('a model photo: the face is checked against it on the front view only (from behind it is barely seen); a generated model has no face check',
+    [qa.viewChecklist(refFront.review, []).map((c) => c.id), qa.viewChecklist(refBack.review, [], { withFront: true }).some((c) => c.id === 'same_face'),
+      qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).length,
+      /face is fully visible/.test(refBack.text)], [['same_face'], false, 0, false]);
   check('sherwani: a woman (a womens sherwani-style jacket), her mid-twenties', /a woman in her mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text) && /Tailor it sharply to a woman's figure/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
   check('no fabric given: the model is told to choose one, not left to guess', /No fabric reference was given/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
   const low = fakeJob('SAREE', ['PALLU']);
@@ -1361,6 +1373,24 @@ async function runAll({ check, eq, section, SRC }) {
     eq('views: ["back"] alone: one back photograph, and no check compares it with a front that does not exist',
       [events.filter((e) => e.type === 'image').map((e) => e.view), askedIds.some((id) => ['same_person', 'same_sleeves', 'same_garment', 'same_studio'].includes(id)), askedIds.includes('back_shown')],
       [['back'], false, true]);
+    qa._setFetch(qaAnswer());
+
+    // The caller's own photo: a changed face is caught by the reference check and made again.
+    const faceAsks = [];
+    let faceRound = 0;
+    qa._setFetch(async (url, opts) => {
+      const parts = JSON.parse(opts.body).contents[0].parts;
+      faceAsks.push({ ids: [...parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]), person: parts.some((p, i) => p.text === 'PERSON photo:' && parts[i + 1] && parts[i + 1].inlineData) });
+      // Fail the face check the first time it is asked (the inspection may be asked first).
+      const asked = faceAsks[faceAsks.length - 1].ids.includes('same_face');
+      return qaAnswer(asked && faceRound++ === 0 ? ['same_face'] : [])(url, opts);
+    });
+    const faceCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'own-photo', garment: 'SAREE', modelImage: IMG, designs: [{ area: 'PALLU', image: IMG }], views: ['front'] })));
+    eq('own photo: the face is checked with the person photo attached; a changed face is made once more with the correction, then passes',
+      [faceAsks.filter((a) => a.ids.includes('same_face')).map((a) => [a.ids.includes('same_face'), a.person]), faceCalls.length, /Keep the exact face of the person in the PERSON PHOTO/.test(textOf(faceCalls[1])),
+        events[events.length - 1].quality.references.passed],
+      [[[true, true], [true, true]], 2, true, true]);
     qa._setFetch(qaAnswer());
 
     // Since 10 Oct 2026 a gown is front and back too: the BACK design belongs to the back photograph.
