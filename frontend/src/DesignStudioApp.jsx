@@ -96,6 +96,28 @@ function readImageFile(file) {
   });
 }
 
+/**
+ * Download a picture picked in Discovery and turn it into the same slot an
+ * upload makes, so it is sent as base64. The service only downloads from
+ * Cloudinary, so the browser does the fetching. Many sites do not let a browser
+ * read their pictures (CORS); those fail here with a plain reason, never silently.
+ */
+async function pictureFromLink(link) {
+  let reason = 'no link';
+  for (const url of [link.url, link.fallbackUrl].filter(Boolean)) {
+    try {
+      const res = await fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+      if (!res.ok) { reason = `the site answered ${res.status}`; continue; }
+      const blob = await res.blob();
+      if (!blob.type.startsWith('image/')) { reason = 'the link is not a picture'; continue; }
+      return await readImageFile(new File([blob], link.title || 'discovery picture', { type: blob.type }));
+    } catch {
+      reason = 'this site does not let a browser download its pictures';
+    }
+  }
+  throw new Error(reason);
+}
+
 /** Shorten every base64 in a payload so the preview stays readable. */
 function shortenImages(value) {
   if (typeof value === 'string') {
@@ -112,7 +134,7 @@ function shortenImages(value) {
   return value;
 }
 
-export default function DesignStudioApp() {
+export default function DesignStudioApp({ handoff }) {
   const [options, setOptions] = useState(null);
   const [optionsError, setOptionsError] = useState(null);
 
@@ -156,6 +178,37 @@ export default function DesignStudioApp() {
   useEffect(() => {
     getOptions().then(setOptions).catch(setOptionsError);
   }, []);
+
+  // Pictures picked in Discovery become design rows. The first picture for an
+  // area gets that area; any more for the same area are left for you to place,
+  // because two designs on one area is refused (DUPLICATE_DESIGN_AREA).
+  const [imported, setImported] = useState(null);
+  useEffect(() => {
+    if (!handoff || !handoff.pictures || !handoff.pictures.length) return undefined;
+    let live = true;
+    const all = handoff.pictures;
+    const take = all.slice(0, limits.maxDesigns);
+    const garmentId = (take.find((p) => p.garment) || {}).garment;
+    if (garmentId) { setGarment(garmentId); setProductName(''); }
+    setImported({ pending: take.length });
+    Promise.all(take.map((p) => pictureFromLink(p).then((slot) => ({ p, slot }), (err) => ({ p, reason: err.message }))))
+      .then((results) => {
+        if (!live) return;
+        const used = new Set();
+        const rows = results.filter((r) => r.slot).map((r) => {
+          const area = r.p.garment === garmentId && r.p.area && !used.has(r.p.area) ? r.p.area : '';
+          if (area) used.add(area);
+          return { ...blankDesign(), area, image: r.slot };
+        });
+        if (rows.length) setDesigns(rows);
+        setImported({
+          loaded: rows.length,
+          failed: results.filter((r) => !r.slot),
+          skipped: all.length - take.length
+        });
+      });
+    return () => { live = false; };
+  }, [handoff]); // eslint-disable-line react-hooks/exhaustive-deps -- once per handoff
 
   // A generation left running on the service holds a capacity slot, so a closed
   // tab or a left page must stop it - exactly as a real integration should.
@@ -444,6 +497,7 @@ export default function DesignStudioApp() {
   }
 
   const usedAreas = designs.map((d) => d.area).filter(Boolean);
+  const unplaced = designs.filter((d) => hasImage(d.image) && !d.area).length;
 
   return (
     <div className="ds-wrap">
@@ -597,6 +651,30 @@ export default function DesignStudioApp() {
           Crop each picture to the design itself — a close-up of the pallu, not a whole person wearing a saree.
           The reference supplies motifs only; the part's colour comes from its fabric.
         </p>
+
+        {imported && (
+          <div className="ds-imported">
+            {imported.pending ? (
+              <strong>Downloading {imported.pending} picture{imported.pending > 1 ? 's' : ''} picked in Discovery…</strong>
+            ) : (
+              <>
+                <strong>From Discovery: {imported.loaded} picture{imported.loaded === 1 ? '' : 's'} added, sent as base64.</strong>
+                {unplaced > 0 && <div>{unplaced === 1 ? '1 still needs' : `${unplaced} still need`} an area — each area takes one design.</div>}
+                {imported.skipped > 0 && <div>{imported.skipped} left out — the limit is {limits.maxDesigns} designs.</div>}
+                {imported.failed.length > 0 && (
+                  <ul>
+                    {imported.failed.map((f, i) => (
+                      <li key={i}>
+                        <span className="ds-bad">Not added:</span> {f.p.title || 'untitled'} — {f.reason}.{' '}
+                        <a href={f.p.url} target="_blank" rel="noreferrer noopener">Open it</a>, save it, and upload it here.
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {designs.map((d, i) => (
           <div className="ds-item" key={d.id}>

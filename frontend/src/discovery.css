@@ -277,3 +277,12 @@ body { background-color: var(--bg-color); }
 }
 .flow-switch h2 { margin: 0 0 0.75rem; font-size: 1rem; }
 .flow-switch-buttons { display: flex; justify-content: center; gap: 0.6rem; }
+
+/* ── Picking results for Design Studio ────────────────────────────────── */
+.disc-pick { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; cursor: pointer; margin-right: 0.35rem; }
+.disc-result.disc-picked { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.disc-pickbar {
+  position: sticky; top: 0.5rem; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem;
+  background: var(--card-bg); border: 1px solid var(--accent); border-radius: 10px;
+  padding: 0.5rem 0.75rem; margin-bottom: 0.75rem;
+}

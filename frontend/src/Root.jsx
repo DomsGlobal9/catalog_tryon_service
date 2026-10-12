@@ -21,18 +21,30 @@ import './discovery.css';
  */
 export default function Root() {
   const [view, setView] = useState('home');
+  // Pictures picked in Discovery, on their way to Design Studio.
+  const [handoff, setHandoff] = useState(null);
 
-  if (view === 'home') return <Home onPick={setView} />;
+  if (view === 'home') return <Home onPick={(v) => { setHandoff(null); setView(v); }} />;
 
   const Current = view === 'women' ? WomenApp
     : view === 'men' ? MenApp
-    : view === 'studio' ? DesignStudioApp
-    : DiscoveryApp;
+    : DesignStudioApp;
+  // Discovery stays mounted (hidden) while its picks are in Design Studio, so
+  // "back to the search" returns to the same results and ticks.
+  const keepDiscovery = view === 'discovery' || (view === 'studio' && handoff);
 
   return (
     <div>
-      <button className="disc-back" onClick={() => setView('home')}>← Back</button>
-      <Current />
+      <button className="disc-back" onClick={() => { setHandoff(null); setView('home'); }}>← Back</button>
+      {view === 'studio' && handoff && (
+        <button className="disc-back" style={{ left: '6.5rem' }} onClick={() => setView('discovery')}>← Back to the search</button>
+      )}
+      {keepDiscovery && (
+        <div hidden={view !== 'discovery'}>
+          <DiscoveryApp onSendToStudio={(h) => { setHandoff(h); setView('studio'); }} />
+        </div>
+      )}
+      {view !== 'discovery' && <Current handoff={view === 'studio' ? handoff : undefined} />}
     </div>
   );
 }

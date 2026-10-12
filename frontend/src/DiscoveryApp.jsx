@@ -24,7 +24,7 @@ const EXAMPLES = [
     mode: 'structured', category: 'SAREE', designType: 'SLEEVE', keywords: 'red', sources: ['web'] }
 ];
 
-export default function DiscoveryApp() {
+export default function DiscoveryApp({ onSendToStudio }) {
   const [taxonomy, setTaxonomy] = useState(null);
   const [taxonomyError, setTaxonomyError] = useState(null);
   const [showTree, setShowTree] = useState(false);
@@ -55,6 +55,8 @@ export default function DiscoveryApp() {
   const [view, setView] = useState(null);
   const [error, setError] = useState(null);
   const [platformTab, setPlatformTab] = useState('all');
+  // Ticked results, kept across pages and searches, keyed by result id.
+  const [picked, setPicked] = useState({});
 
   // Each search gets a number. Events from an older search - one that was
   // cancelled or replaced - are ignored, so they can never write into the new one.
@@ -262,6 +264,20 @@ export default function DiscoveryApp() {
 
   const shown = view ? (platformTab === 'all' ? view.results : view.results.filter((r) => r.platform === platformTab)) : [];
   const busy = loading && view && !view.done;
+
+  // A pick remembers the garment and area its search was for, so Design Studio
+  // can fill both in (the two services share one taxonomy, so the ids match).
+  function togglePick(r) {
+    setPicked((prev) => {
+      if (prev[r.id]) { const { [r.id]: _, ...rest } = prev; return rest; }
+      const it = (view && view.interpreted) || {};
+      return { ...prev, [r.id]: {
+        url: r.fetchable.url, fallbackUrl: r.fetchable.fallbackUrl || null, title: r.title || '', sourceUrl: r.sourceUrl || null,
+        garment: it.category || category || null, area: it.designType || designType || null
+      } };
+    });
+  }
+  const pickedList = Object.values(picked);
 
   return (
     <div className="disc-wrap">
@@ -512,6 +528,14 @@ export default function DiscoveryApp() {
               </span>
             </h3>
 
+            {onSendToStudio && pickedList.length > 0 && (
+              <div className="disc-pickbar">
+                <span><strong>{pickedList.length}</strong> picked</span>
+                <button className="disc-run" onClick={() => onSendToStudio({ pictures: pickedList })}>Send to Design Studio →</button>
+                <button className="disc-secondary" onClick={() => setPicked({})}>Clear picks</button>
+              </div>
+            )}
+
             <div className="disc-tabs">
               {['all', ...ALL_SOURCES].map((p) => (
                 <button
@@ -534,13 +558,18 @@ export default function DiscoveryApp() {
             ) : (
               <div className="disc-results">
                 {shown.map((r) => (
-                  <figure key={r.id} className="disc-result">
+                  <figure key={r.id} className={'disc-result' + (picked[r.id] ? ' disc-picked' : '')}>
                     {/* Read `fetchable` and nothing else. The UI is a consumer of
                         the API contract, not of provider-specific behaviour, so it
                         never inspects imageUsable or picks a URL itself. */}
                     <ResultImage fetchable={r.fetchable} alt={r.title || ''} />
                     <figcaption>
                       <div className="disc-card-top">
+                        {onSendToStudio && (
+                          <label className="disc-pick">
+                            <input type="checkbox" checked={!!picked[r.id]} onChange={() => togglePick(r)} /> pick
+                          </label>
+                        )}
                         <span className={'disc-plat disc-plat-' + r.platform}>{SOURCE_LABEL[r.platform] || r.platform}</span>
                         {r.foundBy && r.foundBy !== r.platform && (
                           <span className="disc-hint" title="The platform search that found this result">via {SOURCE_LABEL[r.foundBy]} search</span>
