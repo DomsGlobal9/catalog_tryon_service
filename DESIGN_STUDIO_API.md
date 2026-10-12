@@ -475,6 +475,10 @@ show them as text in your app if a word on the drawing comes out wrong.
 Each label is drawn once. A sheet with both figures also carries one small caption under each figure,
 "FRONT" and "BACK"; there is no other text on it.
 
+A `BACK` design on a sketch is first cut down to the part it is for (one small vision call that finds the
+back bodice in the picture), because the back figure is drawn in the same call as the front and a
+whole-garment picture would otherwise spread its skirt motifs onto the back of the drawing.
+
 `modelImage` dresses a real person, so it only goes with `model`: with `mannequin` or `sketch` it is a `400`
 (`PRESENTATION_CONFLICT` on `modelImage`). With `mannequin` or `sketch`, `start` and `done` also carry
 `presentation`.
@@ -485,20 +489,17 @@ References from the live Design Discovery endpoint, the clearest of the first fo
 
 | Request | Result |
 | :--- | :--- |
-| Mannequin - saree (`PALLU`, `BORDER`) | Headless dress form on a stand, no person; the same saree front and back; the border round the hem. First run: with no arm to rest on, the pallu stuck out sideways in mid-air - hanging parts are now pinned and fall straight down. 56-61 s. |
+| Mannequin - saree (`PALLU`, `BORDER`) | Headless dress form on a stand, no person; the same saree front and back; the border round the hem; the pallu hanging straight down, front and back. Before the fix: with no arm to rest on, the pallu stuck out sideways in mid-air. 56-73 s. |
 | Mannequin - blouse (`NECK`) | A bust form, waist-up; the zardozi neckline on the front only, a plain back. 40 s. |
 | Mannequin - lehenga (`SKIRT`) | The skirt design all the way round, a tie-up choli back, the dupatta down the left side. 48 s. |
-| Sketch - saree (`PALLU`, `BORDER`) | Watercolour and ink, front and back figures, the pallu in front on the front figure and down the back on the back figure; every label spelled exactly. First run: labels were drawn beside both figures and "FRONT"/"BACK" twice - now each design label once and one caption per figure. 31-32 s, one image call. |
+| Sketch - saree (`PALLU`, `BORDER`) | Watercolour and ink, front and back figures, the pallu in front on the front figure and down the back on the back figure; every label spelled exactly and drawn once, one caption per figure. Before the fix: labels were drawn beside both figures and "FRONT"/"BACK" twice. 25-32 s, one image call. |
 | Sketch - anarkali (`FLARE`, `BACK`) | The floral flare on both figures, the dori tie-up with tassels on the back figure only. 19 s. |
-| Sketch - gown (`SKIRT_FLARE`, `BACK`) | Front correct. On the back figure, the `BACK` picture's leaves and colour spread onto the back of the skirt (see below). 25-31 s. |
+| Sketch - gown (`SKIRT_FLARE`, `BACK`) | Correct: the keyhole back and its leaves on the back bodice only, the back of the skirt as plain as the front. The `BACK` picture was a whole gown with leaves on its skirt. Before the fix (cropping the `BACK` picture to the bodice) those leaves and the picture's colour spread onto the back of the skirt. 29 s. |
 
-**Known limits of `sketch`:**
-- A `BACK` reference that pictures a **whole garment** can spread its motifs and colour onto the back of
-  the skirt in a sketch (the back figure is drawn in the same call as the front, so it cannot be checked
-  against a finished front picture the way the back photograph is). Send a **close-up of the back bodice**
-  and a **fabric** - the test above sent neither.
+**Good to know about `sketch`:**
 - Lettering is drawn by the image model. Every word was spelled right in the tests, but `annotations` is the
   reliable copy.
+- With no `fabrics`, the drawing takes its colours from the design pictures. Send a fabric to fix the colour.
 
 #### Example requests
 

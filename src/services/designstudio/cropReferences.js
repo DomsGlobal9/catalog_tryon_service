@@ -77,12 +77,15 @@ async function locatePart(garmentId, design, { signal } = {}) {
   }
 }
 
+/** With cropping switched off, `only` still crops these areas (a sketch's BACK design). */
+const cropsArea = (areaId, only) => config.crop.enabled || (Array.isArray(only) && only.includes(areaId));
+
 /** Boxes for every croppable design, found in parallel. ref -> box. */
-async function locateParts(job, { signal } = {}) {
+async function locateParts(job, { signal, only = null } = {}) {
   const boxes = new Map();
-  if (!config.crop.enabled || !config.gemini.apiKey()) return boxes;
+  if (!(config.crop.enabled || (only && only.length)) || !config.gemini.apiKey()) return boxes;
   await Promise.all(job.designs.map(async (d, i) => {
-    if (!croppable(d.areaId) || !d.image || !d.image.base64) return;
+    if (!croppable(d.areaId) || !cropsArea(d.areaId, only) || !d.image || !d.image.base64) return;
     const box = await locatePart(job.garmentId, d, { signal });
     if (box) boxes.set(i + 1, box);
   }));
@@ -137,13 +140,13 @@ function cropRect(box, width, height, { tight = false } = {}) {
  * @param {Map<number, number[]>} boxes  ref -> [ymin, xmin, ymax, xmax] from locateParts
  * @returns {Promise<{ area: string, ref: number, from: string, to: string }[]>} what was cropped
  */
-async function cropReferences(job, boxes, { tight = false } = {}) {
+async function cropReferences(job, boxes, { tight = false, only = null } = {}) {
   const done = [];
-  if (!config.crop.enabled || !boxes || !boxes.size) return done;
+  if (!(config.crop.enabled || (only && only.length)) || !boxes || !boxes.size) return done;
   let ref = 0;
   for (const d of job.designs) {
     ref += 1;
-    if (!croppable(d.areaId)) continue; // the whole picture IS the design
+    if (!croppable(d.areaId) || !cropsArea(d.areaId, only)) continue; // the whole picture IS the design
     const box = readBox(boxes.get(ref));
     // Always cut from the picture as sent, so a tighter crop is not a crop of a crop.
     const source = d.sourceImage || d.image;

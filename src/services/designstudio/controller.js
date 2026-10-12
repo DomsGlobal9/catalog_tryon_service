@@ -117,17 +117,21 @@ async function generate(req, res, next) {
     let descriptions = new Map();
     let boxes = new Map();
     // Cropping has its own switch: it used to run only when describing was on.
-    if (config.describe.enabled || config.crop.enabled) {
+    // A sketch draws the back figure in the same call as the front, so nothing checks it against a
+    // finished front. Measured (12 Oct 2026): a whole-gown BACK picture put its leaves and colour on
+    // the back of the skirt. So a sketch's BACK design is cropped to that part even with cropping off.
+    const forcedCrops = !config.crop.enabled && job.presentation === 'sketch' && job.designs.some((d) => d.areaId === 'BACK') ? ['BACK'] : null;
+    if (config.describe.enabled || config.crop.enabled || forcedCrops) {
       send({ type: 'status', stage: 'reading-references', message: 'Reading the designs and fabrics.' });
       const describeStarted = Date.now();
       // The part each design is for is found at the same time, so it costs no wait.
       [descriptions, boxes] = await Promise.all([
         config.describe.enabled ? describeReferences(referenceList(job), { signal: abort.signal }) : new Map(),
-        locateParts(job, { signal: abort.signal })
+        locateParts(job, { signal: abort.signal, only: forcedCrops })
       ]);
       job.describeMs = Date.now() - describeStarted;
       // Show the image model only the part each design reference is for.
-      const crops = await cropReferences(job, boxes);
+      const crops = await cropReferences(job, boxes, { only: forcedCrops });
       if (crops.length) console.log(`[DesignStudio] requestId=${requestId} cropped to the part: ${crops.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
       if (descriptions.size || crops.length) {
         const before = prompt.warnings;

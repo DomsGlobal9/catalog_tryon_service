@@ -709,7 +709,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       'Where the garment has sleeves, soft plain mannequin arms sit inside them so the sleeves hang naturally; with no sleeves, the form has no arms. No hands are visible.',
       `The ${g.product} is dressed on the form the way a good store dresses it: pinned and draped neatly, every drape and fold falling naturally${g.framing === 'full' ? ', and the hem hanging freely above the base of the stand' : ''}.`,
       // Measured (12 Oct 2026, paid run): with no arm to rest on, a saree pallu stuck out sideways in mid-air.
-      'Nothing floats or is held out in the air: every hanging part (a pallu, a dupatta, its ends) is pinned in place and falls straight down by its own weight, close to the form.'
+      // Measured again on the back view: the pallu fanned out to one side at its end.
+      'Nothing floats or is held out in the air: every hanging part (a pallu, a dupatta, its ends) is pinned in place and falls straight down by its own weight, close to the form, its edges hanging vertically - never fanned or spread out to the side.'
     ];
     if (view === 'back') {
       formLines.push(`The mannequin is turned round so its back faces the camera squarely: the whole back of the ${g.product} is flat to the camera and completely visible, and nothing covers any part of it.`);

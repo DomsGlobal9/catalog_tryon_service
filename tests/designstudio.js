@@ -1056,8 +1056,35 @@ async function runAll({ check, eq, section, SRC }) {
       buildPrompt(withPresentation('GOWN', ['BACK'], 'sketch'), { descriptions: new Map([[1, { motifs: 'large stylized leaves with central veins' }]]) }).annotations[0].label,
       buildPrompt(withPresentation('SAREE', ['PALLU'], 'sketch'), { descriptions: new Map([[1, { motifs: 'paisley and floral butis' }]]) }).annotations[0].label],
     ['Border: large peacock motifs', 'Back: large stylized leaves', 'Pallu: paisley and floral butis']);
-  check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air)',
-    /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text));
+  check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air), never fanned out to the side',
+    /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text)
+      && /never fanned or spread out to the side/.test(manF.text));
+
+  // A sketch's BACK design is cropped to that part even with cropping switched off (12 Oct 2026:
+  // a whole-gown BACK picture spread its leaves onto the back of a sketched skirt).
+  const cropWasOn = cfgCrop.enabled;
+  cfgCrop.enabled = false;
+  try {
+    const located = [];
+    crop._setFetch(async (url, opts) => {
+      const asked = JSON.parse(opts.body).contents[0].parts.filter((p) => p.text).map((p) => p.text).join('\n');
+      located.push((asked.match(/design for the ([a-z ]+) of/) || [])[1]);
+      return locateAnswer('part in a larger picture', [100, 200, 450, 800])();
+    });
+    const gownSheet = withPresentation('GOWN', ['BACK', 'NECK', 'SKIRT_FLARE'], 'sketch');
+    const realPicture = { mimeType: 'image/png', base64: await png(900, 1200), original: { width: 900, height: 1200 }, sent: { width: 900, height: 1200, bytes: 1 } };
+    for (const d of gownSheet.designs) d.image = { ...realPicture };
+    const boxes = await crop.locateParts(gownSheet, { only: ['BACK'] });
+    const cropped = await crop.cropReferences(gownSheet, boxes, { only: ['BACK'] });
+    eq('with cropping off, only the BACK design is located and cropped (one small call); the others go whole',
+      [located, cropped.map((c) => c.area), gownSheet.designs.map((d) => !!d.image.cropped)], [['back'], ['BACK'], [true, false, false]]);
+    located.length = 0;
+    eq('...and without "only", cropping off means no crop calls at all (model and mannequin requests)',
+      [(await crop.locateParts(withPresentation('GOWN', ['BACK'], 'model'))).size, located.length], [0, 0]);
+  } finally {
+    cfgCrop.enabled = cropWasOn;
+    crop._setFetch(locateAnswer('close-up of the part'));
+  }
   check('the saree front photograph keeps the front drape',
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
