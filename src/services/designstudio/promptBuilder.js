@@ -322,8 +322,11 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   // The figures on a sketch sheet: both sides by default, or the one side asked for.
   const sheetViews = isSketch ? (job.views || ['front', 'back']) : null;
   const sheetBoth = isSketch && sheetViews.length === 2;
-  // The caller's own photo (only allowed with presentation "model").
+  // The caller's own photo (only allowed with presentation "model"). Facing the camera,
+  // it is a try-on: drawn into their own photo. Measured 12 Oct on a real photo: moving
+  // them into a studio with a new pose redrew the face every time.
   const realPerson = job.model.kind === 'reference';
+  const inPlace = realPerson && pose !== 'back';
   const wearsIt = onMannequin ? 'the mannequin wears' : isSketch ? 'the figure wears' : 'the model wears';
   const picture = isSketch ? 'illustration' : 'photograph';
   const productLine = job.productName
@@ -345,9 +348,20 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     taskLine +
     'tailored from the exact fabrics and decorated with the exact designs shown in the reference images below. ' +
     'The references are a strict specification from the customer, not loose inspiration: the finished garment must look as if it was made from these very designs and fabrics.',
-    ...(realPerson ? ['The result is a photograph of this same real person: anyone who knows them must recognise them at once. Only their clothing, pose, background and lighting change - never their face, hair or body.'] : []),
+    ...(realPerson ? [inPlace
+      ? 'This is a virtual try-on: the garment is draped onto them in their own photo, where they stand. ONLY their clothing changes. Their face, expression, hair, skin, body, pose, hands, the room behind them, the framing and the light all stay exactly as they are in the PERSON PHOTO.'
+      : 'They are seen from behind in the same room as the front view photograph. Only the viewpoint and their clothing change - never their hair, skin or body.'] : []),
     ...(pair ? [`The ${g.product} is the only product in this ${picture}. Every design reference below belongs to the ${g.product} and to nothing else ${wearsIt}.`] : []),
     ...(productLine ? [productLine] : []),
+    // The same lock that keeps faces in the Try-On service (tryon/backend/prompts.js, Rule #1).
+    ...(realPerson ? ['', 'IDENTITY LOCK - HIGHEST PRIORITY, OVERRIDES EVERY OTHER INSTRUCTION', bullets([
+      'The customer\'s face is forensic evidence: it must not be altered in any way. Same bone structure, jawline, cheek contour, nose shape, eyebrow arch and thickness, eye shape and eyelid crease, lips.',
+      'Same expression: no added smile, no "improved" or more photogenic look.',
+      'Same skin: the exact skin tone uniformly across face, neck, arms and hands - no lightening, no darkening, no evening out - with its natural texture, pores and marks. No smoothing, airbrushing or beauty filter.',
+      'Same makeup and the same small jewellery (bindi, nose pin, earrings) - the same colour, size and place. Nothing added or removed.',
+      'Same body shape, proportions and weight: the garment is fitted to THEIR body, never the body to the garment.',
+      'Same hairstyle, volume, parting, colour and loose strands.'
+    ])] : []),
     '',
     'REFERENCE IMAGES'
   ].join('\n'));
@@ -741,11 +755,16 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   const modelLines = [];
   if (job.model.kind === 'reference') {
     modelLines.push(
-      'Dress the exact person in the PERSON PHOTO. This is a real customer, not a model: keep their face exactly as it is - the same face shape, eyes, eyebrows, nose, lips, jawline, skin tone and skin texture, any moles or marks, and their age. Do not beautify, slim, smooth or re-age the face, change the makeup, or replace it with a different face.',
-      'Keep their hair (the same colour, length, texture and parting) and their body (the same height, build and proportions).',
-      'Replace only their clothing with the new garment; their original outfit, background and lighting are not used.'
+      'Dress the exact person in the PERSON PHOTO - a real customer, not a model - following the IDENTITY LOCK above.',
+      // Measured 12 Oct on a real photo: a white bindi came back red.
+      'Their original outfit is replaced completely by the new garment; nothing of it shows.'
     );
-    if (pose !== 'back') modelLines.push('The face is fully visible, evenly lit and in sharp focus, turned to the camera as in the PERSON PHOTO.');
+    if (inPlace) {
+      modelLines.push(
+        'Keep their exact pose: the same stance, the same angle of the head and shoulders, and the same position of the arms, hands and every finger. The garment is draped around that pose; where a hand rests over the garment, it stays there.',
+        'Their face stays exactly where and how it is in the PERSON PHOTO.'
+      );
+    }
   } else {
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
@@ -754,12 +773,13 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     if (frontPhotoNumber) modelLines.push(`The same person as in [Image ${frontPhotoNumber}], with the same hair and jewellery, seen from behind.`);
   } else if (pose === 'back') {
     modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);
-  } else {
+  } else if (!inPlace) {
     modelLines.push(`Pose: standing tall, facing the camera at a slight three-quarter angle, weight on one leg. ${g.poseHint}`);
   }
   // Measured: the jasmine gajra and roses in a reference model's hair were copied.
   modelLines.push('Nothing from the people in the design or fabric reference photographs is copied: not their hairstyle, hair flowers or gajra, jewellery, bindi or makeup. No flowers or accessories in the hair.');
-  modelLines.push('Nothing (hair, hands, jewellery or other clothing) may cover any area that has a design reference.');
+  // A try-on keeps their own pose, hands included.
+  if (!inPlace) modelLines.push('Nothing (hair, hands, jewellery or other clothing) may cover any area that has a design reference.');
   addText(['THE MODEL', bullets(modelLines)].join('\n'));
   }
 
@@ -782,6 +802,15 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
         ? 'Beneath each figure, one small caption: "FRONT" under the front figure and "BACK" under the back figure, once each. No other text of any kind: no title, heading, product name, signature, logo or watermark.'
         : 'No other text of any kind: no caption, title, heading, product name, signature, logo or watermark.'
     ].join('\n')].join('\n'));
+  } else if (realPerson) {
+  // Scene lock, as in the Try-On service (Rule #3): their photo is the scene.
+  addText(['THE PHOTOGRAPH', bullets([
+    inPlace
+      ? 'The PERSON PHOTO is the scene: keep its background, room, floor, furniture and objects, its framing and camera angle, and its light exactly. Do not move the person into a studio, crop or re-frame the photograph.'
+      : `The same room, background, light and framing as the front view photograph${frontPhotoNumber ? ` [Image ${frontPhotoNumber}]` : ''}, with the person turned round in the same spot.`,
+    'The garment takes the light and shadows of that room - brightness and direction only. Its colours stay exactly those of the references: a warm or dim room never tints or dulls the fabric.',
+    'The result must look like a real, unretouched photograph: natural skin texture, no beauty filter, no airbrushing. The garment shows real drape weight, folds and fine wrinkles, and its weave, thread work and metallic detail are crisp.'
+  ])].join('\n'));
   } else {
   addText(['THE PHOTOGRAPH', bullets([
     onMannequin ? mannequinFramingLine(g) : framingLine(g),

@@ -31,6 +31,9 @@ const config = {
     // 1K | 2K | 4K. 1K by product decision, to keep cost down; 2K keeps fine
     // weave and zari crisper (DESIGNSTUDIO_IMAGE_SIZE=2K).
     imageSize: (process.env.DESIGNSTUDIO_IMAGE_SIZE || '1K').toUpperCase(),
+    // With the caller's own photo the face must be kept, and at 1K a full-length
+    // face is ~100px and gets redrawn. Measured 12 Oct: 2K kept it closer, ~37% more output tokens.
+    ownPhotoImageSize: (process.env.DESIGNSTUDIO_OWN_PHOTO_IMAGE_SIZE || '2K').toUpperCase(),
     // Fixed by product decision: portrait catalogue photographs.
     aspectRatio: '3:4',
     // Unset by default: Google's own default (1.0) is recommended for Gemini 3

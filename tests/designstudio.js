@@ -32,6 +32,8 @@ async function runAll({ check, eq, section, SRC }) {
     DESIGNSTUDIO_QA: 'on',
     DESIGNSTUDIO_QA_MAX_REGENERATIONS: '1',
     DESIGNSTUDIO_IMAGE_SIZE: '2K',
+    // Distinct from the default above, so a test can tell which one a request used.
+    DESIGNSTUDIO_OWN_PHOTO_IMAGE_SIZE: '4K',
     DESIGNSTUDIO_DOWNLOAD_TIMEOUT_MS: '400',
     DESIGNSTUDIO_MAX_BODY_MB: '3',
     DESIGNSTUDIO_MAX_IMAGE_MB: '2',
@@ -1089,10 +1091,11 @@ async function runAll({ check, eq, section, SRC }) {
     /hangs down the front of the left side, fully open and facing the camera/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).text));
   eq('a BACK design on its own needs no warning', buildPrompt(fakeJob('KURTHI', ['BACK'])).warnings, []);
   const ref = buildPrompt(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }));
-  check('a model photo: framed as an edit of that photo, the face, hair and body spelled out as unchangeable, their outfit not used',
-    /^TASK\nEdit the PERSON PHOTO: dress this exact real person in a brand-new saree/.test(ref.text) && /anyone who knows them must recognise them at once/.test(ref.text)
-      && /keep their face exactly as it is - the same face shape, eyes, eyebrows, nose, lips, jawline/.test(ref.text) && /Do not beautify, slim, smooth or re-age the face/.test(ref.text)
-      && /their original outfit, background and lighting are not used/.test(ref.text) && /The face is fully visible, evenly lit and in sharp focus/.test(ref.text));
+  check('a model photo is a try-on: drawn into their own photo - their room, pose, hands, framing and light kept - under the Try-On identity lock',
+    /^TASK\nEdit the PERSON PHOTO: dress this exact real person in a brand-new saree/.test(ref.text) && /This is a virtual try-on: the garment is draped onto them in their own photo/.test(ref.text)
+      && /IDENTITY LOCK - HIGHEST PRIORITY/.test(ref.text) && /face is forensic evidence/.test(ref.text) && /no lightening, no darkening, no evening out/.test(ref.text) && /\(bindi, nose pin, earrings\)/.test(ref.text)
+      && /Keep their exact pose/.test(ref.text) && /The PERSON PHOTO is the scene/.test(ref.text) && !/seamless, plain studio backdrop/.test(ref.text) && !/Pose: standing tall/.test(ref.text)
+      && !/Nothing \(hair, hands, jewellery or other clothing\) may cover/.test(ref.text));
   const firstImage = ref.parts.findIndex((p) => p.inlineData);
   eq('a model photo is the FIRST image the image model sees, unnumbered; the design is still [Image 1]',
     [/^PERSON PHOTO: the real person to dress/.test(ref.parts[firstImage - 1].text), /\[Image 1\] DESIGN for PALLU/.test(ref.text), /\[Image 2\]/.test(ref.text)], [true, true, false]);
@@ -1101,8 +1104,10 @@ async function runAll({ check, eq, section, SRC }) {
   const refBack = buildPrompt(viewOf(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }), new Map(), 'back').job, { view: 'back', frontPhoto: prepared });
   eq('a model photo: the face is checked against it on the front view only (from behind it is barely seen); a generated model has no face check',
     [qa.viewChecklist(refFront.review, []).map((c) => c.id), qa.viewChecklist(refBack.review, [], { withFront: true }).some((c) => c.id === 'same_face'),
-      qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).length,
-      /face is fully visible/.test(refBack.text)], [['same_face'], false, 0, false]);
+      qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).length], [['same_face'], false, 0]);
+  check('a model photo, back view: the same room and light as the front photo, turned round there - not their original pose, not a studio',
+    /The same room, background, light and framing as the front view photograph \[Image 2\], with the person turned round in the same spot/.test(refBack.text)
+      && /Pose: standing full length with the back squarely to the camera/.test(refBack.text) && !/Keep their exact pose/.test(refBack.text) && !/seamless, plain studio backdrop/.test(refBack.text));
   check('sherwani: a woman (a womens sherwani-style jacket), her mid-twenties', /a woman in her mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text) && /Tailor it sharply to a woman's figure/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
   check('no fabric given: the model is told to choose one, not left to guess', /No fabric reference was given/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
   const low = fakeJob('SAREE', ['PALLU']);
@@ -1391,6 +1396,8 @@ async function runAll({ check, eq, section, SRC }) {
       [faceAsks.filter((a) => a.ids.includes('same_face')).map((a) => [a.ids.includes('same_face'), a.person]), faceCalls.length, /Keep the exact face of the person in the PERSON PHOTO/.test(textOf(faceCalls[1])),
         events[events.length - 1].quality.references.passed],
       [[[true, true], [true, true]], 2, true, true]);
+    eq('own photo is made at its own larger size (DESIGNSTUDIO_OWN_PHOTO_IMAGE_SIZE, 2K in production); every other request keeps the normal size',
+      [faceCalls.map((c) => c.body.generationConfig.imageConfig.imageSize), twoCalls.map((c) => c.body.generationConfig.imageConfig.imageSize)], [["4K", "4K"], ["2K", "2K"]]);
     qa._setFetch(qaAnswer());
 
     // Since 10 Oct 2026 a gown is front and back too: the BACK design belongs to the back photograph.

@@ -205,7 +205,7 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
   // Measured: with the caller's own photo the image model drew a different face.
   // From behind the face is barely seen, so only a front-facing pose is judged.
   if (review.personPhoto && review.pose !== 'back' && review.view !== 'back') {
-    checks.push(['same_face', 'Ignoring the clothes, pose, background and lighting: is the person in the PHOTOGRAPH clearly the same real person as in the PERSON photo - the same face (face shape, eyes, nose, lips), skin tone and hair - and not a different or prettified face?',
+    checks.push(['same_face', 'Ignoring the clothes, pose, background and lighting: is the person in the PHOTOGRAPH clearly the same real person as in the PERSON photo - the same face (face shape, eyes, nose, lips), the same skin tone (not lightened) and hair - and not a different or prettified face?',
       'Keep the exact face of the person in the PERSON PHOTO: the same face shape, eyes, eyebrows, nose, lips, skin tone and hair. Do not replace, beautify or re-age the face.']);
   }
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back

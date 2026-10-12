@@ -246,14 +246,19 @@ created for you.
 }
 ```
 
-What happens with that photo:
+What happens with that photo (since 12 October 2026 it works like a virtual try-on):
 
-- **The same person is dressed.** Their face, skin tone, hair, body shape and proportions are kept.
-- **Only the clothes change.** Their own outfit, pose, background and lighting are not used: the result
-  is the usual catalogue photograph, with a plain studio backdrop, 3:4, full length (waist-up for a
-  `BLOUSE`), posed to show every part you sent a design for.
-- **It is only the person, never a design.** Nothing from the model photo (their clothes, jewellery or
-  background) is copied onto the garment.
+- **The garment is draped into their own photo.** Only the clothes change. Their face, expression, skin
+  tone, hair, body, pose, hands, jewellery and bindi are kept exactly, and so are the room behind them,
+  the framing and the light. There is no studio backdrop and no new pose. (Before, the person was moved
+  into a studio and re-posed, and the image model redrew the face.)
+- **The back view** shows the same person turned round in the same room.
+- **The face is checked.** The front photograph is compared with your photo; if the face has changed it
+  is made once more, and a remaining difference is reported as `same_face` in `done.quality`.
+- **Made at 2K** (about 37% more image tokens than the usual 1K), so the face stays sharp. Requests
+  without a model photo are unchanged.
+- **It is only the person, never a design.** Nothing from the model photo (their clothes) is copied onto
+  the garment.
 - `modelGender` is not needed with a model photo; without one, it chooses the generated model.
 - Send **the same `modelImage` across a collection** to show every product on the same person.
 
@@ -261,9 +266,10 @@ A good model photo:
 
 | | |
 | :--- | :--- |
-| **Person** | One person, facing the camera, standing, the whole body in the frame |
+| **Person** | One person, facing the camera, standing, the whole body in the frame, arms clear of the body (the pose is kept, so folded hands stay in front of the garment) |
 | **Clothes** | Plain, fitted clothes (a plain T-shirt and trousers, or a plain dress) |
 | **Light** | Even daylight or studio light, the face clearly visible, no sunglasses or face covering |
+| **Background** | Kept as it is, so a plain wall gives the cleanest catalogue photograph |
 | **Size** | At least 1000 px tall; up to 12 MB like any image |
 | **Consent** | You must have the person's permission to use their photograph |
 

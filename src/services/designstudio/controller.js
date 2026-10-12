@@ -149,6 +149,7 @@ async function generate(req, res, next) {
     const generationStarted = Date.now();
     const generate = (parts, label) => generateImage(parts, {
       signal: abort.signal,
+      imageSize: job.model.kind === 'reference' ? config.gemini.ownPhotoImageSize : config.gemini.imageSize,
       onAttempt: ({ attempt, reason }) => send({
         type: 'status',
         stage: label,
