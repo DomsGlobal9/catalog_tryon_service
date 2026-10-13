@@ -86,7 +86,13 @@ async function runAll({ check, eq, section, SRC }) {
   eq('two designs for the same area, even spelled differently (pallu + aanchal)',
     code(() => resolveRequest(body({ designs: [{ area: 'pallu', image: IMG }, { area: 'aanchal', image: IMG }] }))), 'DUPLICATE_DESIGN_AREA');
   eq('no designs', code(() => resolveRequest(body({ designs: [] }))), 'INVALID_FIELD');
-  eq('seven designs (limit 6)', code(() => resolveRequest(body({ designs: Array.from({ length: 7 }, () => ({ area: 'PALLU', image: IMG })) }))), 'INVALID_FIELD');
+  eq('nine designs (limit 8)', code(() => resolveRequest(body({ designs: Array.from({ length: 9 }, () => ({ area: 'PALLU', image: IMG })) }))), 'INVALID_FIELD');
+  // A real design-library saree (13 Oct) sent 7 parts and was refused at the old limit of 6.
+  const libSaree = resolveRequest({ clientId: 'lib', garment_key: 'saree', parts: Object.fromEntries(
+    [['pallu_design', 1], ['border_design', 2], ['body_design', 3], ['pleat_design', 4], ['print_design', 5], ['embroidery_design', 6], ['zari_work_design', 7]]
+      .map(([part, sequence]) => [part, { part, sequence, image_url: IMG, caption: '', part_label: part }])) });
+  eq('a 7-part design-library saree is accepted, every part on its own area in sequence order',
+    libSaree.designs.map((d) => d.areaId), ['PALLU', 'BORDER', 'BODY', 'PLEAT', 'PRINT', 'EMBROIDERY', 'ZARI_WORK']);
   eq('four fabrics (limit 3)', code(() => resolveRequest(body({ fabrics: Array.from({ length: 4 }, () => ({ image: IMG })) }))), 'INVALID_FIELD');
   eq('two fabrics both claiming to be the main fabric', code(() => resolveRequest(body({ fabrics: [{ image: IMG }, { image: IMG }] }))), 'MULTIPLE_MAIN_FABRICS');
   eq('two fabrics for the same area', code(() => resolveRequest(body({ fabrics: [{ image: IMG, appliesTo: ['BORDER'] }, { image: IMG, appliesTo: ['border', 'PALLU'] }] }))), 'FABRIC_AREA_CONFLICT');
@@ -1058,6 +1064,10 @@ async function runAll({ check, eq, section, SRC }) {
       buildPrompt(withPresentation('GOWN', ['BACK'], 'sketch'), { descriptions: new Map([[1, { motifs: 'large stylized leaves with central veins' }]]) }).annotations[0].label,
       buildPrompt(withPresentation('SAREE', ['PALLU'], 'sketch'), { descriptions: new Map([[1, { motifs: 'paisley and floral butis' }]]) }).annotations[0].label],
     ['Border: large peacock motifs', 'Back: large stylized leaves', 'Pallu: paisley and floral butis']);
+  eq('a lone leading adjective is skipped and "made from" ends the phrase (both measured on a real 7-part saree, 13 Oct)',
+    [buildPrompt(withPresentation('SAREE', ['PRINT'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small, intricate floral motifs and leaves forming a dense jaal' }]]) }).annotations[0].label,
+      buildPrompt(withPresentation('SAREE', ['BODY'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small flower shapes made from silver sequins with a central cream pearl' }]]) }).annotations[0].label],
+    ['Print: intricate floral motifs', 'Body: small flower shapes']);
   check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air), never fanned out to the side',
     /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text)
       && /never fanned or spread out to the side/.test(manF.text));
@@ -1252,7 +1262,7 @@ async function runAll({ check, eq, section, SRC }) {
   try {
     const opt = await (await fetch(base + '/options')).json();
     eq('GET /options lists 12 garments with their areas, limits and 3:4', [opt.garments.length, opt.garments.find((g) => g.id === 'SAREE').designAreas.length, opt.limits.maxDesigns, opt.model.aspectRatio, opt.garments.find((g) => g.id === 'SHERWANI').defaultModelGender],
-      [12, 8, 6, '3:4', 'female']);
+      [12, 8, 8, '3:4', 'female']);
     eq('GET /options says every garment gives a front and a back view',
       opt.garments.filter((g) => g.views.join('+') !== 'front+back').map((g) => g.id), []);
     eq('GET /options says what each product is worn with, and the default colour',

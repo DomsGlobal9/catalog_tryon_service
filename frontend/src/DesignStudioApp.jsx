@@ -240,7 +240,7 @@ export default function DesignStudioApp({ handoff }) {
   const current = useMemo(() => garments.find((g) => g.id === garment) || null, [garments, garment]);
   const areas = useMemo(() => (current ? current.designAreas : []), [current]);
   const limits = useMemo(
-    () => (options && options.limits) || { maxDesigns: 6, maxFabrics: 3, maxImageMb: 12, maxRequestMb: 50 },
+    () => (options && options.limits) || { maxDesigns: 8, maxFabrics: 3, maxImageMb: 12, maxRequestMb: 50 },
     [options]
   );
 

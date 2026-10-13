@@ -929,8 +929,11 @@ function shortDescription(info, note) {
   if (/^\s*(?:-|none|no\b|plain|n\/?a)/i.test(source)) return '';
   // The first phrase only, at most five words, never ending on a joining word. Measured (12 Oct 2026):
   // "Large peacock motifs facing ..." and "large stylized leaves with central ..." were cut mid-phrase.
-  const phrase = source.split(/[,;.:(]/)[0]
-    .split(/\s+(?:with|in|on|of|facing|arranged|set|along|across|forming|over|around|between|within|featuring|alternating)\s+/i)[0];
+  // Measured (13 Oct 2026): "Small, intricate floral motifs..." gave "small", and "shapes made from
+  // sequins" gave "shapes made". A lone leading adjective is skipped; "made/formed from" ends the phrase.
+  const pieces = source.split(/[,;.:(]/).map((s) => s.trim()).filter(Boolean);
+  const phrase = (pieces.find((s) => s.split(/\s+/).length > 1) || pieces[0] || '')
+    .split(/\s+(?:with|in|on|of|facing|arranged|set|along|across|forming|over|around|between|within|featuring|alternating|made|formed|created)\s+/i)[0];
   const words = phrase.trim().split(/\s+/).slice(0, 5);
   while (words.length > 1 && /^(a|an|the|in|on|of|with|and|or|at|for|to|by|from|its|their)$/i.test(words[words.length - 1])) words.pop();
   const text = words.join(' ');

@@ -40,7 +40,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | :--- | :--- | :--- | :--- |
 | `clientId` | string, 1–128 | **Yes** | Your identifier for the user or session. Starting a new generation with the same `clientId` stops the previous one. |
 | `garment` | string | **Yes** | One of the 12 garment ids: `SAREE`, `BLOUSE`, `DUPATTA`, `KURTHI`, `ANARKALI`, `PETTICOAT`, `GOWN`, `SUIT`, `SHERWANI`, `BOTTOM_WEAR`, `LEHANGA`, `SHARARA`. Common spellings are accepted (`lehenga`, `kurti`). |
-| `designs` | array, 1–6 | **Yes** | One entry per design area. |
+| `designs` | array, 1–8 | **Yes** | One entry per design area. |
 | `designs[].area` | string | **Yes** | A design area **of that garment**, e.g. `PALLU`, `BORDER`, `BODY` for a saree. See `GET /options`. One design per area. |
 | `designs[].image` | string | **Yes** | The design picture. See *Images*. |
 | `designs[].note` | string, ≤300 | No | A short instruction for this design only. |

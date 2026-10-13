@@ -133,7 +133,9 @@ const config = {
   },
 
   limits: {
-    maxDesigns: int('DESIGNSTUDIO_MAX_DESIGNS', 6, { min: 1, max: 10 }),
+    // 8 covers every saree area (a real design-library saree sent 7 on 13 Oct and got a 400 at 6),
+    // and 8 designs + 3 fabrics + the person + the front photo stays within the image model's 14 pictures.
+    maxDesigns: int('DESIGNSTUDIO_MAX_DESIGNS', 8, { min: 1, max: 10 }),
     maxFabrics: int('DESIGNSTUDIO_MAX_FABRICS', 3, { min: 0, max: 5 }),
     maxBodyMb: int('DESIGNSTUDIO_MAX_BODY_MB', 50, { min: 1, max: 200 }), // the gateway refuses bodies over 50 MB
     maxImageBytes: int('DESIGNSTUDIO_MAX_IMAGE_MB', 12, { min: 1, max: 50 }) * 1024 * 1024,
