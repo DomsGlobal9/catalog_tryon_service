@@ -208,6 +208,11 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
     checks.push(['same_face', 'Ignoring the clothes, pose, background and lighting: is the person in the PHOTOGRAPH clearly the same real person as in the PERSON photo - the same face (face shape, eyes, nose, lips), the same skin tone (not lightened) and hair - and not a different or prettified face?',
       'Keep the exact face of the person in the PERSON PHOTO: the same face shape, eyes, eyebrows, nose, lips, skin tone and hair. Do not replace, beautify or re-age the face.']);
   }
+  // Measured 13 Oct: looking back over the shoulder, a real customer got a newly drawn face.
+  if (review.personPhoto && review.view === 'back') {
+    checks.push(['face_hidden', 'Is the person\'s face hidden - only the back of the head and hair seen, with no face, profile or cheek visible?',
+      'The head faces straight ahead, away from the camera: only the back of the head and hair are seen - no face, no profile.']);
+  }
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back
   // became a deep U. The photograph is compared with the reference picture itself.
   for (const r of references) {
@@ -252,6 +257,89 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
 }
 const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
 
+/** One call to the inspector model with a JSON answer. Returns { parsed } or { problem }. Throws only on cancel. */
+async function askInspector(parts, schema, signal) {
+  const timeout = AbortSignal.timeout(config.pair.timeoutMs);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.pair.model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey() },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+        maxOutputTokens: 2048,
+        ...(/2\.5/.test(config.pair.model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+      }
+    }),
+    signal: combined
+  });
+  if (!response.ok) return { problem: `HTTP ${response.status} ${redact(await response.text().catch(() => '')).slice(0, 120)}` };
+  const json = await response.json();
+  const candidate = (json.candidates || [])[0];
+  const answer = ((candidate && candidate.content && candidate.content.parts) || [])
+    .filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
+  try { return { parsed: JSON.parse(answer.replace(/```(?:json)?/gi, '').trim()) }; } catch { return { parsed: null }; }
+}
+
+const LABELS_SCHEMA = { type: 'OBJECT', properties: { texts: { type: 'ARRAY', items: { type: 'STRING' } } }, required: ['texts'] };
+const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** Edit distance as a share of the longer text: 0 = identical. Tolerates the reader's own small slips. */
+function distance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length] / Math.max(a.length, b.length, 1);
+}
+
+/**
+ * Compare the words written on a sketch sheet with the labels it was given.
+ * Measured 13 Oct 2026: labels written twice, two labels merged into one, a word dropped -
+ * even with the exact words and count in the prompt. Pure comparison, so it is testable.
+ * @returns {{ id: string, evidence: string, correction: string }[]}
+ */
+function labelFailures(expected, found) {
+  const texts = found.map(norm).filter((t) => t && !/^(front|back)$/.test(t));
+  // Each text counts for its CLOSEST label only. Measured 13 Oct: "Pleat: small floral..." and
+  // "Print: small floral..." are 3 letters apart, and each was counted for both.
+  const counts = new Map(expected.map((label) => [label, 0]));
+  const extras = [];
+  for (const t of texts) {
+    const [best, d] = expected.map((label) => [label, distance(norm(label), t)]).sort((x, y) => x[1] - y[1])[0] || [null, 1];
+    if (d <= 0.1) counts.set(best, counts.get(best) + 1);
+    else extras.push({ id: 'label_extra', evidence: `unexpected text "${t}"`, correction: `Remove the text "${t}": write only the listed labels, each exactly as given.` });
+  }
+  const failures = [];
+  for (const [label, n] of counts) {
+    if (n === 0) failures.push({ id: 'label_missing', evidence: `"${label}" is not on the sheet as written`, correction: `Write the label "${label}" exactly as given, once.` });
+    if (n > 1) failures.push({ id: 'label_repeated', evidence: `"${label}" is written ${n} times`, correction: `Write the label "${label}" ONCE only - never repeat it.` });
+  }
+  return [...failures, ...extras];
+}
+
+/** Read every label on a sketch sheet and compare it with the expected labels. Never required. */
+async function reviewLabels(expected, image, { signal } = {}) {
+  const started = Date.now();
+  const unchecked = (problem) => ({ checked: false, failures: [], problem, ms: Date.now() - started });
+  if (!config.pair.enabled || !config.gemini.apiKey() || !expected.length) return unchecked('disabled');
+  const parts = [
+    { text: 'Read every piece of text written on this fashion illustration sheet, exactly as written (keep spelling mistakes). Give one entry per label: a label written over several lines is ONE entry, its lines joined with a space. A label written twice is two entries. Include captions such as FRONT and BACK.' },
+    { inlineData: { mimeType: image.mimeType, data: image.base64 } }
+  ];
+  try {
+    const asked = await askInspector(parts, LABELS_SCHEMA, signal);
+    if (asked.problem) return unchecked(asked.problem);
+    if (!asked.parsed || !Array.isArray(asked.parsed.texts)) return unchecked('answer was not usable JSON');
+    return { checked: true, failures: labelFailures(expected, asked.parsed.texts), ms: Date.now() - started };
+  } catch (err) {
+    if (signal && signal.aborted) throw err;
+    return unchecked(redact(err && err.message));
+  }
+}
+
 /**
  * Compare a back photograph with the front photograph it was made from.
  * Same shape of answer as reviewImage. Never required.
@@ -273,30 +361,10 @@ async function reviewView(review, { image, frontImage = null, references = [], s
   for (const r of references) parts.push({ text: `REFERENCE ${r.ref} (${r.part}):` }, { inlineData: { mimeType: r.image.mimeType, data: r.image.base64 } });
   if (isBack) parts.push({ text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } });
   if (checklist.some((c) => c.id === 'same_face')) parts.push({ text: 'PERSON photo:' }, { inlineData: { mimeType: review.personPhoto.mimeType, data: review.personPhoto.base64 } });
-  const timeout = AbortSignal.timeout(config.pair.timeoutMs);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
-    const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.pair.model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey() },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA,
-          maxOutputTokens: 2048,
-          ...(/2\.5/.test(config.pair.model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
-        }
-      }),
-      signal: combined
-    });
-    if (!response.ok) return unchecked(`HTTP ${response.status} ${redact(await response.text().catch(() => '')).slice(0, 120)}`);
-    const json = await response.json();
-    const candidate = (json.candidates || [])[0];
-    const answer = ((candidate && candidate.content && candidate.content.parts) || [])
-      .filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
-    let parsed = null;
-    try { parsed = JSON.parse(answer.replace(/```(?:json)?/gi, '').trim()); } catch { parsed = null; }
+    const asked = await askInspector(parts, RESPONSE_SCHEMA, signal);
+    if (asked.problem) return unchecked(asked.problem);
+    const parsed = asked.parsed;
     if (!parsed || !Array.isArray(parsed.checks)) return unchecked('answer was not usable JSON');
     const byId = new Map(parsed.checks.filter((c) => c && typeof c.id === 'string').map((c) => [c.id.trim(), c]));
     if (checklist.every((c) => !byId.has(c.id))) return unchecked('answer matched no check');
@@ -323,4 +391,4 @@ function correctionsText(failures) {
 /** Kept for callers of the older name: the back view against the front photograph only. */
 const reviewPair = (review, frontImage, backImage, opts = {}) => reviewView({ ...review, view: 'back' }, { image: backImage, frontImage, ...opts });
 
-module.exports = { reviewImage, reviewView, viewChecklist, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { reviewImage, reviewView, reviewLabels, labelFailures, viewChecklist, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

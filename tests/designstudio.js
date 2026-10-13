@@ -1123,7 +1123,7 @@ async function runAll({ check, eq, section, SRC }) {
   check('a model photo is a try-on: drawn into their own photo - their room, pose, hands, framing and light kept - under the Try-On identity lock',
     /^TASK\nEdit the PERSON PHOTO: dress this exact real person in a brand-new saree/.test(ref.text) && /This is a virtual try-on: the garment is draped onto them in their own photo/.test(ref.text)
       && /IDENTITY LOCK - HIGHEST PRIORITY/.test(ref.text) && /face is forensic evidence/.test(ref.text) && /no lightening, no darkening, no evening out/.test(ref.text) && /\(bindi, nose pin, earrings\)/.test(ref.text)
-      && /Keep their exact pose/.test(ref.text) && /The PERSON PHOTO is the scene/.test(ref.text) && !/seamless, plain studio backdrop/.test(ref.text) && !/Pose: standing tall/.test(ref.text)
+      && /Keep their exact pose/.test(ref.text) && /The PERSON PHOTO is the scene/.test(ref.text) && /Add nothing to the scene: no new shadows, light patterns/.test(ref.text) && !/seamless, plain studio backdrop/.test(ref.text) && !/Pose: standing tall/.test(ref.text)
       && !/Nothing \(hair, hands, jewellery or other clothing\) may cover/.test(ref.text));
   const firstImage = ref.parts.findIndex((p) => p.inlineData);
   eq('a model photo is the FIRST image the image model sees, unnumbered; the design is still [Image 1]',
@@ -1138,6 +1138,19 @@ async function runAll({ check, eq, section, SRC }) {
     /The same room, background, light and framing as the front view photograph \[Image 2\], with the person turned round in the same spot/.test(refBack.text)
       && /Pose: standing full length with the back squarely to the camera/.test(refBack.text) && !/Keep their exact pose/.test(refBack.text) && !/seamless, plain studio backdrop/.test(refBack.text)
       && /their own hair, in its own style, is brought forward over one shoulder - never put up in a bun/.test(refBack.text) && !/hair is pinned up/.test(refBack.text));
+  check('a model photo, back view: the face is not shown at all (looking over the shoulder drew a new face, 13 Oct), and that is checked',
+    /the head facing straight ahead, away from the camera: only the back of the head and hair are seen - no face, no profile/.test(refBack.text) && !/look back over one shoulder/.test(refBack.text)
+      && qa.viewChecklist(refBack.review, [], { withFront: true }).some((c) => c.id === 'face_hidden')
+      && /head turned to look back over one shoulder so the face is recognisable/.test(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'back').job, { view: 'back', frontPhoto: prepared }).text)
+      && !qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'back').job, { view: 'back', frontPhoto: prepared }).review, [], { withFront: true }).some((c) => c.id === 'face_hidden'));
+  // The sketch label check compares what the reader saw with the given labels (13 Oct, real slips).
+  const given = ['Pallu: large geometric shapes', 'Embroidery: round pearls', 'Pleat: all-over floral and leaf patterns', 'Worn with: plain blouse'];
+  eq('sketch labels: a repeated label, two labels merged into one, and a dropped word are each caught; FRONT/BACK and a reader\'s one-letter slip are not',
+    [qa.labelFailures(given, ['Pallu: large geometric shapes', 'PALLU: large geometric shapes', 'Zari / Embroidery: round pearls', 'Pleat: all-over floral and patterns', 'Worn with: plain blouse', 'FRONT', 'BACK']).map((f) => f.id),
+      qa.labelFailures(given, ['Pallu: large geometric shapes', 'Embroidery: round pearl', 'Pleat: all-over floral and leaf patterns', 'Worn with: plain blouse', 'FRONT', 'BACK'])],
+    [['label_repeated', 'label_missing', 'label_missing', 'label_extra', 'label_extra'], []]);
+  eq('sketch labels: two labels 3 letters apart ("Pleat:..." / "Print:...") are each counted once, not twice (a false redo, 13 Oct)',
+    qa.labelFailures(['Pleat: small floral and leaf motifs', 'Print: small floral and leaf motifs'], ['Pleat: small floral and leaf motifs', 'Print: small floral and leaf motifs', 'FRONT']), []);
   check('sherwani: a woman (a womens sherwani-style jacket), her mid-twenties', /a woman in her mid-twenties/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text) && /Tailor it sharply to a woman's figure/.test(buildPrompt(fakeJob('SHERWANI', ['BUTTON'])).text));
   check('no fabric given: the model is told to choose one, not left to guess', /No fabric reference was given/.test(buildPrompt(fakeJob('GOWN', ['NECK'])).text));
   const low = fakeJob('SAREE', ['PALLU']);
@@ -1453,6 +1466,20 @@ async function runAll({ check, eq, section, SRC }) {
       [sketchCalls.length, events.filter((e) => e.type === 'image').length, sheet.view, sheet.views, sheet.annotations.map((a) => a.part), events[events.length - 1].views, events[events.length - 1].presentation],
       [1, 1, 'sheet', ['front', 'back'], ['PALLU', 'BORDER', 'WORN_WITH'], ['front', 'back'], 'sketch']);
     check('...the image model got the illustration prompt with the label list', /THE ILLUSTRATION/.test(textOf(sketchCalls[0])) && /LABELS - write exactly these/.test(textOf(sketchCalls[0])));
+    // The reader sees "Pallu" written twice on the first sheet, then the right labels.
+    let labelReads = 0;
+    qa._setFetch(async () => {
+      const labels = sheet.annotations.map((a) => a.label);
+      const texts = labelReads++ === 0 ? [...labels, labels[0], 'FRONT', 'BACK'] : [...labels, 'FRONT', 'BACK'];
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ texts }) }] } }] }), { status: 200 });
+    });
+    const relabelCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'sketch-relabel', garment: 'SAREE', presentation: 'sketch', designs: [{ area: 'PALLU', image: IMG }, { area: 'BORDER', image: IMG }] })));
+    const relabelDone = events[events.length - 1];
+    eq('sketch: a label written twice is caught, the sheet is made once more with that named, and the second sheet passes',
+      [relabelCalls.length, /Write the label "Pallu[^"]*" ONCE only/.test(textOf(relabelCalls[1])), relabelDone.quality.regenerated, relabelDone.quality.labels.passed],
+      [2, true, true, true]);
+    qa._setFetch(qaAnswer());
     streamCfg.detail = 'image';
     script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/generate', { clientId: 'sketch-2', garment: 'GOWN', presentation: 'sketch', views: ['back'], designs: [{ area: 'BACK', image: IMG }] })));

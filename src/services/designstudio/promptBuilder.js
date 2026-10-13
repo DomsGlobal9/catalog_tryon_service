@@ -790,8 +790,10 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     modelLines.push(`One professional Indian fashion model: a ${wearerWord} in ${possessive} mid-twenties with natural, healthy skin and a calm, confident expression. Hair is neatly styled away from the neckline, shoulders and back. Jewellery is minimal and elegant and never covers any design. No bag, shawl, jacket, sunglasses or props.`);
   }
   // Measured 12 Oct: "hair pinned up" put a real customer's open hair into a bun.
+  // Measured 13 Oct: a real customer looking back over her shoulder got a newly drawn face.
+  // From behind, a real person's face is not shown at all, so it cannot change.
   if (view === 'back') {
-    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, head turned to look back over one shoulder so the face is recognisable. The whole back of the ${g.product} is flat to the camera and completely visible: ${realPerson ? 'their own hair, in its own style, is brought forward over one shoulder - never put up in a bun or restyled' : 'hair is pinned up or brought forward over one shoulder'}; the arms hang relaxed at the sides with the hands visible beside the hips - never clasped behind the back, never on the hips - and nothing (hair, hands, jewellery${job.garmentId === 'DUPATTA' ? '' : ', a dupatta'}) covers any part of the back.`);
+    modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''} with the back squarely to the camera, ${realPerson ? 'the head facing straight ahead, away from the camera: only the back of the head and hair are seen - no face, no profile, no cheek' : 'head turned to look back over one shoulder so the face is recognisable'}. The whole back of the ${g.product} is flat to the camera and completely visible: ${realPerson ? 'their own hair, in its own style, is brought forward over one shoulder - never put up in a bun or restyled' : 'hair is pinned up or brought forward over one shoulder'}; the arms hang relaxed at the sides with the hands visible beside the hips - never clasped behind the back, never on the hips - and nothing (hair, hands, jewellery${job.garmentId === 'DUPATTA' ? '' : ', a dupatta'}) covers any part of the back.`);
     if (frontPhotoNumber) modelLines.push(`The same person as in [Image ${frontPhotoNumber}], with the same hair and jewellery, seen from behind.`);
   } else if (pose === 'back') {
     modelLines.push(`Pose: standing${g.framing === 'full' ? ' full length' : ''}, turned three-quarters away from the camera and looking back over the shoulder, so the complete back design is clearly visible while the front silhouette is still readable.`);
@@ -831,6 +833,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     inPlace
       ? 'The PERSON PHOTO is the scene: keep its background, room, floor, furniture and objects, its framing and camera angle, and its light exactly. Do not move the person into a studio, crop or re-frame the photograph.'
       : `The same room, background, light and framing as the front view photograph${frontPhotoNumber ? ` [Image ${frontPhotoNumber}]` : ''}, with the person turned round in the same spot.`,
+    // Measured 13 Oct: leaf shadows appeared on a customer's plain wall.
+    'Add nothing to the scene: no new shadows, light patterns, plants, props or objects that the PERSON PHOTO does not have. A plain wall stays plain.',
     'The garment takes the light and shadows of that room - brightness and direction only. Its colours stay exactly those of the references: a warm or dim room never tints or dulls the fabric.',
     'The result must look like a real, unretouched photograph: natural skin texture, no beauty filter, no airbrushing. The garment shows real drape weight, folds and fine wrinkles, and its weave, thread work and metallic detail are crisp.'
   ])].join('\n'));

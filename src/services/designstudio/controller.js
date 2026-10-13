@@ -25,7 +25,7 @@ const { buildPrompt, referenceList, pairing, viewOf, DEFAULT_PAIRING_COLOUR } = 
 const { describeReferences } = require('./describeReferences');
 const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
-const { reviewImage, reviewView, correctionsText } = require('./qualityCheck');
+const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -252,6 +252,31 @@ async function generate(req, res, next) {
       return back;
     };
 
+    // A sketch's labels are read back and compared with the words it was given; a
+    // repeated, merged or missing label is named and the sheet is made once more.
+    const checkLabels = async (viewPrompt, sheet, quality) => {
+      const expected = (viewPrompt.annotations || []).map((a) => a.label);
+      if (!config.pair.enabled || !expected.length) return sheet;
+      send({ type: 'status', stage: 'checking', message: 'Checking the labels on the sheet.' });
+      let verdict = await reviewLabels(expected, sheet.image, { signal: abort.signal });
+      if (verdict.checked && verdict.failures.length && config.pair.maxRegenerations > 0
+        && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
+        console.log(`[DesignStudio] requestId=${requestId} sketch labels wrong: ${verdict.failures.map((f) => f.evidence).join('; ')} - regenerating`);
+        try {
+          const retry = await generate([...viewPrompt.parts, { text: correctionsText(verdict.failures) }], 'regenerating');
+          attempts += retry.attempts;
+          quality.regenerated = true;
+          send({ type: 'status', stage: 'checking', message: 'Checking the corrected labels.' });
+          const second = await reviewLabels(expected, retry.image, { signal: abort.signal });
+          if (!second.checked || second.failures.length <= verdict.failures.length) { sheet = retry; usage = retry.usage; verdict = second; }
+        } catch (err) {
+          if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
+        }
+      }
+      quality.labels = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+      return sheet;
+    };
+
     // Which photographs to make. A two-sided garment gives front then back;
     // everything else gives one photograph (turned around only for a BACK design).
     // A sketch is ONE sheet with the front and back figures on it: one image, one call.
@@ -270,6 +295,7 @@ async function generate(req, res, next) {
       let quality;
       ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
       if (view) result = await matchReferences(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
+      if (isSketch) result = await checkLabels(viewPrompt, result, quality);
       if (view === 'front') frontResult = result;
       results.push({ view: isSketch ? 'sheet' : view || viewPrompt.pose, result, quality });
       send({
