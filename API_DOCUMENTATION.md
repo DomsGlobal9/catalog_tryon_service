@@ -553,7 +553,7 @@ how many results were returned, were duplicates, came from other sites, or were 
 
 Body size limits differ by capability: discovery parses at **32 KB** (it only ever receives
 keywords), the catalog endpoints parse at **50 MB** (they receive base64 images), and Design Studio at
-**50 MB** (up to ten reference images; the gateway also caps requests at 50 MB). Discovery and Design Studio are mounted before the catalog
+**50 MB** (up to twelve reference images: 8 designs, 3 fabrics and a model photo; the gateway also caps requests at 50 MB). Discovery and Design Studio are mounted before the catalog
 parser so their own limits apply.
 
 

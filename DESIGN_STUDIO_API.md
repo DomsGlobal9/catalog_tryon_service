@@ -152,6 +152,30 @@ This shape is accepted exactly as the design library produces it - no rewriting 
 **A fabric must be a picture.** The design library stores fabric **ids** (`639c8187-...`). Only your
 system can turn an id into its picture, so replace each id with the fabric's Cloudinary link or base64
 before sending. An id sent as-is is refused: `400` with `FABRIC_ID_NOT_IMAGE` naming the entry.
+Without fabric pictures the image model chooses the colours itself, and they can change from one request
+to the next: measured on 13 October, the same 7-part saree came out teal, purple, or both.
+
+**Up to 8 designs** (since 13 October 2026; before, 6). A real design-library saree sent 7 parts -
+`pallu_design`, `border_design`, `body_design`, `pleat_design`, `print_design`, `embroidery_design` and
+`zari_work_design` - and was refused at the old limit. 8 covers every part of a saree, and 8 designs, 3
+fabrics, a model photo and the front photograph together stay within what one image call can take.
+
+### Every design is used
+
+`OVERALL`, `PRINT`, `EMBROIDERY`, `ZARI_WORK` and `PRINT_PATTERN` cover the whole garment. Normally a part
+with its own design keeps it, and a whole-garment design fills everything else.
+
+When **every** part of the garment already has its own design - a saree with `PALLU`, `BORDER`, `BODY` and
+`PLEAT` - there is no "everything else" left. Since 13 October 2026 the whole-garment designs are then
+layered on, never dropped (before, they were left out):
+
+| Design | Where it goes when every part has its own |
+| :--- | :--- |
+| `EMBROIDERY`, `ZARI_WORK` | **Added on top** as embellishment: its own stones, pearls, sequins, beads, zardosi and thread work, in its own shapes, as a band along the border edges and as accents over the body. |
+| `PRINT`, `OVERALL`, `PRINT_PATTERN` | **The ground of the main body**: it shows between the body's own motifs, which stay on top and clearly visible. |
+
+Requests with a part left free are unchanged. On a sketch, the labels for layered designs point to where
+the work is (the stone work along the border edge, the printed ground of the body).
 
 ### Images
 
@@ -252,9 +276,13 @@ What happens with that photo (since 12 October 2026 it works like a virtual try-
   tone, hair, body, pose, hands, jewellery and bindi are kept exactly, and so are the room behind them,
   the framing and the light. There is no studio backdrop and no new pose. (Before, the person was moved
   into a studio and re-posed, and the image model redrew the face.)
-- **The back view** shows the same person turned round in the same room.
-- **The face is checked.** The front photograph is compared with your photo; if the face has changed it
-  is made once more, and a remaining difference is reported as `same_face` in `done.quality`.
+- **Nothing is added to their scene:** no new shadows, plants, props or objects. A plain wall stays plain.
+- **The back view** shows the same person turned round in the same room, **with no face**: the head faces
+  away, so only the back of the head and their own hair are seen. (Since 13 October 2026. Before, she
+  looked back over her shoulder, and the image model drew a new face in profile.)
+- **Both are checked.** The front photograph is compared with your photo, and the back one is checked for
+  a hidden face. If either fails it is made once more; a remaining difference is reported in
+  `done.quality` as `same_face` (front) or `face_hidden` (back).
 - **Made at 2K** (about 37% more image tokens than the usual 1K), so the face stays sharp. Requests
   without a model photo are unchanged.
 - **It is only the person, never a design.** Nothing from the model photo (their clothes) is copied onto
@@ -473,10 +501,25 @@ the figures on the sheet: both (the default), or one. The image arrives as one `
 
 The labels are written by the service, never invented by the image model: one per design area (its name
 and a few words of what the reference shows), one for the main fabric, one for what the garment is worn
-with - at most 8, at most 40 characters each, plain letters. `on` says which figure the label belongs to:
+with - at most 8, in that order (so with 8 designs only the design labels are written), at most 40
+characters each, plain letters. `on` says which figure the label belongs to:
 a `BACK` design only on the back figure, `FRONT`, `NECK`, `BUTTON`, `POCKET` and a saree's `PLEAT` only on
-the front one. An image model can misspell hand lettering; `annotations` always has the exact words, so
-show them as text in your app if a word on the drawing comes out wrong.
+the front one. `annotations` always has the exact words, so show them as text in your app too.
+
+**The labels are checked** (since 13 October 2026). The image model writes the lettering, and even with
+the exact words and their number it sometimes wrote a label twice, merged two labels into one, or dropped
+a word. So the finished sheet is read back (one small text call) and compared with `annotations`: every
+label exactly once, nothing extra. A small reading slip is tolerated, so a correct sheet is not redrawn.
+If a label is wrong, the sheet is made once more with that label named, and the better of the two is
+returned. The outcome is in `done.quality.labels`:
+
+```json
+"labels": { "checked": true, "passed": true, "failures": [] }
+```
+
+A failure names its label, for example `{ "check": "label_repeated", "evidence": "\"Pallu: geometric squares\" is written 2 times" }`;
+the checks are `label_missing`, `label_repeated` and `label_extra`. A redrawn sheet takes about 30 seconds
+longer.
 
 Each label is drawn once. A sheet with both figures also carries one small caption under each figure,
 "FRONT" and "BACK"; there is no other text on it.
@@ -502,10 +545,29 @@ References from the live Design Discovery endpoint, the clearest of the first fo
 | Sketch - anarkali (`FLARE`, `BACK`) | The floral flare on both figures, the dori tie-up with tassels on the back figure only. 19 s. |
 | Sketch - gown (`SKIRT_FLARE`, `BACK`) | Correct: the keyhole back and its leaves on the back bodice only, the back of the skirt as plain as the front. The `BACK` picture was a whole gown with leaves on its skirt. Before the fix (cropping the `BACK` picture to the bodice) those leaves and the picture's colour spread onto the back of the skirt. 29 s. |
 
+#### Verified on 13 October 2026
+
+A real design-library saree with 7 parts (pallu, border, body, pleat, print, embroidery and zari work;
+the references mix a purple-and-gold pattu with teal stone work), sent through production. Its fabric
+ids were left out, since an id is refused.
+
+| Request | Result |
+| :--- | :--- |
+| As sent, before the fix | `400`: 7 designs over the old limit of 6. |
+| Sketch, before the fix | Pallu, border and body drawn; the print, the pearl-and-zardosi embroidery and the zari stone work missing, their labels pointing at nothing; "Embroidery" and "Worn with" written twice; labels cut to "Print: small". |
+| Sketch, production | All 7 designs drawn - the stone band along the border edges included - and all 8 labels written once each and spelled right; passed the label check first time. 48 s. |
+| Model with the customer's own photo, production | Front: her face, pose and plain wall kept; geometric pallu, temple border, floral jaal, pearls and stone flowers on the body, and the stone band along the border. Back: no face, her own open hair. 142 s at 2K. |
+| Own photo, before the back-view fix | The back view drew a new face in profile; another run added leaf shadows to a plain wall. |
+
+Own photos were also tried on two more real people (one wearing glasses and a watch) in a lehenga,
+saree, blouse, anarkali and gown: the face matched the photo every time; glasses, watch, ring and bindi
+were kept.
+
 **Good to know about `sketch`:**
-- Lettering is drawn by the image model. Every word was spelled right in the tests, but `annotations` is the
-  reliable copy.
-- With no `fabrics`, the drawing takes its colours from the design pictures. Send a fabric to fix the colour.
+
+- The lettering is drawn by the image model and then checked; `annotations` is still the exact copy.
+- With no `fabrics`, the drawing takes its colours from the design pictures, and they can differ between
+  requests. Send a fabric to fix the colour.
 
 #### Example requests
 
@@ -755,3 +817,10 @@ Inside the stream (`error` event):
   ends of a dupatta photographed whole, a saree pallu).
 - **One photograph shows one side.** Every garment is photographed from both sides by default (see
   *Front and back*); with `views` set to one side, the other side's designs are not shown.
+- **Without fabric pictures, colours are not fixed.** The ground colour is the image model's choice and
+  can change between requests. Send the fabric pictures (not ids) to fix it.
+- **An expression can soften.** With your own photo the face is kept, but a wide open smile measured once
+  as a smaller, closed one.
+- **Layered stone work is close, not exact.** When embroidery and zari work are layered on (see *Every
+  design is used*), they appear in their own materials and style, but the photograph checker can still
+  report them as "different from the reference", especially when the reference's cloth is another colour.
