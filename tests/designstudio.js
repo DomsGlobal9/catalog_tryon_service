@@ -1066,8 +1066,27 @@ async function runAll({ check, eq, section, SRC }) {
     ['Border: large peacock motifs', 'Back: large stylized leaves', 'Pallu: paisley and floral butis']);
   eq('a lone leading adjective is skipped and "made from" ends the phrase (both measured on a real 7-part saree, 13 Oct)',
     [buildPrompt(withPresentation('SAREE', ['PRINT'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small, intricate floral motifs and leaves forming a dense jaal' }]]) }).annotations[0].label,
-      buildPrompt(withPresentation('SAREE', ['BODY'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small flower shapes made from silver sequins with a central cream pearl' }]]) }).annotations[0].label],
-    ['Print: intricate floral motifs', 'Body: small flower shapes']);
+      buildPrompt(withPresentation('SAREE', ['BODY'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small flower shapes made from silver sequins with a central cream pearl' }]]) }).annotations[0].label,
+      buildPrompt(withPresentation('SAREE', ['BODY'], 'sketch'), { descriptions: new Map([[1, { motifs: 'Small round pearls and tiny silver sequins scattered' }]]) }).annotations[0].label,
+      buildPrompt(withPresentation('SAREE', ['PRINT'], 'sketch'), { descriptions: new Map([[1, { motifs: 'intricate floral motifs and leaves' }]]) }).annotations[0].label],
+    ['Print: intricate floral motifs', 'Body: small flower shapes', 'Body: small round pearls', 'Print: intricate floral motifs']);
+  // Every saree part has its own design: print, embroidery and zari work must still be used (13 Oct, boutique rule).
+  const allSaree = ['PALLU', 'BORDER', 'BODY', 'PLEAT', 'PRINT', 'EMBROIDERY', 'ZARI_WORK'];
+  const crowdedModel = buildPrompt(fakeJob('SAREE', allSaree));
+  const crowdedSketch = buildPrompt(withPresentation('SAREE', allSaree, 'sketch'), { descriptions: new Map() });
+  check('every part designed: embroidery and zari work are added on top (stones, pearls), the print becomes the body ground, and none may be left out',
+    /DESIGN for EMBROIDERY[^\n]*\nGoes on: every part of the saree already has its own design, so this work is ADDED ON TOP[^\n]*stones, pearls, sequins/.test(crowdedModel.text)
+      && /DESIGN for ZARI_WORK[^\n]*\nGoes on: [^\n]*ADDED ON TOP/.test(crowdedModel.text)
+      && /DESIGN for PRINT[^\n]*\nGoes on: [^\n]*becomes the GROUND of the main body/.test(crowdedModel.text)
+      && /EVERY design reference must appear in the finished garment - none may be left out/.test(crowdedModel.text)
+      && !/apply everywhere else/.test(crowdedModel.text));
+  check('the sheet says how many labels it has (a "Worn with" label was written twice, 13 Oct)',
+    new RegExp(`exactly ${crowdedSketch.annotations.length} labels in total, no more`).test(crowdedSketch.text) && crowdedSketch.annotations.length === 8);
+  eq('...and the sketch labels point at where that layered work is',
+    crowdedSketch.annotations.filter((a) => ['PRINT', 'EMBROIDERY', 'ZARI_WORK'].includes(a.part)).map((a) => a.pointsTo),
+    ['the printed ground pattern of the saree\'s body, between its motifs', 'the stone and pearl embroidery along the border edge of the saree', 'the zari and stone work along the border edge of the saree']);
+  check('a part left free: the whole-garment design still goes "everywhere else", unchanged',
+    /apply everywhere else/.test(buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER', 'EMBROIDERY'])).text) && !/ADDED ON TOP/.test(buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER', 'EMBROIDERY'])).text));
   check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air), never fanned out to the side',
     /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text)
       && /never fanned or spread out to the side/.test(manF.text));

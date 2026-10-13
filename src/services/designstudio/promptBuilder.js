@@ -146,6 +146,19 @@ function otherParts(areaId) {
   return `its ${PART_WORDS.filter(([, owns]) => !owns.test(areaId)).map(([word]) => word).join(', ')}`;
 }
 
+/** Where a sketch label points for a layered whole-garment design (see layeredOn). */
+const layeredTarget = (areaId, product) => (areaId === 'EMBROIDERY' || areaId === 'ZARI_WORK'
+  ? `the ${areaId === 'ZARI_WORK' ? 'zari and stone work' : 'stone and pearl embroidery'} along the border edge of the ${product}`
+  : `the printed ground pattern of the ${product}'s body, between its motifs`);
+
+/** Where a whole-garment design goes when every main part already has its own design. */
+function layeredOn(areaId, product) {
+  if (areaId === 'EMBROIDERY' || areaId === 'ZARI_WORK') {
+    return `every part of the ${product} already has its own design, so this work is ADDED ON TOP of those designs as embellishment - never left out. Copy this reference's own motifs exactly - the same shapes, arrangement and materials (its stones, pearls, sequins, beads, zardosi and thread work), never generic pearl clusters - at the reference's size and colours, as a band along the edges of the borders and the ${product}'s finishing edges, and as accents over the main body. It must clearly show, without hiding any part's own motifs`;
+  }
+  return `every part of the ${product} already has its own design, so this pattern becomes the GROUND of the main body - never left out: it shows between the body's own motifs at the reference's scale and colours. The body's own design (its pearls, stones, sequins or buttis) is placed ON TOP of this ground and stays clearly visible - the print never covers or replaces it`;
+}
+
 /**
  * The references in the order the image model sees them. Used both for numbering
  * the labels and for the describe step, so [Image 3] means the same thing to both.
@@ -292,6 +305,12 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   const designAreas = job.designs.map((d) => d.areaId);
   const hasGlobal = designAreas.some((a) => GLOBAL_AREAS.has(a));
   const hasZone = designAreas.some((a) => !GLOBAL_AREAS.has(a));
+  // Every part has its own design, so a whole-garment design has nowhere "else" to go.
+  // Measured 13 Oct on a real 7-part saree: PRINT, EMBROIDERY and ZARI_WORK (stone work) were
+  // dropped. The boutique rule is that every design the customer picked is used, so they layer.
+  const requested = (job.allDesigns || job.designs).map((d) => d.areaId);
+  const ownParts = taxonomy.getDesignTypes(job.garmentId).map((a) => a.id).filter((a) => !GLOBAL_AREAS.has(a));
+  const crowded = hasGlobal && ownParts.every((a) => requested.includes(a));
   const needsBack = designAreas.some((a) => BACK_AREAS.has(a));
   // A named view decides the pose outright; otherwise (single-photo garments) a
   // BACK design turns the model around.
@@ -431,7 +450,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     const clash = TRIM_AREAS.has(d.areaId) ? null : patternedFabricFor(d.areaId);
     const lines = [
       `[Image ${n}] DESIGN for ${d.areaId} (${d.areaName})`,
-      `Goes on: ${describeArea(job.garmentId, d.areaId)}.`,
+      `Goes on: ${crowded && GLOBAL_AREAS.has(d.areaId) ? layeredOn(d.areaId, g.product) : describeArea(job.garmentId, d.areaId)}.`,
       ...described(n)
     ];
     // Measured: a SLEEVE reference that was a photo of a whole printed kurti gave
@@ -664,7 +683,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // the lace on a black kurti.
     'Behind lace, net, cutwork, mesh or any other open or sheer work, what shows through is that part\'s own ground colour - never the cloth, print or skin seen through it in the reference photograph.'
   ];
-  if (hasGlobal && hasZone) {
+  if (crowded) {
+    designRules.push('EVERY design reference must appear in the finished garment - none may be left out. Each part keeps its own design, and the overall, print, embroidery and zari references are layered onto it exactly as described under each of them.');
+  } else if (hasGlobal && hasZone) {
     designRules.push('A design assigned to a specific area always wins inside that area. The overall, print or embroidery references apply everywhere else.');
   }
   designRules.push('A neckline reference (NECK, BACK, COLLAR_NECK) fixes the neckline\'s exact SHAPE, DEPTH and WIDTH: reproduce them as in the reference - never deeper, wider, higher or a different shape - and the same closure (tie-up, keyhole, buttons) at the same size.');
@@ -785,7 +806,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   }
 
   // ── 7. THE PHOTOGRAPH (or THE ILLUSTRATION) ────────────────────────────────
-  const annotations = isSketch ? sketchLabels(job, descriptions, sheetViews, g, pair) : null;
+  const annotations = isSketch ? sketchLabels(job, descriptions, sheetViews, g, pair, crowded) : null;
   if (isSketch) {
     addText(['THE ILLUSTRATION', bullets([
       `A fashion design presentation sheet in ${config.gemini.aspectRatio} portrait format: soft watercolour washes with fine, confident ink outlines on clean white textured watercolour paper.`,
@@ -798,7 +819,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       'LABELS - write exactly these, word for word, in neat, legible dark-grey hand lettering in the margins, each joined to its part by a thin curved leader line ending in a small arrow:',
       // Measured (12 Oct 2026, paid run): "on either figure" got every label written twice.
       ...annotations.map((a) => `- "${a.label}" - pointing to ${a.pointsTo}${sheetBoth ? (a.on.length === 2 ? ' (written ONCE, beside whichever figure shows it best)' : ` on the ${a.on[0].toUpperCase()} figure`) : ''}`),
-      'Each label appears exactly once on the sheet. Spell every word exactly as written above.',
+      // Measured (13 Oct 2026): "Worn with" was written twice, the second time pointing at the feet.
+      `Each label appears exactly once on the sheet: exactly ${annotations.length} labels in total, no more. Spell every word exactly as written above.`,
       sheetBoth
         ? 'Beneath each figure, one small caption: "FRONT" under the front figure and "BACK" under the back figure, once each. No other text of any kind: no title, heading, product name, signature, logo or watermark.'
         : 'No other text of any kind: no caption, title, heading, product name, signature, logo or watermark.'
@@ -934,7 +956,11 @@ function shortDescription(info, note) {
   const pieces = source.split(/[,;.:(]/).map((s) => s.trim()).filter(Boolean);
   const phrase = (pieces.find((s) => s.split(/\s+/).length > 1) || pieces[0] || '')
     .split(/\s+(?:with|in|on|of|facing|arranged|set|along|across|forming|over|around|between|within|featuring|alternating|made|formed|created)\s+/i)[0];
-  const words = phrase.trim().split(/\s+/).slice(0, 5);
+  const all = phrase.trim().split(/\s+/);
+  let words = all.slice(0, 5);
+  // Measured (13 Oct 2026): "small round pearls and tiny" - a list cut mid-item ends before its "and".
+  const joiner = words.findLastIndex((w) => /^(and|or)$/i.test(w));
+  if (all.length > 5 && joiner > 0 && joiner >= words.length - 2) words = words.slice(0, joiner);
   while (words.length > 1 && /^(a|an|the|in|on|of|with|and|or|at|for|to|by|from|its|their)$/i.test(words[words.length - 1])) words.pop();
   const text = words.join(' ');
   return text.charAt(0).toLowerCase() + text.slice(1); // "Pallu: large paisley motifs"
@@ -946,14 +972,14 @@ function shortDescription(info, note) {
  * as JSON, so the words are usable even if the drawing misspells one.
  * @returns {{ part: string, label: string, on: string[], pointsTo: string }[]}
  */
-function sketchLabels(job, descriptions, sheetViews, g, pair) {
+function sketchLabels(job, descriptions, sheetViews, g, pair, crowded = false) {
   const labels = [];
   job.designs.forEach((d, k) => {
     const on = sheetViews.filter((v) => visibleIn(v, d.areaId));
     if (!on.length) return; // a BACK design on a front-only sheet has nowhere to point
     const short = shortDescription(descriptions.get(k + 1), d.note);
     const name = d.areaName.replace(/\s+design$/i, ''); // "Pallu Design" -> "Pallu": the label has 40 characters
-    labels.push({ part: d.areaId, label: labelText(short ? `${name}: ${short}` : name), on, pointsTo: `the ${partWords(d.areaId, g.product)}` });
+    labels.push({ part: d.areaId, label: labelText(short ? `${name}: ${short}` : name), on, pointsTo: crowded && GLOBAL_AREAS.has(d.areaId) ? layeredTarget(d.areaId, g.product) : `the ${partWords(d.areaId, g.product)}` });
   });
   const main = job.fabrics.find((f) => !f.appliesTo);
   if (main) {
