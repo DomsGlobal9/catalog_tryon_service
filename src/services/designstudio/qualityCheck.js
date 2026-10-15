@@ -202,6 +202,11 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
     checks.push(['no_person', `Is the ${product} shown on a headless dress-form mannequin, with no person, no head, no face and no hands anywhere in the photograph?`,
       `Show the ${product} on a headless dress-form mannequin on a stand: no person, no head, no face, no hands.`]);
   }
+  // Measured 15 Oct: an own-photo front came back with the customer twice, side by side,
+  // although the prompt says "exactly one person". A face check passes a copy of the same face.
+  // Asked last, so the order of the other checks is unchanged.
+  const onePerson = onMannequin ? [] : [['one_person', 'Is there exactly one person in the PHOTOGRAPH - not the same person shown twice side by side, and no second figure, reflection or mannequin?',
+    'Show exactly ONE person, once - never the same person twice side by side, and no second figure.']];
   // Measured: with the caller's own photo the image model drew a different face.
   // From behind the face is barely seen, so only a front-facing pose is judged.
   if (review.personPhoto && review.pose !== 'back' && review.view !== 'back') {
@@ -215,16 +220,20 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
   }
   // Measured in production: a sheer yoke became solid cloth, a small keyhole back
   // became a deep U. The photograph is compared with the reference picture itself.
+  // Measured 15 Oct: with embroidery and zari work layered on (every part had its own design),
+  // the pallu, border and body failed for "pearls not in the reference" - pearls added on purpose.
+  const layeredNote = (area) => (review.layered && !['EMBROIDERY', 'ZARI_WORK', 'PRINT', 'OVERALL', 'PRINT_PATTERN'].includes(area)
+    ? ' Stones, pearls, sequins, beads or zardosi along the edges or as accents come from the separate EMBROIDERY and ZARI_WORK references and are added on purpose - ignore them here, and so is a printed ground pattern from a PRINT reference.' : '');
   for (const r of references) {
     const neck = /NECK|BACK|COLLAR/.test(r.area);
     // Measured: the front reference's own sleeves were compared with the photo's
     // sleeves (which come from the SLEEVE reference) and failed it. Each reference
     // answers for ONE part only.
     checks.push([`ref_${r.area.toLowerCase()}`,
-      `REFERENCE ${r.ref} was sent ONLY for the ${r.part}. If it shows a whole garment, every other part of that garment (its sleeves, body, neckline, hem, colour) is NOT part of this reference and must be ignored - those parts of the PHOTOGRAPH follow other references. Ignore the fabric colour too (the garment is made in its own fabric on purpose), and the model and background. Look ONLY at the ${r.part} in the PHOTOGRAPH against the ${r.part} in REFERENCE ${r.ref}. ${neck ? 'Is the neckline the SAME SHAPE, DEPTH and WIDTH as in the reference (not deeper, wider or a different shape), with the same closure (tie-up, keyhole, buttons) at the same size, and ' : 'Are '}the motifs on that part of the same kind, size, spacing and placement, with any sheer or net area of that part still sheer, and any trim, lace, band or edging on that part as in the reference?`,
+      `REFERENCE ${r.ref} was sent ONLY for the ${r.part}. If it shows a whole garment, every other part of that garment (its sleeves, body, neckline, hem, colour) is NOT part of this reference and must be ignored - those parts of the PHOTOGRAPH follow other references. Ignore the fabric colour too (the garment is made in its own fabric on purpose), and the model and background.${layeredNote(r.area)} Look ONLY at the ${r.part} in the PHOTOGRAPH against the ${r.part} in REFERENCE ${r.ref}. ${neck ? 'Is the neckline the SAME SHAPE, DEPTH and WIDTH as in the reference (not deeper, wider or a different shape), with the same closure (tie-up, keyhole, buttons) at the same size, and ' : 'Are '}the motifs on that part of the same kind, size, spacing and placement, with any sheer or net area of that part still sheer, and any trim, lace, band or edging on that part as in the reference?`,
       `The ${r.part} must follow reference ${r.ref} exactly: ${neck ? 'the same neckline shape, depth and width and the same closure at the same size; ' : ''}the same motifs at the same size, spacing and placement; sheer areas stay sheer; trims and edging as in the reference.`]);
   }
-  if (review.view !== 'back') return checks.map(([id, question, correction]) => ({ id, question, correction }));
+  if (review.view !== 'back') return [...checks, ...onePerson].map(([id, question, correction]) => ({ id, question, correction }));
   checks.push(
     // Measured on a real blouse: teal flowers on the front and gold butis on the back
     // (each side's own reference) were called "different blouses". The decoration is
@@ -253,7 +262,7 @@ function viewChecklist(review, references = [], { withFront = true } = {}) {
     checks.push(['arms_clear', 'Are the arms hanging at the sides with the hands visible beside the hips - not clasped behind the back, not on the hips, not covering any part of the garment?',
       'The arms hang relaxed at the sides with the hands visible beside the hips; nothing covers the back of the garment.']);
   }
-  return checks.filter(([id]) => withFront || !NEEDS_FRONT.has(id)).map(([id, question, correction]) => ({ id, question, correction }));
+  return [...checks, ...onePerson].filter(([id]) => withFront || !NEEDS_FRONT.has(id)).map(([id, question, correction]) => ({ id, question, correction }));
 }
 const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
 

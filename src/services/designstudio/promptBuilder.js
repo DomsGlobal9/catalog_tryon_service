@@ -908,6 +908,8 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   const areasSent = new Set(job.designs.map((d) => d.areaId));
   Object.assign(review, {
     view,
+    // Whole-garment designs layered on (see layeredOn): their stones on the parts are on purpose.
+    ...(crowded ? { layered: true } : {}),
     plainRest,
     plainSleeves,
     product: g.product,

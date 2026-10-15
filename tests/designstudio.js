@@ -810,13 +810,13 @@ async function runAll({ check, eq, section, SRC }) {
   check('the old single-photo behaviour is unchanged for a saree (no view named)',
     buildPrompt(fakeJob('SAREE', ['PALLU'])).pose === 'front' && !/photographed from the front/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   eq('the pair check compares garment, sleeves, person, a true back view, studio and the supporting piece',
-    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear']);
+    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear', 'one_person']);
   const refs = [{ area: 'BACK', part: 'back of the blouse', ref: 1 }, { area: 'HAND', part: 'hand of the blouse', ref: 2 }];
   eq('every view is also checked against its own references: neckline shape/depth for a neckline, motifs and sheer panels for every part; the front view gets only those',
     [qa.viewChecklist(backPrompt.review, refs).map((c) => c.id).slice(0, 2), qa.viewChecklist(frontPrompt.review, [{ area: 'NECK', part: 'neck of the blouse', ref: 1 }]).map((c) => c.id),
       /SAME SHAPE, DEPTH and WIDTH/.test(qa.viewChecklist(backPrompt.review, refs)[0].question), /sheer or net area of that part still sheer/.test(qa.viewChecklist(backPrompt.review, refs)[1].question),
       /was sent ONLY for the hand of the blouse\. If it shows a whole garment, every other part of that garment \(its sleeves, body, neckline, hem, colour\) is NOT part of this reference/.test(qa.viewChecklist(backPrompt.review, refs)[1].question)],
-    [['ref_back', 'ref_hand'], ['ref_neck'], true, true, true]);
+    [['ref_back', 'ref_hand'], ['ref_neck', 'one_person'], true, true, true]);
   check('the prompt fixes neckline shape and depth, keeps sheer panels sheer, and keeps the arms at the sides in the back view',
     /fixes the neckline's exact SHAPE, DEPTH and WIDTH/.test(backPrompt.text) && /hands visible beside the hips - never clasped behind the back/.test(backPrompt.text)
     && /SHEER: part of this reference is sheer net/.test(buildPrompt(fakeJob('BLOUSE', ['NECK']), { descriptions: new Map([[1, { motifs: 'flowers', technique: 'embroidery on sheer net yoke', notes: 'round neck, shallow; SHEER yoke' }]]) }).text));
@@ -1087,6 +1087,13 @@ async function runAll({ check, eq, section, SRC }) {
     ['the printed ground pattern of the saree\'s body, between its motifs', 'the stone and pearl embroidery along the border edge of the saree', 'the zari and stone work along the border edge of the saree']);
   check('a part left free: the whole-garment design still goes "everywhere else", unchanged',
     /apply everywhere else/.test(buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER', 'EMBROIDERY'])).text) && !/ADDED ON TOP/.test(buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER', 'EMBROIDERY'])).text));
+  // 15 Oct, through the test page: the pallu and border failed the check for pearls layered on purpose.
+  const layeredRefs = [{ area: 'PALLU', part: 'pallu of the saree', ref: 1 }, { area: 'EMBROIDERY', part: 'embroidery of the saree', ref: 6 }];
+  const onPurpose = /come from the separate EMBROIDERY and ZARI_WORK references and are added on purpose - ignore them here/;
+  eq('every part designed: a part\'s check ignores the stone work layered on it on purpose; the embroidery\'s own check and a normal request do not',
+    [onPurpose.test(qa.viewChecklist(crowdedModel.review, layeredRefs)[0].question), onPurpose.test(qa.viewChecklist(crowdedModel.review, layeredRefs)[1].question),
+      onPurpose.test(qa.viewChecklist(buildPrompt(fakeJob('SAREE', ['PALLU', 'BORDER', 'EMBROIDERY'])).review, layeredRefs)[0].question)],
+    [true, false, false]);
   check('mannequin: hanging parts fall straight down (a saree pallu stuck out sideways in mid-air), never fanned out to the side',
     /Nothing floats or is held out in the air: every hanging part \(a pallu, a dupatta, its ends\) is pinned in place and falls straight down/.test(manF.text)
       && /never fanned or spread out to the side/.test(manF.text));
@@ -1131,9 +1138,9 @@ async function runAll({ check, eq, section, SRC }) {
   check('a model photo without a gender is not assumed to be a woman', !/\bwoman\b|\bher\b/.test(ref.text.split('THE PHOTOGRAPH')[0]));
   const refFront = buildPrompt(viewOf(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }), new Map(), 'front').job, { view: 'front' });
   const refBack = buildPrompt(viewOf(fakeJob('SAREE', ['PALLU'], { modelImage: IMG }), new Map(), 'back').job, { view: 'back', frontPhoto: prepared });
-  eq('a model photo: the face is checked against it on the front view only (from behind it is barely seen); a generated model has no face check',
+  eq('a model photo: the face is checked against it on the front view only (from behind it is barely seen); a generated model has no face check, only the one-person check',
     [qa.viewChecklist(refFront.review, []).map((c) => c.id), qa.viewChecklist(refBack.review, [], { withFront: true }).some((c) => c.id === 'same_face'),
-      qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).length], [['same_face'], false, 0]);
+      qa.viewChecklist(buildPrompt(viewOf(fakeJob('SAREE', ['PALLU']), new Map(), 'front').job, { view: 'front' }).review, []).map((c) => c.id)], [['same_face', 'one_person'], false, ['one_person']]);
   check('a model photo, back view: the same room and light as the front photo, turned round there - not their original pose, not a studio',
     /The same room, background, light and framing as the front view photograph \[Image 2\], with the person turned round in the same spot/.test(refBack.text)
       && /Pose: standing full length with the back squarely to the camera/.test(refBack.text) && !/Keep their exact pose/.test(refBack.text) && !/seamless, plain studio backdrop/.test(refBack.text)
@@ -1392,7 +1399,13 @@ async function runAll({ check, eq, section, SRC }) {
       doneTwo.quality.back.pair && doneTwo.quality.back.pair.checked === true && doneTwo.quality.back.pair.passed === true, JSON.stringify(doneTwo.quality.back));
 
     // The pair check finds a difference: the back is made once more with it named.
-    qa._setFetch(qaSequence(qaAnswer(), qaAnswer(), qaAnswer(['same_sleeves']), qaAnswer()));
+    // Fail same_sleeves the first time it is asked, whatever else is checked before it.
+    let sleevesFailed = false;
+    qa._setFetch(async (url, opts) => {
+      const ids = [...JSON.parse(opts.body).contents[0].parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]);
+      if (!sleevesFailed && ids.includes('same_sleeves')) { sleevesFailed = true; return qaAnswer(['same_sleeves'])(url, opts); }
+      return qaAnswer()(url, opts);
+    });
     const pairCalls = script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/generate', { clientId: 'two-view-2', garment: 'KURTHI', designs: [{ area: 'BACK', image: IMG }], views: ['front', 'back'] })));
     const donePair = events[events.length - 1];

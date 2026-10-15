@@ -904,7 +904,18 @@ export default function DesignStudioApp({ handoff }) {
             </div>
           )}
 
-          {startInfo && (
+          {/* The service's default (and production's) stream is image-only: start and done
+              carry no details, so they are shown only when the service sent them. */}
+          {startInfo && !startInfo.designs && (
+            <div className="ds-start">
+              <div className="ds-kv"><span className="ds-label">jobId</span><code>{startInfo.jobId}</code></div>
+              <p className="ds-note">
+                The service sent the short, image-only stream (its default, as in production), so there are no
+                details or check results here. Run the service with <code>DESIGNSTUDIO_STREAM_DETAIL=full</code> to see them.
+              </p>
+            </div>
+          )}
+          {startInfo && startInfo.designs && (
             <div className="ds-start">
               <div className="ds-kv"><span className="ds-label">jobId</span><code>{startInfo.jobId}</code></div>
               <div className="ds-kv"><span className="ds-label">garment</span>{startInfo.garment}</div>
@@ -914,7 +925,7 @@ export default function DesignStudioApp({ handoff }) {
                 <span className="ds-label">designs</span>
                 {startInfo.designs.map((d) => `${d.areaName} (${d.area})`).join(' · ')}
               </div>
-              {startInfo.fabrics.length > 0 && (
+              {startInfo.fabrics && startInfo.fabrics.length > 0 && (
                 <div className="ds-kv ds-kv-wide">
                   <span className="ds-label">fabrics echoed back</span>
                   {startInfo.fabrics.map((f) =>
@@ -968,7 +979,7 @@ export default function DesignStudioApp({ handoff }) {
             {running && <li className="ds-pending"><code>…</code><span className="ds-evt">working</span><span>keep-alive pings keep the connection open.</span></li>}
           </ol>
 
-          {done && (
+          {done && done.timings && (
             <div className="ds-timings">
               <span>attempts <strong>{done.attempts}</strong></span>
               <span>prepare <strong>{done.timings.prepareMs}ms</strong></span>
@@ -979,17 +990,22 @@ export default function DesignStudioApp({ handoff }) {
             </div>
           )}
 
-          {done && done.quality && (
-            <div className={'ds-quality ' + (done.quality.passed ? 'ok' : done.quality.checked ? 'bad' : 'unknown')}>
-              <strong>
-                Inspection: {done.quality.checked ? (done.quality.passed ? 'passed' : 'still has faults') : 'not run'}
-                {done.quality.regenerated ? ' · regenerated once with corrections' : ''}
-              </strong>
-              {done.quality.failures && done.quality.failures.length > 0 && (
-                <ul>{done.quality.failures.map((f, i) => <li key={i}><code>{f.check}</code> {f.evidence}</li>)}</ul>
-              )}
-            </div>
-          )}
+          {/* One photograph gives one quality object; front and back give one per view. */}
+          {done && done.quality && Object.entries('checked' in done.quality ? { [done.views && done.views.length === 2 && done.presentation === 'sketch' ? 'sheet' : 'result']: done.quality } : done.quality).map(([view, q]) => {
+            const checks = [['inspection', q], ['reference check', q.references], ['labels', q.labels]].filter(([, c]) => c && c.checked);
+            const passed = checks.every(([, c]) => c.passed);
+            return (
+              <div key={view} className={'ds-quality ' + (!checks.length ? 'unknown' : passed ? 'ok' : 'bad')}>
+                <strong>
+                  {view}: {checks.length ? checks.map(([name, c]) => `${name} ${c.passed ? 'passed' : 'still has faults'}`).join(' · ') : 'no checks ran'}
+                  {q.regenerated ? ' · made once more with corrections' : ''}
+                </strong>
+                {checks.some(([, c]) => c.failures && c.failures.length) && (
+                  <ul>{checks.flatMap(([name, c]) => (c.failures || []).map((f, i) => <li key={name + i}><code>{f.check}</code> {f.evidence}</li>))}</ul>
+                )}
+              </div>
+            );
+          })}
 
           {events.length > 0 && (
             <details className="ds-payload">
@@ -1014,7 +1030,8 @@ export default function DesignStudioApp({ handoff }) {
             <img src={image.image} alt="the generated garment" />
             <div className="ds-result-meta">
               <div className="ds-kv"><span className="ds-label">size</span>{image.width} × {image.height}</div>
-              <div className="ds-kv"><span className="ds-label">bytes</span>{kb(image.bytes)}</div>
+              {/* The image-only stream sends no byte count; the base64 itself gives it. */}
+              <div className="ds-kv"><span className="ds-label">bytes</span>{kb(image.bytes || Math.round((image.image.length - image.image.indexOf(',') - 1) * 3 / 4))}</div>
               <div className="ds-kv"><span className="ds-label">type</span>{image.mimeType}</div>
               <div className="ds-kv"><span className="ds-label">delivered as</span>data:image/jpeg;base64</div>
               {image.annotations && (
