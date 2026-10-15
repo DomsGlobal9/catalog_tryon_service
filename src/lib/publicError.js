@@ -17,4 +17,19 @@ function publicStatus(err) {
   return status >= 400 && status < 500 ? status : 500;
 }
 
-module.exports = { publicMessage, publicStatus };
+/**
+ * A 429 that never clears on retry: the provider's spending cap or a daily quota.
+ * Measured 15 Oct 2026: a spent monthly cap was retried 3 times and reported as "no
+ * response after retries", and callers were told to try again. Not "billing": Google's
+ * ordinary per-minute 429 mentions billing too, and that one clears in seconds.
+ * @returns {Error|null}
+ */
+function providerLimitError(status, text) {
+  if (status !== 429 || !/spending cap|spend cap|budget|exceeded its monthly|PerDay/i.test(text || '')) return null;
+  const err = new Error('The AI provider has reached its spending limit for this service, so generation is unavailable until the limit is raised. Retrying will not help.');
+  err.expose = true;
+  err.code = 'PROVIDER_LIMIT_REACHED';
+  return err;
+}
+
+module.exports = { publicMessage, publicStatus, providerLimitError };

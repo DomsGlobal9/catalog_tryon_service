@@ -352,6 +352,36 @@ async function offline() {
     }
   }
 
+  // Measured 15 Oct 2026: a spent monthly spending cap was retried and reported as "no
+  // response after retries", so callers were told to try again.
+  async function providerErrors(rel, label) {
+    const svc = require(path.join(SRC, rel));
+    const realFetch = global.fetch;
+    const answer = (status, body) => ({ ok: false, status, text: async () => body, json: async () => JSON.parse(body) });
+    let calls = 0;
+    global.fetch = async () => { calls++; return answer(429, '{"error":{"code":429,"message":"Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap.","status":"RESOURCE_EXHAUSTED"}}'); };
+    try {
+      await svc.callGeminiImageGen([{ text: 'x' }], null);
+      check(label + ': a spent spending cap fails at once with a plain, shown message', false, 'did not throw');
+    } catch (err) {
+      check(label + ': a spent spending cap fails at once with a plain, shown message (no retries)',
+        calls === 1 && err.code === 'PROVIDER_LIMIT_REACHED' && err.expose === true && /spending limit/.test(err.message), `calls ${calls}: ${err.message}`);
+    }
+    calls = 0;
+    global.fetch = async () => { calls++; return answer(503, '{"error":{"code":503,"message":"The model is overloaded."}}'); };
+    try {
+      await svc.callGeminiImageGen([{ text: 'x' }], null);
+      check(label + ': three 503s report the real error', false, 'did not throw');
+    } catch (err) {
+      check(label + ': three 503s are retried, then report the real "HTTP 503", not "no response after retries"',
+        calls === 3 && /HTTP 503/.test(err.message) && !/no response after retries/.test(err.message), `calls ${calls}: ${err.message}`);
+    } finally {
+      global.fetch = realFetch;
+    }
+  }
+
+  await providerErrors('services/catalogAiService', 'women');
+  await providerErrors('services/menAiService', 'men');
   await retryRescuesDroppedBody('services/catalogAiService', 'women');
   await retryRescuesDroppedBody('services/menAiService', 'men');
   if (realKey === undefined) delete process.env.GEMINI_API_KEY;

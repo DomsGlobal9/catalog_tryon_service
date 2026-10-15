@@ -45,6 +45,7 @@ function cachedBaseModel(url, produce) {
 
 // Caller links: public addresses only, time and size capped (lib/fetchImage).
 const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
+const { providerLimitError } = require('../lib/publicError');
 
 
 // ============================================================
@@ -353,6 +354,9 @@ async function callGeminiImageGen(
         const errText =
           await resp.text();
 
+        const limit = providerLimitError(resp.status, errText);
+        if (limit) throw limit;
+
         console.warn(
           `[Gemini API] HTTP ${resp.status}. Retries left: ${
             retries - 1
@@ -430,8 +434,11 @@ async function callGeminiImageGen(
       }
 
 
+      // retries <= 1: the last 503/429 has already counted itself down to 0 (its real error
+      // used to be swallowed as "no response after retries"); a spending cap never clears.
       if (
-        retries === 1 ||
+        retries <= 1 ||
+        err.code === 'PROVIDER_LIMIT_REACHED' ||
         err.message?.includes(
           'HTTP 400'
         )

@@ -31,6 +31,7 @@ function pickEnvironment(colour) {
 // Caller links are downloaded through lib/fetchImage: public addresses only,
 // time and size capped, cancellable.
 const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
+const { providerLimitError } = require('../lib/publicError');
 
 // =============================================================================
 // BASE MODEL CACHE
@@ -176,6 +177,8 @@ async function callGeminiImageGen(partsArray, abortSignal) {
 
       if (resp.status === 503 || resp.status === 429) {
         const errText = await resp.text();
+        const limit = providerLimitError(resp.status, errText);
+        if (limit) throw limit;
         console.warn(`[Gemini API] HTTP ${resp.status} (High Demand). Retries left: ${retries - 1}.`);
         retries--;
         if (retries === 0) throw new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`);
@@ -208,7 +211,9 @@ async function callGeminiImageGen(partsArray, abortSignal) {
       const message = (err && err.message) || String(err);
       if (err && err.name === 'AbortError' && !(err.name === 'TimeoutError')) throw err;
       if (message.includes('AbortError')) throw err;
-      if (retries === 1 || message.includes('HTTP 400')) throw err;
+      // retries <= 1: the last 503/429 has already counted itself down to 0; its real
+      // error used to be swallowed here and reported as "no response after retries".
+      if (retries <= 1 || message.includes('HTTP 400') || (err && err.code === 'PROVIDER_LIMIT_REACHED')) throw err;
       console.warn(`[Gemini API] Request Failed: ${message}. Retries left: ${retries - 1}`);
       retries--;
       await new Promise(res => setTimeout(res, delay));
