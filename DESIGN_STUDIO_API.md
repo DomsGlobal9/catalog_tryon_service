@@ -283,6 +283,10 @@ What happens with that photo (since 12 October 2026 it works like a virtual try-
 - **Both are checked.** The front photograph is compared with your photo, and the back one is checked for
   a hidden face. If either fails it is made once more; a remaining difference is reported in
   `done.quality` as `same_face` (front) or `face_hidden` (back).
+- **Exactly one person** (since 15 October 2026, for every photograph on a person, yours or a generated
+  model). Measured once: a front photograph came back with the customer twice, side by side - a face check
+  passes a copy of the same face. Every photograph is now checked for one person, made once more if not,
+  and a remaining fault is reported as `one_person`.
 - **Made at 2K** (about 37% more image tokens than the usual 1K), so the face stays sharp. Requests
   without a model photo are unchanged.
 - **It is only the person, never a design.** Nothing from the model photo (their clothes) is copied onto
@@ -558,6 +562,8 @@ ids were left out, since an id is refused.
 | Sketch, production | All 7 designs drawn - the stone band along the border edges included - and all 8 labels written once each and spelled right; passed the label check first time. 48 s. |
 | Model with the customer's own photo, production | Front: her face, pose and plain wall kept; geometric pallu, temple border, floral jaal, pearls and stone flowers on the body, and the stone band along the border. Back: no face, her own open hair. 142 s at 2K. |
 | Own photo, before the back-view fix | The back view drew a new face in profile; another run added leaf shadows to a plain wall. |
+| Own photo, through the test page (15 Oct) | One run returned the customer twice in one front photograph - since then checked as `one_person`. The pallu and border were also marked wrong for the stone work layered on them on purpose - the check now ignores it. |
+| Own photo, production (15 Oct, after both fixes) | One person, her face and plain wall kept; no face on the back; pallu, border, jaal, pearls and stone band all there. 138 s. |
 
 Own photos were also tried on two more real people (one wearing glasses and a watch) in a lehenga,
 saree, blouse, anarkali and gown: the face matched the photo every time; glasses, watch, ring and bindi
