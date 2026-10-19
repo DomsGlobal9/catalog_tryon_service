@@ -88,7 +88,8 @@ function drapeParts(job, view, garment, framed) {
     '',
     `RULE #2 - THE GARMENT AND STRICT ISOLATION: take ONLY the garment from the GARMENT REFERENCE - ignore the mannequin, its stand and the studio. Reproduce every detail exactly: every border, panel, motif, print and embroidery, and all stone, pearl, sequin and zardosi work, at the same scale and in the same places. COLOUR LOCK: the garment's colours match the reference exactly - same hue, same saturation, same brightness of the dye; the scene's light only shades the folds and never tints the fabric.`,
     GARMENT_RULES[job.garmentId] || DEFAULT_RULE,
-    'Whatever is worn with the garment in the reference (a blouse, a choli, bottoms) is worn exactly as there. Nothing of the customer\'s own outfit shows.',
+    // Measured 19 Oct (second prod run): the back view grew a gold embroidered motif on the plain teal blouse.
+    'Whatever is worn with the garment in the reference (a blouse, a choli, bottoms) is worn exactly as there: the same colour, and plain where the reference\'s is plain - no embroidery, motif, border or trim is added to it, front or back. Nothing of the customer\'s own outfit shows.',
     // Measured 19 Oct: her own red saree's pallu and blouse stayed in the photo beside the designed
     // maroon body, so the result was two sarees in one - half her colour, half the reference's.
     'THE CUSTOMER\'S OWN CLOTHES ARE REPLACED ENTIRELY, from the shoulders to the hem: not their colour, their pallu, their border, their blouse or their sleeves remains anywhere. The outfit in the photograph is ONE outfit, in the GARMENT REFERENCE\'s colours throughout - never partly in the colour of what the customer was wearing.',
