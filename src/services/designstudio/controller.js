@@ -27,6 +27,7 @@ const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
 const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
+const { framePerson, drapeParts } = require('./drapeOnPerson');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
 const PIPELINE = 'designstudio';
@@ -147,15 +148,16 @@ async function generate(req, res, next) {
     }
 
     const generationStarted = Date.now();
-    const generate = (parts, label) => generateImage(parts, {
+    const generate = (parts, label, { imageSize, aspectRatio } = {}) => generateImage(parts, {
       signal: abort.signal,
-      imageSize: job.model.kind === 'reference' ? config.gemini.ownPhotoImageSize : config.gemini.imageSize,
+      imageSize: imageSize || config.gemini.imageSize,
+      aspectRatio,
       onAttempt: ({ attempt, reason }) => send({
         type: 'status',
         stage: label,
         attempt,
         message: attempt === 1
-          ? (label === 'regenerating' ? 'Regenerating with the inspector\'s corrections.' : 'Generating the garment.')
+          ? (label === 'regenerating' ? 'Regenerating with the inspector\'s corrections.' : label === 'draping' ? 'Dressing the photo.' : 'Generating the garment.')
           : `Retrying (${reason === 'no_image' ? 'no image was returned' : 'the image model was busy'}).`
       })
     });
@@ -282,13 +284,53 @@ async function generate(req, res, next) {
     // A sketch is ONE sheet with the front and back figures on it: one image, one call.
     const isSketch = job.presentation === 'sketch';
     const views = isSketch ? [null] : (job.views || [null]);
+    // The caller's own photo (since 19 Oct 2026): the garment is first made on a mannequin with
+    // every design check, then draped onto the photo the Try-On way (see drapeOnPerson.js).
+    const ownPhoto = job.model.kind === 'reference';
+    const genJob = ownPhoto ? { ...job, presentation: 'mannequin', model: { kind: 'generated', gender: job.model.gender } } : job;
+    const framed = ownPhoto ? await framePerson(job.model.image) : null;
+    let frontDraped = null;
+    const drapeView = async (view, viewPrompt, garment, quality) => {
+      send({ type: 'status', stage: 'draping', view, message: `Dressing the photo: the ${view} view.` });
+      const parts = drapeParts(job, view, garment.image, framed);
+      const make = async (correction) => {
+        const out = await generate(correction ? [...parts, { text: correction }] : parts, 'draping',
+          { imageSize: config.gemini.ownPhotoImageSize, aspectRatio: framed.aspectRatio });
+        attempts += out.attempts;
+        return { ...out, image: await framed.cutBack(out.image) };
+      };
+      let draped = await make();
+      usage = draped.usage;
+      if (!config.pair.enabled) return draped;
+      // Same face (front) or a hidden face (back), one person, and the back against the front.
+      const review = { ...(viewPrompt.review || {}), presentation: undefined, layered: false, personPhoto: job.model.image, view, pose: view };
+      const check = (image) => reviewView(review, { image, frontImage: view === 'back' && frontDraped ? frontDraped.image : null, references: [], signal: abort.signal });
+      send({ type: 'status', stage: 'checking', message: 'Checking the dressed photo.' });
+      let verdict = await check(draped.image);
+      if (verdict.checked && verdict.failures.length && config.pair.maxRegenerations > 0
+        && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
+        console.log(`[DesignStudio] requestId=${requestId} dressed ${view} photo: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
+        try {
+          const retry = await make(correctionsText(verdict.failures));
+          quality.regenerated = true;
+          send({ type: 'status', stage: 'checking', message: 'Checking the corrected photo.' });
+          const second = await check(retry.image);
+          if (!second.checked || second.failures.length <= verdict.failures.length) { draped = retry; usage = retry.usage; verdict = second; }
+        } catch (err) {
+          if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
+        }
+      }
+      quality.photo = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+      return draped;
+    };
     const results = [];
     let frontResult = null;
     for (const view of views) {
-      const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(job, descriptions, view) : { job, descriptions };
-      const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontResult ? frontResult.image : null }) : prompt;
+      const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(genJob, descriptions, view) : { job: genJob, descriptions };
+      const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontResult ? frontResult.image : null })
+        : ownPhoto ? buildPrompt(genJob, { descriptions }) : prompt;
       if (view === 'back' && frontResult) viewPrompt.frontPhoto = frontResult.image;
-      if (view) send({ type: 'status', stage: 'generating', view, message: `Generating the ${view} view.` });
+      if (view) send({ type: 'status', stage: 'generating', view, message: ownPhoto ? `Making the ${view} of the garment.` : `Generating the ${view} view.` });
       let result = await generate(viewPrompt.parts, 'generating');
       attempts += result.attempts;
       usage = result.usage;
@@ -296,7 +338,12 @@ async function generate(req, res, next) {
       ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
       if (view) result = await matchReferences(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
       if (isSketch) result = await checkLabels(viewPrompt, result, quality);
+      // The mannequin front stays the reference for the mannequin back; the caller gets the dressed photo.
       if (view === 'front') frontResult = result;
+      if (ownPhoto) {
+        result = await drapeView(view || viewPrompt.pose, viewPrompt, result, quality);
+        if (view === 'front') frontDraped = result;
+      }
       results.push({ view: isSketch ? 'sheet' : view || viewPrompt.pose, result, quality });
       send({
         type: 'image',

@@ -1447,13 +1447,28 @@ async function runAll({ check, eq, section, SRC }) {
       return qaAnswer(asked && faceRound++ === 0 ? ['same_face'] : [])(url, opts);
     });
     const faceCalls = script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/generate', { clientId: 'own-photo', garment: 'SAREE', modelImage: IMG, designs: [{ area: 'PALLU', image: IMG }], views: ['front'] })));
-    eq('own photo: the face is checked with the person photo attached; a changed face is made once more with the correction, then passes',
-      [faceAsks.filter((a) => a.ids.includes('same_face')).map((a) => [a.ids.includes('same_face'), a.person]), faceCalls.length, /Keep the exact face of the person in the PERSON PHOTO/.test(textOf(faceCalls[1])),
-        events[events.length - 1].quality.references.passed],
-      [[[true, true], [true, true]], 2, true, true]);
-    eq('own photo is made at its own larger size (DESIGNSTUDIO_OWN_PHOTO_IMAGE_SIZE, 2K in production); every other request keeps the normal size',
-      [faceCalls.map((c) => c.body.generationConfig.imageConfig.imageSize), twoCalls.map((c) => c.body.generationConfig.imageConfig.imageSize)], [["4K", "4K"], ["2K", "2K"]]);
+    // A narrow photo, like the real one (379x1172) that was widened and redrawn on 19 Oct.
+    const NARROW = await png(400, 1200, '#557755');
+    ({ events } = await readEvents(await post('/generate', { clientId: 'own-photo', garment: 'SAREE', modelImage: NARROW, designs: [{ area: 'PALLU', image: IMG }], views: ['front'] })));
+    // Since 19 Oct an own photo is made in two steps: the garment on a mannequin, then draped onto the photo.
+    const drapeCallParts = faceCalls[1] && faceCalls[1].body.contents[0].parts;
+    eq('own photo, two steps: the garment on a mannequin (normal size, 3:4), then draped onto the photo the Try-On way - the photo last, in its own shape, at the larger size',
+      [faceCalls.length, /headless dress-form mannequin/.test(textOf(faceCalls[0])), faceCalls[0].body.generationConfig.imageConfig.imageSize, faceCalls[0].body.generationConfig.imageConfig.aspectRatio,
+        /virtual fitting session/.test(textOf(faceCalls[1])) && /RULE #1 - ABSOLUTE IDENTITY LOCK/.test(textOf(faceCalls[1])) && /RULE #3 - THE SCENE LOCK/.test(textOf(faceCalls[1])),
+        !!drapeCallParts[drapeCallParts.length - 1].inlineData && /^CUSTOMER PHOTO/.test(drapeCallParts[drapeCallParts.length - 2].text),
+        faceCalls[1].body.generationConfig.imageConfig.imageSize, faceCalls[1].body.generationConfig.imageConfig.aspectRatio],
+      [3, true, '2K', '3:4', true, true, '4K', '9:16']);
+    const sentPhoto = await sharp(Buffer.from(drapeCallParts[drapeCallParts.length - 1].inlineData.data, 'base64')).metadata();
+    const shown = events.find((e) => e.type === 'image');
+    eq('own photo, no generative fill: the narrow photo is padded to 9:16 with grey bands (not widened by the model), and the photo returned is cut back to its area',
+      [`${sentPhoto.width}x${sentPhoto.height}`, /flat grey bands at its edges\. They are padding/.test(textOf(faceCalls[1])), shown.width < 768, shown.height],
+      ['675x1200', true, true, 1024]);
+    eq('own photo: the dressed photo is checked against the person photo; a changed face is draped once more with the correction, then passes',
+      [faceAsks.filter((a) => a.ids.includes('same_face')).map((a) => [a.ids.includes('same_face'), a.person]), /Keep the exact face of the person in the PERSON PHOTO/.test(textOf(faceCalls[2])),
+        /virtual fitting session/.test(textOf(faceCalls[2])), events[events.length - 1].quality.photo.passed, events[events.length - 1].quality.regenerated],
+      [[[true, true], [true, true]], true, true, true, true]);
+    eq('every other request keeps the normal size and 3:4',
+      twoCalls.map((c) => [c.body.generationConfig.imageConfig.imageSize, c.body.generationConfig.imageConfig.aspectRatio]), [['2K', '3:4'], ['2K', '3:4']]);
     qa._setFetch(qaAnswer());
 
     // Since 10 Oct 2026 a gown is front and back too: the BACK design belongs to the back photograph.

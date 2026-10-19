@@ -270,12 +270,23 @@ created for you.
 }
 ```
 
-What happens with that photo (since 12 October 2026 it works like a virtual try-on):
+What happens with that photo - **two steps, the Try-On way** (since 19 October 2026):
 
-- **The garment is draped into their own photo.** Only the clothes change. Their face, expression, skin
-  tone, hair, body, pose, hands, jewellery and bindi are kept exactly, and so are the room behind them,
-  the framing and the light. There is no studio backdrop and no new pose. (Before, the person was moved
-  into a studio and re-posed, and the image model redrew the face.)
+1. **The garment is made first**, on a headless mannequin, front and back, with every design check -
+   exactly as for `presentation: "mannequin"`. These pictures are not sent to you.
+2. **Then it is draped onto their own photo**, with Try-On's rules: only the clothes change. Their face,
+   expression, skin tone, hair, body, pose, hands, jewellery and bindi are kept exactly, and so are the room
+   behind them, the light and anyone else in the photo.
+
+**Nothing is generated around the photo.** The photograph you get back has your photo's own shape and
+frame, whatever it is. Measured on 19 October: a narrow photo (379 x 1172, about 1:3) was made into the
+usual 3:4 picture, so the image model had to invent the room around her - and redrew her face, hair and
+pose while doing it. Now the photo is padded with plain grey bands to the nearest shape the image model
+can make, and the result is cut back to exactly the photo's area, so nothing invented reaches you. The
+`done.quality` of each view has the garment's design checks (`references`) and the dressed photo's checks
+(`photo`).
+
+- **Two more image calls** than a generated model: one garment picture and one dressed photo per view.
 - **Nothing is added to their scene:** no new shadows, plants, props or objects. A plain wall stays plain.
 - **The back view** shows the same person turned round in the same room, **with no face**: the head faces
   away, so only the back of the head and their own hair are seen. (Since 13 October 2026. Before, she
@@ -564,6 +575,8 @@ ids were left out, since an id is refused.
 | Own photo, before the back-view fix | The back view drew a new face in profile; another run added leaf shadows to a plain wall. |
 | Own photo, through the test page (15 Oct) | One run returned the customer twice in one front photograph - since then checked as `one_person`. The pallu and border were also marked wrong for the stone work layered on them on purpose - the check now ignores it. |
 | Own photo, production (15 Oct, after both fixes) | One person, her face and plain wall kept; no face on the back; pallu, border, jaal, pearls and stone band all there. 138 s. |
+| A narrow own photo, one step (19 Oct, before) | 379 x 1172 made into 3:4: the room around her invented, her face, hair and pose redrawn. |
+| The same photo, two steps (19 Oct) | 883 x 2752 - her photo's own shape; the same room, lights and the person at the edge; her face, hair and pose kept; the designed saree with its stone work. Back: same room, no face. The dressed-photo checks passed front and back. 166 s. |
 
 Own photos were also tried on two more real people (one wearing glasses and a watch) in a lehenga,
 saree, blouse, anarkali and gown: the face matched the photo every time; glasses, watch, ring and bindi

@@ -35,10 +35,10 @@ class RetryableFailure extends Error {
   }
 }
 
-function buildRequest(parts, imageSize = config.gemini.imageSize) {
+function buildRequest(parts, imageSize = config.gemini.imageSize, aspectRatio = config.gemini.aspectRatio) {
   const generationConfig = {
     responseModalities: ['TEXT', 'IMAGE'],
-    imageConfig: { aspectRatio: config.gemini.aspectRatio, imageSize }
+    imageConfig: { aspectRatio, imageSize }
   };
   if (config.gemini.temperature !== null && Number.isFinite(config.gemini.temperature)) {
     generationConfig.temperature = config.gemini.temperature;
@@ -170,12 +170,12 @@ async function finishImage(image) {
  * @param {(info: Object) => void} [options.onAttempt]  Called before each attempt.
  * @returns {Promise<{ image: Object, attempts: number, usage: Object|null, modelText: string, finishReason: string }>}
  */
-async function generateImage(parts, { signal, onAttempt, imageSize } = {}) {
+async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio } = {}) {
   if (!config.gemini.apiKey()) {
     throw new StudioError('The image model is not configured on this deployment.', { status: 424, code: 'MODEL_NOT_CONFIGURED' });
   }
 
-  const body = JSON.stringify(buildRequest(parts, imageSize || config.gemini.imageSize));
+  const body = JSON.stringify(buildRequest(parts, imageSize || config.gemini.imageSize, aspectRatio || config.gemini.aspectRatio));
   const deadline = Date.now() + config.gemini.deadlineMs;
   let busyRetries = 0;
   let noImageRetries = 0;

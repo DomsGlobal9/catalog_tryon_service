@@ -344,6 +344,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   // The caller's own photo (only allowed with presentation "model"). Facing the camera,
   // it is a try-on: drawn into their own photo. Measured 12 Oct on a real photo: moving
   // them into a studio with a new pose redrew the face every time.
+  // shortcut: since 19 Oct own photos are made on a mannequin and then draped (drapeOnPerson.js), so the
+  // realPerson branches below no longer reach the image model; remove them and their tests once the
+  // two-step flow has proven itself in production.
   const realPerson = job.model.kind === 'reference';
   const inPlace = realPerson && pose !== 'back';
   const wearsIt = onMannequin ? 'the mannequin wears' : isSketch ? 'the figure wears' : 'the model wears';
