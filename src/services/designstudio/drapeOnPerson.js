@@ -64,7 +64,9 @@ async function framePerson(photo) {
 // Try-On's per-garment drape rules (tryon/backend/prompts.js CATEGORY_PROMPTS), worded for
 // a garment that is already made: the reference is the finished garment on a mannequin.
 const GARMENT_RULES = {
-  SAREE: 'THE SAREE: faithfully reproduce the drape - the complete pallu with its full length and natural fall over the shoulder, every pleat at the waist crisp, the wrapping pattern round the body. The pallu stops exactly at its border: no plain fabric hanging below it and no train on the floor.',
+  // Measured 19 Oct: the front view kept the customer's OWN drape - her pallu folded into a narrow
+  // strip across the chest and a short end at her side - not the designed saree's.
+  SAREE: 'THE SAREE is worn exactly as on the GARMENT REFERENCE, never the way the customer\'s own saree was draped: the pallu crosses the chest at the same width and with the same folds as there, goes over the same shoulder, and its decorated end hangs to the same length with all of its design showing - never folded into a narrow strip, shortened, tucked away or hidden behind an arm or another person. The border runs exactly where it does on the reference - along the pallu\'s edges and right round the hem - in front and at the back. The blouse is the reference\'s blouse in its colour and cut, never the customer\'s own. Every pleat at the waist crisp, the wrapping pattern round the body as in the reference. The pallu stops exactly at its border: no plain fabric hanging below it and no train on the floor.',
   LEHANGA: 'THE LEHENGA SET: keep the exact volume, flare and pleating of the skirt with its borders and embroidery, and the exact cut, neckline and sleeves of the choli. A dupatta only if the reference shows one, draped exactly as there.',
   ANARKALI: 'THE ANARKALI: keep the long, frock-style flare from the waist down with its exact volume and weight, the fitted bodice, neckline and sleeves, and the bottoms as shown. A dupatta only if the reference shows one.',
   SHARARA: 'THE SHARARA SUIT: keep the wide, flared, ruffled pants from the knee down, and the exact length, side slits and neckline of the top. A dupatta only if the reference shows one.',
@@ -87,6 +89,9 @@ function drapeParts(job, view, garment, framed) {
     `RULE #2 - THE GARMENT AND STRICT ISOLATION: take ONLY the garment from the GARMENT REFERENCE - ignore the mannequin, its stand and the studio. Reproduce every detail exactly: every border, panel, motif, print and embroidery, and all stone, pearl, sequin and zardosi work, at the same scale and in the same places. COLOUR LOCK: the garment's colours match the reference exactly - same hue, same saturation, same brightness of the dye; the scene's light only shades the folds and never tints the fabric.`,
     GARMENT_RULES[job.garmentId] || DEFAULT_RULE,
     'Whatever is worn with the garment in the reference (a blouse, a choli, bottoms) is worn exactly as there. Nothing of the customer\'s own outfit shows.',
+    // Measured 19 Oct in production: the customer's own elbow-length blouse sleeves stayed on
+    // the front view while the reference blouse (and the back view) was sleeveless.
+    'THE SLEEVES come from the GARMENT REFERENCE, never from the customer\'s own clothes: where the reference is sleeveless, the customer\'s arms are bare from the shoulder; where it has sleeves, they have exactly its length, shape and sleeve ends.',
     ...(view === 'back' ? ['', `THIS IS THE BACK VIEW: the GARMENT REFERENCE shows the back of the ${g.product}. Show the same customer in the same spot of the same scene, turned round so their back faces the camera, the head facing straight ahead, away from the camera: only the back of the head and their own hair are seen - no face, no profile. The back of the ${g.product} is exactly as in the reference.`] : []),
     '',
     'RULE #3 - THE SCENE LOCK: keep the customer photo\'s background, walls, floor, furniture, objects and lighting identical. Nothing from the garment reference\'s studio appears. Add nothing to the scene: no new shadows, light patterns, plants, props or objects.',

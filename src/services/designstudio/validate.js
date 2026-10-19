@@ -75,6 +75,9 @@ function partsObjectToDesigns(parts) {
         image: e.image_url !== undefined ? e.image_url : (e.imageUrl !== undefined ? e.imageUrl : e.image),
         ...(e.caption ? { note: e.caption } : {}),
         ...(e.part_label ? { label: e.part_label } : {}),
+        // A part's own settings, under either spelling (renamed in canonicaliseFields).
+        ...Object.fromEntries(['keep_motif_colors', 'keepMotifColors', 'coverage', 'ground_color', 'groundColor', 'ground_color_hex', 'groundColorHex']
+          .filter((k) => e[k] !== undefined).map((k) => [k, e[k]])),
         _seq: Number.isFinite(Number(e.sequence)) ? Number(e.sequence) : i
       };
     })
@@ -139,14 +142,27 @@ function canonicaliseFields(raw, warnings = []) {
   }
   pick(body, 'modelImageUrl', 'modelImage');
   pick(body, 'pairedWith', 'pairWith');
+  pick(body, 'pair_with', 'pairWith');
   if (typeof body.notes === 'string' && !body.notes.trim()) delete body.notes;
 
   if (body.pairWith && typeof body.pairWith === 'object' && !Array.isArray(body.pairWith)) {
     const pair = { ...body.pairWith };
     pick(pair, 'colour', 'color');
     pick(pair, 'colourHex', 'colorHex');
+    pick(pair, 'color_hex', 'colorHex');
+    pick(pair, 'colour_hex', 'colorHex');
     pick(pair, 'description', 'note');
-    body.pairWith = pair;
+    // The design library sends {"color":"","color_hex":"","note":""} when nothing is chosen.
+    for (const k of Object.keys(pair)) if (typeof pair[k] === 'string' && !pair[k].trim()) delete pair[k];
+    if (Object.keys(pair).length) body.pairWith = pair; else delete body.pairWith;
+  }
+
+  // The design library sends these once for the whole request (19 Oct 2026); they are
+  // per-design settings, so each design that does not set its own takes them.
+  const shared = {};
+  for (const [from, to] of [['keep_motif_colors', 'keepMotifColors'], ['keepMotifColours', 'keepMotifColors'], ['keep_motif_colours', 'keepMotifColors'], ['keepMotifColors', 'keepMotifColors'], ['coverage', 'coverage']]) {
+    if (body[from] !== undefined && shared[to] === undefined) shared[to] = body[from];
+    delete body[from];
   }
 
   if (Array.isArray(body.designs)) {
@@ -164,6 +180,10 @@ function canonicaliseFields(raw, warnings = []) {
       pick(design, 'groundColour', 'groundColor');
       pick(design, 'groundColourHex', 'groundColorHex');
       pick(design, 'keepMotifColours', 'keepMotifColors');
+      pick(design, 'keep_motif_colors', 'keepMotifColors');
+      pick(design, 'ground_color', 'groundColor');
+      pick(design, 'ground_color_hex', 'groundColorHex');
+      for (const [k, v] of Object.entries(shared)) if (design[k] === undefined) design[k] = v;
       return design;
     });
   }

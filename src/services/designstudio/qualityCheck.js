@@ -193,10 +193,22 @@ async function reviewImage(review, image, { signal } = {}) {
 // photograph (views: ["back"] alone) they have nothing to compare with.
 const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_person', 'same_mannequin', 'same_studio', 'same_supporting']);
 
-function viewChecklist(review, references = [], { withFront = true } = {}) {
+function viewChecklist(review, references = [], { withFront = true, withGarment = false } = {}) {
   const product = review.product;
   const onMannequin = review.presentation === 'mannequin';
   const checks = [];
+  // Own photo, drape step: the finished garment (on the mannequin) is the ground truth.
+  // Measured 19 Oct: the customer's own elbow-length sleeves survived the drape on the front
+  // only, while the garment and the back view were sleeveless.
+  if (withGarment) {
+    // Measured 19 Oct: the front kept the customer's own saree drape (narrow pallu strip across
+    // the chest, a short end at the side) while the back was right.
+    const saree = review.garmentId === 'SAREE';
+    checks.push(['garment_same', `Compare the outfit only, ignoring the pose, the person, the light and the background. Is the ${product} in the PHOTOGRAPH the one in the GARMENT picture - the same colours, the same borders in the same places (along every edge and hem where the GARMENT has them), the same motifs and stone work, and whatever is worn with it (a blouse, a choli) in the same colour${saree ? ' - and worn the same way: the pallu crossing the chest at the same width and with the same folds, over the same shoulder, its decorated end hanging to the same length with its design showing' : ''}?`,
+      `The ${product} is exactly the one in the GARMENT REFERENCE: the same colours, the same borders along the same edges and hem, the same motifs and stone work, and whatever is worn with it in its colour - never the customer's own clothes${saree ? '; worn the same way - the pallu across the chest at the same width and with the same folds, over the same shoulder, its decorated end hanging to the same length with all its design showing, not folded into a narrow strip or hidden' : ''}.`]);
+    checks.push(['garment_sleeves', 'Look only at the sleeves of the outfit. Does the PHOTOGRAPH have the same sleeves as the GARMENT picture - sleeveless (bare arms from the shoulder) if the GARMENT is sleeveless, otherwise the same length, shape and sleeve ends? Ignore the pose, the person and the background.',
+      'THE SLEEVES are exactly as in the GARMENT REFERENCE, not the customer\'s own: if the garment is sleeveless, the arms are bare from the shoulder; otherwise the same sleeve length, shape and sleeve ends.']);
+  }
   // The most likely way a mannequin photo goes wrong: the image model puts a person in it.
   if (onMannequin) {
     checks.push(['no_person', `Is the ${product} shown on a headless dress-form mannequin, with no person, no head, no face and no hands anywhere in the photograph?`,
@@ -353,14 +365,14 @@ async function reviewLabels(expected, image, { signal } = {}) {
  * Compare a back photograph with the front photograph it was made from.
  * Same shape of answer as reviewImage. Never required.
  */
-async function reviewView(review, { image, frontImage = null, references = [], signal } = {}) {
+async function reviewView(review, { image, frontImage = null, garmentImage = null, references = [], signal } = {}) {
   const started = Date.now();
-  const checklist = viewChecklist(review, references, { withFront: !!frontImage });
+  const checklist = viewChecklist(review, references, { withFront: !!frontImage, withGarment: !!garmentImage });
   const unchecked = (problem) => ({ checked: false, failures: [], problem, ms: Date.now() - started });
   if (!config.pair.enabled || !config.gemini.apiKey() || !checklist.length) return unchecked('disabled');
   const isBack = review.view === 'back' && frontImage;
   const text = [
-    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on ${review.presentation === 'mannequin' ? 'a headless dress-form mannequin' : 'a model'}. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}${checklist.some((c) => c.id === 'same_face') ? '; the PERSON picture is the real customer who must be the one wearing it' : ''}.`,
+    `You are the quality inspector for a fashion catalogue. The PHOTOGRAPH is the ${review.view || 'front'} view of a ${review.product} on ${review.presentation === 'mannequin' ? 'a headless dress-form mannequin' : 'a model'}. The REFERENCE pictures are the customer's design references that the ${review.product} was made from${isBack ? '; the FRONT picture is the front view of the same garment, already approved' : ''}${garmentImage ? '; the GARMENT picture is the finished garment, on a mannequin, that the person must be wearing' : ''}${checklist.some((c) => c.id === 'same_face') ? '; the PERSON picture is the real customer who must be the one wearing it' : ''}.`,
     'Answer each check strictly: pass=true only when it is clearly satisfied. When something differs, answer pass=false and say what differs in evidence (under 25 words).',
     'Answer every check, using its id.',
     '',
@@ -369,6 +381,7 @@ async function reviewView(review, { image, frontImage = null, references = [], s
   const parts = [{ text }, { text: 'PHOTOGRAPH:' }, { inlineData: { mimeType: image.mimeType, data: image.base64 } }];
   for (const r of references) parts.push({ text: `REFERENCE ${r.ref} (${r.part}):` }, { inlineData: { mimeType: r.image.mimeType, data: r.image.base64 } });
   if (isBack) parts.push({ text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } });
+  if (garmentImage) parts.push({ text: 'GARMENT picture:' }, { inlineData: { mimeType: garmentImage.mimeType, data: garmentImage.base64 } });
   if (checklist.some((c) => c.id === 'same_face')) parts.push({ text: 'PERSON photo:' }, { inlineData: { mimeType: review.personPhoto.mimeType, data: review.personPhoto.base64 } });
   try {
     const asked = await askInspector(parts, RESPONSE_SCHEMA, signal);

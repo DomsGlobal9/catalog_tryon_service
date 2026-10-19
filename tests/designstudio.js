@@ -781,6 +781,19 @@ async function runAll({ check, eq, section, SRC }) {
       idOnly.fabrics.length, /fabrics\.MAIN_FABRIC\[0\] \(639c8187-eb4c-4287-a09e-eea363334a32\) has no picture, so it was not used/.test(idOnly.inputWarnings[0]),
       idWithPicture.fabrics.map((f) => f.itemCode), idWithPicture.inputWarnings],
     [3, 0, true, ['639c8187-eb4c-4287-a09e-eea363334a32'], []]);
+  // 19 Oct 2026: the design library sends pair_with (empty when nothing chosen), keep_motif_colors
+  // and coverage once for the whole request. They were refused as unknown fields (400).
+  const libExtras = { ...libraryPayload, pair_with: { color: '', color_hex: '', note: '' }, keep_motif_colors: false, coverage: 'reference' };
+  const extrasJob = resolveRequest(libExtras);
+  const libPairJob = resolveRequest({ ...libraryPayload, pair_with: { color: 'maroon', color_hex: '#800000', note: '' } });
+  const ownSetting = resolveRequest({ ...libExtras, parts: { ...libraryPayload.parts, neck_design: { ...libraryPayload.parts.neck_design, keep_motif_colors: true } } });
+  eq('the library\'s pair_with, keep_motif_colors and coverage are accepted: an empty pair_with is left out, the two settings apply to every design that does not set its own',
+    [extrasJob.pairWith, extrasJob.designs.map((d) => [d.keepMotifColors, d.coverage]), [libPairJob.pairWith.color, libPairJob.pairWith.colorHex, libPairJob.pairWith.note],
+      ownSetting.designs.find((d) => d.areaId === 'NECK').keepMotifColors],
+    [null, [[false, 'reference'], [false, 'reference'], [false, 'reference'], [false, 'reference']], ['maroon', '#800000', null], true]);
+  let badCoverage = null;
+  try { resolveRequest({ ...libraryPayload, coverage: 'half' }); } catch (err) { badCoverage = err.status; }
+  eq('a wrong shared coverage value is still refused (400), not silently dropped', badCoverage, 400);
   eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
@@ -1452,7 +1465,8 @@ async function runAll({ check, eq, section, SRC }) {
     let faceRound = 0;
     qa._setFetch(async (url, opts) => {
       const parts = JSON.parse(opts.body).contents[0].parts;
-      faceAsks.push({ ids: [...parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]), person: parts.some((p, i) => p.text === 'PERSON photo:' && parts[i + 1] && parts[i + 1].inlineData) });
+      faceAsks.push({ ids: [...parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]), person: parts.some((p, i) => p.text === 'PERSON photo:' && parts[i + 1] && parts[i + 1].inlineData),
+        garment: parts.some((p, i) => p.text === 'GARMENT picture:' && parts[i + 1] && parts[i + 1].inlineData) });
       // Fail the face check the first time it is asked (the inspection may be asked first).
       const asked = faceAsks[faceAsks.length - 1].ids.includes('same_face');
       return qaAnswer(asked && faceRound++ === 0 ? ['same_face'] : [])(url, opts);
@@ -1478,6 +1492,20 @@ async function runAll({ check, eq, section, SRC }) {
       [faceAsks.filter((a) => a.ids.includes('same_face')).map((a) => [a.ids.includes('same_face'), a.person]), /Keep the exact face of the person in the PERSON PHOTO/.test(textOf(faceCalls[2])),
         /virtual fitting session/.test(textOf(faceCalls[2])), events[events.length - 1].quality.photo.passed, events[events.length - 1].quality.regenerated],
       [[[true, true], [true, true]], true, true, true, true]);
+    // Measured 19 Oct in production: her own elbow-length sleeves stayed on the front while the garment was sleeveless.
+    const drapeAsks = faceAsks.filter((a) => a.ids.includes('same_face'));
+    // Measured 19 Oct too: the front kept her own pallu drape, the back her own pink blouse and lost the hem border.
+    eq('own photo: the garment, its sleeves and its drape come from the mannequin photo - the drape prompt says so, and every dressed photo is checked against that GARMENT picture',
+      [/THE SLEEVES come from the GARMENT REFERENCE, never from the customer's own clothes/.test(textOf(faceCalls[1])),
+        /never the way the customer's own saree was draped/.test(textOf(faceCalls[1])) && /right round the hem/.test(textOf(faceCalls[1])) && /never the customer's own\. /.test(textOf(faceCalls[1])),
+        drapeAsks.map((a) => [a.ids.includes('garment_same'), a.ids.includes('garment_sleeves'), a.garment]),
+        faceAsks.filter((a) => !a.ids.includes('same_face')).some((a) => a.ids.includes('garment_sleeves') || a.ids.includes('garment_same'))],
+      [true, true, [[true, true, true], [true, true, true]], false]);
+    const sareeAsk = qa.viewChecklist({ product: 'saree', garmentId: 'SAREE', view: 'back', personPhoto: IMG }, [], { withGarment: true, withFront: false });
+    eq('the garment check names the pallu drape for a saree only, and the back view of an own photo gets it too',
+      [/the pallu crossing the chest/.test(sareeAsk.find((c) => c.id === 'garment_same').question),
+        /pallu/.test(qa.viewChecklist({ product: 'blouse', garmentId: 'BLOUSE', view: 'front', personPhoto: IMG }, [], { withGarment: true }).find((c) => c.id === 'garment_same').question)],
+      [true, false]);
     eq('every other request keeps the normal size and 3:4',
       twoCalls.map((c) => [c.body.generationConfig.imageConfig.imageSize, c.body.generationConfig.imageConfig.aspectRatio]), [['2K', '3:4'], ['2K', '3:4']]);
     qa._setFetch(qaAnswer());

@@ -148,6 +148,8 @@ This shape is accepted exactly as the design library produces it - no rewriting 
 | `parts.*.part_label`, `id`, `design_id`, `design_title`, `designer_name`, `part_refs` | accepted, not used | Your own bookkeeping |
 | `fabrics` as an object of roles | `fabrics[]` | `MAIN_FABRIC` is the main fabric; `BORDER` applies to the `BORDER` area (dropped when the garment has no border area, like a blouse); `LINING` and `BACKING_FABRIC` are inside the garment and never used. |
 | `model_image` | `modelImage` | A link or base64 |
+| `pair_with` (`color`, `color_hex`, `note`) | `pairWith` | Since 19 October 2026. Empty strings are ignored; an all-empty `pair_with` is the same as none. |
+| `keep_motif_colors`, `coverage` at the top level | `designs[].keepMotifColors`, `designs[].coverage` | Since 19 October 2026: one value for every design. A design that carries its own (`parts.*.keep_motif_colors`, `parts.*.coverage`) keeps it. A wrong value is still a 400. |
 
 **A fabric must be a picture.** The design library stores fabric **ids** (`639c8187-...`). Only your
 system can turn an id into its picture, so send each fabric's Cloudinary link or base64. To keep your id
@@ -297,6 +299,13 @@ can make, and the result is cut back to exactly the photo's area, so nothing inv
 - **Both are checked.** The front photograph is compared with your photo, and the back one is checked for
   a hidden face. If either fails it is made once more; a remaining difference is reported in
   `done.quality` as `same_face` (front) or `face_hidden` (back).
+- **The outfit is the designed one, not theirs** (since 19 October 2026). Measured on a real photo: the
+  front kept the customer's own elbow-length sleeves and her own narrow pallu drape, the back kept her own
+  pink blouse and lost the hem border, while the garment made on the mannequin was right. Each dressed
+  photo is now compared with that garment picture - colours, borders along the same edges and hem, motifs
+  and stone work, the blouse or choli in its colour, the sleeves, and for a saree the pallu's width, folds,
+  shoulder and length - made once more if it differs, and a remaining difference is reported as
+  `garment_same` or `garment_sleeves`.
 - **Exactly one person** (since 15 October 2026, for every photograph on a person, yours or a generated
   model). Measured once: a front photograph came back with the customer twice, side by side - a face check
   passes a copy of the same face. Every photograph is now checked for one person, made once more if not,

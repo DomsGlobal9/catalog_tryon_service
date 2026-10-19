@@ -308,7 +308,7 @@ async function generate(req, res, next) {
       if (!config.pair.enabled) return draped;
       // Same face (front) or a hidden face (back), one person, and the back against the front.
       const review = { ...(viewPrompt.review || {}), presentation: undefined, layered: false, personPhoto: job.model.image, view, pose: view };
-      const check = (image) => reviewView(review, { image, frontImage: view === 'back' && frontDraped ? frontDraped.image : null, references: [], signal: abort.signal });
+      const check = (image) => reviewView(review, { image, frontImage: view === 'back' && frontDraped ? frontDraped.image : null, garmentImage: garment.image, references: [], signal: abort.signal });
       send({ type: 'status', stage: 'checking', message: 'Checking the dressed photo.' });
       let verdict = await check(draped.image);
       if (verdict.checked && verdict.failures.length && config.pair.maxRegenerations > 0
