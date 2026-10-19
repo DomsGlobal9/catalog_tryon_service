@@ -746,6 +746,42 @@ To stop, abort the request (`AbortController`) or call `/cancel`.
 
 ---
 
+## `GET /api/v1/designstudio/result/{jobId}`
+
+**Collect a result after the stream dropped** (since 19 October 2026). A request can take 2-3 minutes
+(a person photo makes the garment first, then dresses the photo), and a long connection can be cut on
+the way - measured on 19 October: Render's front door dropped streams after 30-77 seconds while the job
+carried on and finished. Every result is kept for **15 minutes** after the job ends, under the `jobId`
+that the very first `start` event carries. Keep it, and if the stream ends without `done` or `error`:
+
+```
+GET /api/v1/designstudio/result/6c1f...      x-api-key: <your key>
+```
+
+```json
+{ "success": true, "jobId": "6c1f...", "status": "done",
+  "images": [ { "type": "image", "jobId": "6c1f...", "view": "front", "mimeType": "image/jpeg", "width": 883, "height": 2752, "image": "data:image/jpeg;base64,..." },
+              { "type": "image", "jobId": "6c1f...", "view": "back", "...": "..." } ],
+  "done": { "type": "done", "jobId": "6c1f...", "status": "ok", "views": ["front", "back"] },
+  "error": null }
+```
+
+| `status` | Meaning |
+| :--- | :--- |
+| `running` | Still working - ask again in about 10 seconds. `images` has the views finished so far. |
+| `done` | Finished: `images` are the photographs (exactly as the stream would have sent them), `done` the final event. |
+| `error` / `cancelled` | Ended without a photograph; `error` is the same event the stream would have ended with. |
+
+`404 RESULT_NOT_FOUND` when the jobId is unknown, belongs to another account, or finished more than 15
+minutes ago. Only the account that made the request can collect it. Collecting costs nothing - no new
+image is made.
+
+A request from a caller that **disconnects directly** from this service is still stopped (so a closed tab
+does not keep spending); the result is there for the case above, where the connection is cut in between
+and the job runs on.
+
+---
+
 ## `POST /api/v1/designstudio/cancel`
 
 ```json

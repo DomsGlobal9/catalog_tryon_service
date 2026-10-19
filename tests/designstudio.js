@@ -1566,6 +1566,28 @@ async function runAll({ check, eq, section, SRC }) {
       [cancelled.cancelled, slowResult.events[slowResult.events.length - 1].code, geminiSignal && geminiSignal.aborted], [true, 'CANCELLED', true]);
     check('keep-alive pings were sent while it worked', /: keepalive \d+/.test(slowResult.text));
 
+    // GET /result/:jobId - collect a result after the stream dropped (19 Oct: the gateway's front door dropped long streams).
+    const getResult = (jobId, acct) => fetch(`${base}/result/${jobId}`, { headers: { 'x-gateway-client-id': acct } });
+    const cancelledJobId = slowResult.events[0].jobId;
+    const cancelledResult = await (await getResult(cancelledJobId, 'acct-cancel')).json();
+    eq('result: a cancelled job reads as cancelled, with its CANCELLED error', [cancelledResult.status, cancelledResult.error && cancelledResult.error.code, cancelledResult.images.length], ['cancelled', 'CANCELLED', 0]);
+    slow();
+    const collecting = await post('/generate', oneView({ clientId: 'collector' }), { headers: { 'x-gateway-client-id': 'acct-collect' } });
+    const collectReader = collecting.body.getReader();
+    let collectText = '';
+    while (!/"type":"start"/.test(collectText)) collectText += new TextDecoder().decode((await collectReader.read()).value);
+    const collectJobId = JSON.parse(collectText.match(/data: (\{"type":"start".*\})/)[1]).jobId;
+    const whileRunning = await (await getResult(collectJobId, 'acct-collect')).json();
+    for (;;) { const { done, value } = await collectReader.read(); if (done) break; collectText += new TextDecoder().decode(value); }
+    const streamedImage = collectText.split('\n\n').filter((f) => f.startsWith('data: ')).map((f) => JSON.parse(f.slice(6))).find((e) => e.type === 'image');
+    const afterwards = await (await getResult(collectJobId, 'acct-collect')).json();
+    const otherAccount = await getResult(collectJobId, 'acct-someone-else');
+    const unknown = await getResult('no-such-job', 'acct-collect');
+    eq('result: running while it works, then done with exactly the photograph the stream carried; another account and an unknown id get 404',
+      [whileRunning.status, afterwards.status, afterwards.images.length, afterwards.images[0].image === streamedImage.image, afterwards.done.type,
+        otherAccount.status, (await otherAccount.json()).error.code, unknown.status],
+      ['running', 'done', 1, true, 'done', 404, 'RESULT_NOT_FOUND', 404]);
+
     slow();
     const leaving = new AbortController();
     const leaverRes = await post('/generate', oneView({ clientId: 'leaver' }), { signal: leaving.signal });

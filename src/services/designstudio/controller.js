@@ -28,6 +28,7 @@ const { generateImage } = require('./geminiImage');
 const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { framePerson, drapeParts } = require('./drapeOnPerson');
+const resultStore = require('./resultStore');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
 const PIPELINE = 'designstudio';
@@ -75,9 +76,12 @@ async function generate(req, res, next) {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
+  // Kept even when nobody is listening any more, so a dropped caller can collect it (GET /result/:jobId).
+  resultStore.begin(admitted.job.id, req.account);
   const send = (event) => {
-    if (res.writableEnded || res.destroyed) return;
     const out = config.stream.detail === 'full' ? event : imageOnly(event);
+    resultStore.record(admitted.job.id, out);
+    if (res.writableEnded || res.destroyed) return;
     if (out) res.write(`data: ${JSON.stringify(out)}\n\n`);
   };
   const heartbeat = setInterval(() => {
@@ -433,6 +437,21 @@ async function cancel(req, res, next) {
   }
 }
 
+/**
+ * GET /result/:jobId  - what a request produced, for a caller whose stream dropped.
+ * status: running (ask again shortly) | done | error | cancelled. Same account only.
+ */
+function result(req, res) {
+  const jobId = String(req.params.jobId || '');
+  const j = resultStore.get(jobId, req.account);
+  if (!j) {
+    res.status(404).json({ success: false, error: { code: 'RESULT_NOT_FOUND', retryable: false,
+      message: `No result for this jobId. It is unknown, belongs to another account, or finished more than ${resultStore.KEEP_MS / 60000} minutes ago.` } });
+    return;
+  }
+  res.json({ success: true, jobId, status: j.status, images: j.images, done: j.done, error: j.error });
+}
+
 /** GET /options  - everything a client needs to build a valid request. */
 function options(_req, res) {
   res.json({
@@ -469,4 +488,4 @@ function options(_req, res) {
   });
 }
 
-module.exports = { generate, cancel, options, PIPELINE };
+module.exports = { generate, cancel, result, options, PIPELINE };

@@ -18,6 +18,7 @@ router.use(express.json({ limit: `${config.limits.maxBodyMb}mb` }));
 router.get('/options', controller.options);
 router.post('/generate', controller.generate);
 router.post('/cancel', controller.cancel);
+router.get('/result/:jobId', controller.result);
 
 router.use((req, res) => {
   res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `${req.method} ${req.originalUrl} does not exist.`, retryable: false } });
