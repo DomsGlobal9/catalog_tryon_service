@@ -82,7 +82,7 @@ function partsObjectToDesigns(parts) {
     .map(({ _seq, ...d }) => d);
 }
 
-function fabricsObjectToArray(fabrics, garmentValue) {
+function fabricsObjectToArray(fabrics, garmentValue, warnings = []) {
   const out = [];
   // A role that names a design area the garment does not have (a BORDER fabric
   // for a blouse) is dropped: the photograph has nowhere to show it.
@@ -101,9 +101,14 @@ function fabricsObjectToArray(fabrics, garmentValue) {
       const e = entry && typeof entry === 'object' && !Array.isArray(entry) ? { ...entry } : { image: entry };
       pick(e, 'image_url', 'image');
       pick(e, 'imageUrl', 'image');
-      if (typeof e.image === 'string' && !IMAGE_LIKE(e.image)) {
-        throw validation(`fabrics.${role}[${i}] is "${e.image.slice(0, 40)}", which looks like a fabric id, not a picture. Send the fabric photograph as an https Cloudinary link or base64.`,
-          [{ field: `fabrics.${role}[${i}]`, code: 'FABRIC_ID_NOT_IMAGE' }]);
+      // The library's ids are the caller's own tracking (19 Oct): kept as itemCode, echoed back in start.
+      for (const key of ['id', 'fabric_id', 'fabricId']) pick(e, key, 'itemCode');
+      if (typeof e.image === 'string' && !IMAGE_LIKE(e.image) && e.itemCode === undefined) { e.itemCode = e.image; delete e.image; }
+      if (typeof e.itemCode === 'string') e.itemCode = e.itemCode.slice(0, 40);
+      // An id with no picture used to refuse the whole request; now that fabric is left out and said so.
+      if (typeof e.image !== 'string' || !IMAGE_LIKE(e.image)) {
+        warnings.push(`fabrics.${role}[${i}]${e.itemCode ? ` (${e.itemCode})` : ''} has no picture, so it was not used. Send its photograph (an https Cloudinary link or base64) to fix the garment's colour.`);
+        return;
       }
       out.push({ ...e, ...(appliesTo ? { appliesTo } : {}) });
     });
@@ -114,7 +119,7 @@ function fabricsObjectToArray(fabrics, garmentValue) {
   return out.filter((f) => { if (f.appliesTo) return true; if (seenMain) return false; seenMain = true; return true; });
 }
 
-function canonicaliseFields(raw) {
+function canonicaliseFields(raw, warnings = []) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
   const body = { ...raw };
   pick(body, 'productType', 'garment');
@@ -130,7 +135,7 @@ function canonicaliseFields(raw) {
   }
   pick(body, 'parts', 'designs');
   if (body.fabrics && typeof body.fabrics === 'object' && !Array.isArray(body.fabrics)) {
-    body.fabrics = fabricsObjectToArray(body.fabrics, body.garment);
+    body.fabrics = fabricsObjectToArray(body.fabrics, body.garment, warnings);
   }
   pick(body, 'modelImageUrl', 'modelImage');
   pick(body, 'pairedWith', 'pairWith');
@@ -291,7 +296,8 @@ function formatZodIssues(error) {
  * @throws StudioError 400
  */
 function resolveRequest(rawBody) {
-  const parsed = schema.safeParse(canonicaliseFields(rawBody === undefined ? {} : rawBody));
+  const inputWarnings = [];
+  const parsed = schema.safeParse(canonicaliseFields(rawBody === undefined ? {} : rawBody, inputWarnings));
   if (!parsed.success) {
     const issues = formatZodIssues(parsed.error);
     throw validation(`Invalid request: ${issues.map((i) => `${i.field} ${i.message}`).join('; ')}`, issues);
@@ -389,6 +395,7 @@ function resolveRequest(rawBody) {
 
   return {
     presentation,
+    inputWarnings, // shown in start.warnings
     clientId: input.clientId,
     productName: input.productName || null,
     garmentId: garment.id,

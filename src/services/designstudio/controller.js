@@ -110,7 +110,7 @@ async function generate(req, res, next) {
       views: job.views || [prompt.pose], // the photographs this request will make, in order
       framing: prompt.framing, // full | three-quarter | waist-up
       aspectRatio: config.gemini.aspectRatio,
-      warnings: prompt.warnings
+      warnings: [...(job.inputWarnings || []), ...prompt.warnings]
     });
 
     // Step one: put the references into words, so the image model cannot quietly

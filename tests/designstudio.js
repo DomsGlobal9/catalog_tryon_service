@@ -772,9 +772,15 @@ async function runAll({ check, eq, section, SRC }) {
   eq('the design-library payload is accepted as sent: parts keyed by "<area>_design" in sequence order, fabrics by role, model_image',
     [libJob.garmentId, libJob.designs.map((d) => d.areaId), libJob.designs[2].note, libJob.designs[2].areaId, libJob.fabrics.map((f) => f.appliesTo || 'MAIN'), libJob.model.kind, libJob.productName, libJob.views],
     ['BLOUSE', ['FRONT', 'BACK', 'HAND', 'NECK'], 'keep the tassels', 'HAND', ['MAIN'], 'reference', 'Blouse', ['front', 'back']]);
-  eq('lining, backing and a BORDER fabric on a garment with no border area are ignored; a main-fabric id instead of a picture is refused with the fix named',
-    [libJob.fabrics.length + resolveRequest({ ...libraryPayload, garment_key: 'saree', parts: { pallu_design: { image_url: cloud('ok.png') } } }).fabrics.length, code(() => resolveRequest({ ...libraryPayload, fabrics: { MAIN_FABRIC: ['639c8187-eb4c-4287-a09e-eea363334a32'] } }))],
-    [3, 'FABRIC_ID_NOT_IMAGE']);
+  // Since 19 Oct the library's ids are the caller's tracking: an id alone leaves that fabric out (said so),
+  // an id beside a picture is kept as itemCode. Before, an id alone refused the whole request.
+  const idOnly = resolveRequest({ ...libraryPayload, fabrics: { MAIN_FABRIC: ['639c8187-eb4c-4287-a09e-eea363334a32'] } });
+  const idWithPicture = resolveRequest({ ...libraryPayload, fabrics: { MAIN_FABRIC: [{ id: '639c8187-eb4c-4287-a09e-eea363334a32', image_url: cloud('ok.png') }] } });
+  eq('lining, backing and a BORDER fabric on a garment with no border area are ignored; a fabric id alone is left out with a warning naming it; an id beside a picture is kept for tracking',
+    [libJob.fabrics.length + resolveRequest({ ...libraryPayload, garment_key: 'saree', parts: { pallu_design: { image_url: cloud('ok.png') } } }).fabrics.length,
+      idOnly.fabrics.length, /fabrics\.MAIN_FABRIC\[0\] \(639c8187-eb4c-4287-a09e-eea363334a32\) has no picture, so it was not used/.test(idOnly.inputWarnings[0]),
+      idWithPicture.fabrics.map((f) => f.itemCode), idWithPicture.inputWarnings],
+    [3, 0, true, ['639c8187-eb4c-4287-a09e-eea363334a32'], []]);
   eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
