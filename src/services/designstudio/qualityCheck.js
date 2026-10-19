@@ -208,6 +208,12 @@ function viewChecklist(review, references = [], { withFront = true, withGarment 
       `The ${product} is exactly the one in the GARMENT REFERENCE: the same colours, the same borders along the same edges and hem, the same motifs and stone work, and whatever is worn with it in its colour - never the customer's own clothes${saree ? '; worn the same way - the pallu across the chest at the same width and with the same folds, over the same shoulder, its decorated end hanging to the same length with all its design showing, not folded into a narrow strip or hidden' : ''}.`]);
     checks.push(['garment_sleeves', 'Look only at the sleeves of the outfit. Does the PHOTOGRAPH have the same sleeves as the GARMENT picture - sleeveless (bare arms from the shoulder) if the GARMENT is sleeveless, otherwise the same length, shape and sleeve ends? Ignore the pose, the person and the background.',
       'THE SLEEVES are exactly as in the GARMENT REFERENCE, not the customer\'s own: if the garment is sleeveless, the arms are bare from the shoulder; otherwise the same sleeve length, shape and sleeve ends.']);
+    // Measured 19 Oct: her own red pallu and blouse stayed beside the designed maroon body - two
+    // sarees in one. The PERSON photo is sent for this check on the back view too.
+    if (review.personPhoto) {
+      checks.push(['own_clothes_gone', 'Compare with the PERSON photo. Has every piece of clothing the person wore there been replaced - no part of their own garment, its colour, its pallu, its border, its blouse or its sleeves remaining anywhere in the PHOTOGRAPH - so the outfit is ONE outfit in the GARMENT picture\'s colours from shoulder to hem, not partly in the colour of what they wore?',
+        'Nothing of the clothes in the CUSTOMER PHOTO remains: their own garment, its colour, pallu, border, blouse and sleeves are gone entirely, replaced by the GARMENT REFERENCE outfit from the shoulders to the hem, in its colours throughout.']);
+    }
   }
   // The most likely way a mannequin photo goes wrong: the image model puts a person in it.
   if (onMannequin) {
@@ -382,7 +388,7 @@ async function reviewView(review, { image, frontImage = null, garmentImage = nul
   for (const r of references) parts.push({ text: `REFERENCE ${r.ref} (${r.part}):` }, { inlineData: { mimeType: r.image.mimeType, data: r.image.base64 } });
   if (isBack) parts.push({ text: 'FRONT view:' }, { inlineData: { mimeType: frontImage.mimeType, data: frontImage.base64 } });
   if (garmentImage) parts.push({ text: 'GARMENT picture:' }, { inlineData: { mimeType: garmentImage.mimeType, data: garmentImage.base64 } });
-  if (checklist.some((c) => c.id === 'same_face')) parts.push({ text: 'PERSON photo:' }, { inlineData: { mimeType: review.personPhoto.mimeType, data: review.personPhoto.base64 } });
+  if (checklist.some((c) => c.id === 'same_face' || c.id === 'own_clothes_gone')) parts.push({ text: 'PERSON photo:' }, { inlineData: { mimeType: review.personPhoto.mimeType, data: review.personPhoto.base64 } });
   try {
     const asked = await askInspector(parts, RESPONSE_SCHEMA, signal);
     if (asked.problem) return unchecked(asked.problem);

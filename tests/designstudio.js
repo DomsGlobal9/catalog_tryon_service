@@ -1498,14 +1498,15 @@ async function runAll({ check, eq, section, SRC }) {
     eq('own photo: the garment, its sleeves and its drape come from the mannequin photo - the drape prompt says so, and every dressed photo is checked against that GARMENT picture',
       [/THE SLEEVES come from the GARMENT REFERENCE, never from the customer's own clothes/.test(textOf(faceCalls[1])),
         /never the way the customer's own saree was draped/.test(textOf(faceCalls[1])) && /right round the hem/.test(textOf(faceCalls[1])) && /never the customer's own\. /.test(textOf(faceCalls[1])),
-        drapeAsks.map((a) => [a.ids.includes('garment_same'), a.ids.includes('garment_sleeves'), a.garment]),
-        faceAsks.filter((a) => !a.ids.includes('same_face')).some((a) => a.ids.includes('garment_sleeves') || a.ids.includes('garment_same'))],
-      [true, true, [[true, true, true], [true, true, true]], false]);
+        drapeAsks.map((a) => [a.ids.includes('garment_same'), a.ids.includes('garment_sleeves'), a.ids.includes('own_clothes_gone'), a.garment]),
+        faceAsks.filter((a) => !a.ids.includes('same_face')).some((a) => a.ids.includes('garment_sleeves') || a.ids.includes('garment_same') || a.ids.includes('own_clothes_gone')),
+        /THE CUSTOMER'S OWN CLOTHES ARE REPLACED ENTIRELY/.test(textOf(faceCalls[1]))],
+      [true, true, [[true, true, true, true], [true, true, true, true]], false, true]);
     const sareeAsk = qa.viewChecklist({ product: 'saree', garmentId: 'SAREE', view: 'back', personPhoto: IMG }, [], { withGarment: true, withFront: false });
-    eq('the garment check names the pallu drape for a saree only, and the back view of an own photo gets it too',
-      [/the pallu crossing the chest/.test(sareeAsk.find((c) => c.id === 'garment_same').question),
+    eq('the garment check names the pallu drape for a saree only; the back view of an own photo gets it and the own-clothes check too (the person photo goes with it, though the face is not judged there)',
+      [/the pallu crossing the chest/.test(sareeAsk.find((c) => c.id === 'garment_same').question), sareeAsk.map((c) => c.id),
         /pallu/.test(qa.viewChecklist({ product: 'blouse', garmentId: 'BLOUSE', view: 'front', personPhoto: IMG }, [], { withGarment: true }).find((c) => c.id === 'garment_same').question)],
-      [true, false]);
+      [true, ['garment_same', 'garment_sleeves', 'own_clothes_gone', 'face_hidden', 'back_shown', 'no_front_on_back', 'arms_clear', 'one_person'], false]);
     eq('every other request keeps the normal size and 3:4',
       twoCalls.map((c) => [c.body.generationConfig.imageConfig.imageSize, c.body.generationConfig.imageConfig.aspectRatio]), [['2K', '3:4'], ['2K', '3:4']]);
     qa._setFetch(qaAnswer());

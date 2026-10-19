@@ -305,7 +305,9 @@ can make, and the result is cut back to exactly the photo's area, so nothing inv
   photo is now compared with that garment picture - colours, borders along the same edges and hem, motifs
   and stone work, the blouse or choli in its colour, the sleeves, and for a saree the pallu's width, folds,
   shoulder and length - made once more if it differs, and a remaining difference is reported as
-  `garment_same` or `garment_sleeves`.
+  `garment_same` or `garment_sleeves`. It is also compared with your photo for anything of the
+  customer's own clothes left behind (her red pallu stayed beside the designed maroon body once - two
+  sarees in one), reported as `own_clothes_gone`.
 - **Exactly one person** (since 15 October 2026, for every photograph on a person, yours or a generated
   model). Measured once: a front photograph came back with the customer twice, side by side - a face check
   passes a copy of the same face. Every photograph is now checked for one person, made once more if not,
