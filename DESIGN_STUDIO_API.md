@@ -150,8 +150,11 @@ This shape is accepted exactly as the design library produces it - no rewriting 
 | `model_image` | `modelImage` | A link or base64 |
 
 **A fabric must be a picture.** The design library stores fabric **ids** (`639c8187-...`). Only your
-system can turn an id into its picture, so replace each id with the fabric's Cloudinary link or base64
-before sending. An id sent as-is is refused: `400` with `FABRIC_ID_NOT_IMAGE` naming the entry.
+system can turn an id into its picture, so send each fabric's Cloudinary link or base64. To keep your id
+for tracking, send both - `{ "id": "639c8187-...", "image_url": "https://res.cloudinary.com/..." }` - and
+the id comes back as that fabric's `itemCode` in `start`. A fabric sent as an id alone is left out (since
+19 October 2026; before, the whole request was refused with `FABRIC_ID_NOT_IMAGE`): the garment is still
+made, and `start.warnings` names each fabric that had no picture, with its id.
 Without fabric pictures the image model chooses the colours itself, and they can change from one request
 to the next: measured on 13 October, the same 7-part saree came out teal, purple, or both.
 
@@ -770,7 +773,7 @@ Before the stream (JSON body `{ "success": false, "error": { "code", "message", 
 
 | Status | `code` | Meaning |
 | :--- | :--- | :--- |
-| `400` | `VALIDATION_ERROR` | Something in the request is wrong. `details[]` names each `field` and a specific `code`: `UNKNOWN_GARMENT`, `UNKNOWN_DESIGN_AREA`, `DUPLICATE_DESIGN_AREA`, `MULTIPLE_MAIN_FABRICS`, `FABRIC_AREA_CONFLICT`, `FABRIC_ID_NOT_IMAGE`, `VIEW_NOT_AVAILABLE`, `IMAGE_SOURCE_NOT_ALLOWED`, `INSECURE_URL`, `INVALID_IMAGE_ENCODING`, `IMAGE_TOO_LARGE`, `INVALID_FIELD`. |
+| `400` | `VALIDATION_ERROR` | Something in the request is wrong. `details[]` names each `field` and a specific `code`: `UNKNOWN_GARMENT`, `UNKNOWN_DESIGN_AREA`, `DUPLICATE_DESIGN_AREA`, `MULTIPLE_MAIN_FABRICS`, `FABRIC_AREA_CONFLICT`, `VIEW_NOT_AVAILABLE`, `IMAGE_SOURCE_NOT_ALLOWED`, `INSECURE_URL`, `INVALID_IMAGE_ENCODING`, `IMAGE_TOO_LARGE`, `INVALID_FIELD`. |
 | `400` | `INVALID_JSON` | The body is not valid JSON. |
 | `401` | — | Missing or wrong `x-api-key`. |
 | `413` | `PAYLOAD_TOO_LARGE` | The request is over 50 MB. Send smaller images (a few MB each is plenty). |
