@@ -93,6 +93,11 @@ async function runAll({ check, eq, section, SRC }) {
       .map(([part, sequence]) => [part, { part, sequence, image_url: IMG, caption: '', part_label: part }])) });
   eq('a 7-part design-library saree is accepted, every part on its own area in sequence order',
     libSaree.designs.map((d) => d.areaId), ['PALLU', 'BORDER', 'BODY', 'PLEAT', 'PRINT', 'EMBROIDERY', 'ZARI_WORK']);
+  // The same library sends its main fabric as SAREE_BODY (19 Oct); it was silently dropped.
+  eq('design-library fabric roles: SAREE_BODY is the main fabric, PALLU and BORDER cover their own parts - none dropped',
+    resolveRequest({ clientId: 'lib', garment_key: 'saree', parts: { pallu_design: { part: 'pallu_design', sequence: 1, image_url: IMG } },
+      fabrics: { SAREE_BODY: [IMG], PALLU: [IMG], BORDER: [IMG] } }).fabrics.map((f) => (f.appliesTo || ['MAIN']).join('+')),
+    ['MAIN', 'PALLU', 'BORDER']);
   eq('four fabrics (limit 3)', code(() => resolveRequest(body({ fabrics: Array.from({ length: 4 }, () => ({ image: IMG })) }))), 'INVALID_FIELD');
   eq('two fabrics both claiming to be the main fabric', code(() => resolveRequest(body({ fabrics: [{ image: IMG }, { image: IMG }] }))), 'MULTIPLE_MAIN_FABRICS');
   eq('two fabrics for the same area', code(() => resolveRequest(body({ fabrics: [{ image: IMG, appliesTo: ['BORDER'] }, { image: IMG, appliesTo: ['border', 'PALLU'] }] }))), 'FABRIC_AREA_CONFLICT');

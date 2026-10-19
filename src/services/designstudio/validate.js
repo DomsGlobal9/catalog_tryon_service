@@ -91,7 +91,10 @@ function fabricsObjectToArray(fabrics, garmentValue) {
   for (const [role, value] of Object.entries(fabrics)) {
     const upper = String(role).toUpperCase();
     if (HIDDEN_FABRIC_ROLES.has(upper)) continue; // never visible in a photograph
-    const appliesTo = Object.prototype.hasOwnProperty.call(FABRIC_ROLES, upper) ? FABRIC_ROLES[upper] : [upper];
+    // Measured 19 Oct: the design library sends the main fabric as "SAREE_BODY", which was taken for
+    // a design area the saree does not have and silently dropped. "<GARMENT>_BODY" is the main fabric.
+    const appliesTo = Object.prototype.hasOwnProperty.call(FABRIC_ROLES, upper) ? FABRIC_ROLES[upper]
+      : /^[A-Z]+_BODY$/.test(upper) ? null : [upper];
     if (appliesTo && areasOf && !appliesTo.every((a) => areasOf.has(a))) continue;
     const entries = Array.isArray(value) ? value : [value];
     entries.forEach((entry, i) => {
