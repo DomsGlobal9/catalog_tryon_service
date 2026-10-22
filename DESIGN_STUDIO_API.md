@@ -312,8 +312,10 @@ can make, and the result is cut back to exactly the photo's area, so nothing inv
   model). Measured once: a front photograph came back with the customer twice, side by side - a face check
   passes a copy of the same face. Every photograph is now checked for one person, made once more if not,
   and a remaining fault is reported as `one_person`.
-- **Made at 2K** (about 37% more image tokens than the usual 1K), so the face stays sharp. Requests
-  without a model photo are unchanged.
+- **Made at the usual 1K** (since 22 October 2026; from 12 to 21 October it was 2K, about 37% more image
+  tokens, when the garment was still drawn into the photo at 3:4 and a 1K face was too small to keep).
+  The photo keeps its own shape, so a tall phone photo comes back about 768 wide by 1376 high before it
+  is cut back to the photo's area. `DESIGNSTUDIO_OWN_PHOTO_IMAGE_SIZE=2K` on the server raises it.
 - **It is only the person, never a design.** Nothing from the model photo (their clothes) is copied onto
   the garment.
 - `modelGender` is not needed with a model photo; without one, it chooses the generated model.
