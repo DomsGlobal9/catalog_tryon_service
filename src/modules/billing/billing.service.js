@@ -20,7 +20,7 @@
 //     the customer still gets the catalog they waited for.
 //
 const crypto = require('crypto');
-const { prisma } = require('../../lib/db');
+const { prisma, pool } = require('../../lib/db');
 
 const KIND = Object.freeze({
   CATALOG: 'CATALOG',               // four views, in the garment's own colour
@@ -121,29 +121,73 @@ async function recordDeliveredRun({ clientId, requestKey, colour, garment, views
     return false;
   }
   const kind = colour ? KIND.COLOUR_VARIANT : KIND.CATALOG;
+  const row = {
+    clientId,
+    kind,
+    requestKey,
+    colourName: colour ? colour.name || null : null,
+    colourHex: colour ? colour.hex || null : null,
+    garmentRef: garmentRef(garment),
+    views,
+    drapeJobId: drapeJobId || null,
+    gatewayRequestId: gwId || null,
+    deliveredAt: new Date()
+  };
   try {
-    const { count } = await prisma.billableRun.createMany({
-      data: [{
-        clientId,
-        kind,
-        requestKey,
-        colourName: colour ? colour.name || null : null,
-        colourHex: colour ? colour.hex || null : null,
-        garmentRef: garmentRef(garment),
-        views,
-        drapeJobId: drapeJobId || null,
-        gatewayRequestId: gwId || null
-      }],
-      skipDuplicates: true
-    });
+    const { count } = await prisma.billableRun.createMany({ data: [row], skipDuplicates: true });
     if (count === 0) console.log(`[Billing] ${requestKey} for ${clientId} was already recorded: not charged again.`);
     else console.log(`[Billing] recorded ${kind} for ${clientId} (${requestKey}).`);
     return count === 1;
   } catch (err) {
-    // Loud on purpose: this is a delivered run that will not appear on a bill.
-    console.error(`[Billing] COULD NOT RECORD delivered ${kind} for ${clientId} (${requestKey}):`, err.message);
+    // Loud on purpose: this is a delivered run that is not on a bill yet. The
+    // row is kept on its draping job so the next usage read records it (see
+    // recoverUnrecorded) - a delivered run must never be lost to a write failure.
+    console.error(`[Billing] COULD NOT RECORD delivered ${kind} for ${clientId} (${requestKey}), kept on job ${drapeJobId} to record later:`, err.message);
+    if (drapeJobId) {
+      try {
+        await pool.query(`UPDATE se_catalog.draping_jobs SET error_message = $2 WHERE id = $1`,
+          [drapeJobId, `${UNRECORDED} ${JSON.stringify(row)}`]);
+      } catch (e) {
+        console.error(`[Billing] could not keep the unrecorded run on job ${drapeJobId} either:`, e.message);
+      }
+    }
     return false;
   }
+}
+
+const UNRECORDED = 'BILLING_NOT_RECORDED';
+const RECORDED_LATE = 'BILLING_RECORDED_LATE';
+
+/**
+ * Record runs whose billing write failed at delivery (kept on their draping job
+ * as BILLING_NOT_RECORDED {row}). Called before usage is read, so a miss is
+ * billed at the next read, at the moment it was delivered, exactly once (the
+ * unique key holds). Never throws: a failure here leaves them for next time.
+ */
+async function recoverUnrecorded() {
+  let pending;
+  try {
+    pending = await pool.query(
+      `SELECT id, error_message FROM se_catalog.draping_jobs WHERE status = 'COMPLETED' AND error_message LIKE $1 LIMIT 500`,
+      [`${UNRECORDED} %`]);
+  } catch (err) {
+    console.error('[Billing] could not look for unrecorded runs:', err.message);
+    return 0;
+  }
+  let recovered = 0;
+  for (const job of pending.rows) {
+    try {
+      const row = JSON.parse(job.error_message.slice(UNRECORDED.length + 1));
+      await prisma.billableRun.createMany({ data: [{ ...row, deliveredAt: new Date(row.deliveredAt) }], skipDuplicates: true });
+      await pool.query(`UPDATE se_catalog.draping_jobs SET error_message = $2 WHERE id = $1`,
+        [job.id, `${RECORDED_LATE} ${job.error_message.slice(UNRECORDED.length + 1)}`]);
+      recovered += 1;
+    } catch (err) {
+      console.error(`[Billing] could not record the kept run on job ${job.id} yet:`, err.message);
+    }
+  }
+  if (recovered) console.log(`[Billing] recorded ${recovered} delivered run(s) that had been kept for later.`);
+  return recovered;
 }
 
 /**
@@ -151,6 +195,7 @@ async function recordDeliveredRun({ clientId, requestKey, colour, garment, views
  * @returns {Promise<{ totals: Object, garments: Object[], runs: Object[] }>}
  */
 async function usage({ clientId, from, to }) {
+  await recoverUnrecorded();
   const where = { deliveredAt: { gte: from, lt: to } };
   if (clientId) where.clientId = clientId;
   const rows = await prisma.billableRun.findMany({
@@ -196,5 +241,6 @@ module.exports = {
   garmentRef,
   findDelivered,
   recordDeliveredRun,
+  recoverUnrecorded,
   usage
 };

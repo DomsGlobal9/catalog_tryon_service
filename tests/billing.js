@@ -290,6 +290,36 @@ async function main() {
     eq('…and not charged', any.rows[0].n, 0);
   }
 
+  section('THE BILLING WRITE FAILS DURING A DELIVERY  → catalog delivered, the miss kept and billed later');
+  {
+    const acct = `acct-${RUN}-g`;
+    const jobId = `down-${RUN}`;
+    // A real failure: the table is missing (as if the migration had not run yet).
+    await pool.query('ALTER TABLE se_catalog.billable_runs RENAME TO billable_runs_offline');
+    let r;
+    try {
+      r = await generate(acct, { clientId: 'shop-1', saree: 'stub:ok:billing-down', jobId, color: 'Teal' });
+    } finally {
+      await pool.query('ALTER TABLE se_catalog.billable_runs_offline RENAME TO billable_runs');
+    }
+    check('the customer still gets the whole catalog', r.types.at(-1) === 'COMPLETE', r.types.join(','));
+    eq('no row could be written at the time', (await rows(acct)).length, 0);
+    const drapeJobId = r.events.at(-1).jobId;
+    const job = await pool.query('SELECT status, error_message FROM se_catalog.draping_jobs WHERE id = $1', [drapeJobId]);
+    check('the miss is kept on the job, with what to charge', job.rows[0]?.status === 'COMPLETED'
+      && /^BILLING_NOT_RECORDED \{.*"kind":"COLOUR_VARIANT".*\}$/.test(job.rows[0]?.error_message || ''), job.rows[0]?.error_message);
+    const from = new Date(Date.now() - 3600e3).toISOString();
+    const to = new Date(Date.now() + 3600e3).toISOString();
+    const read = async () => (await fetch(`${BASE}/internal/billing/usage?clientId=${acct}&from=${from}&to=${to}`, { headers: { 'x-api-key': KEY } })).json();
+    const u = await read();
+    eq('the next usage read records it, once, as a colour variant with its colour and request', (u.runs || []).map((x) => [x.kind, x.colourName, x.requestKey]), [['COLOUR_VARIANT', 'Teal', `job:${jobId}`]]);
+    eq('…and reading again does not add it twice', ((await read()).runs || []).length, 1);
+    const after = await pool.query('SELECT error_message FROM se_catalog.draping_jobs WHERE id = $1', [drapeJobId]);
+    check('the job now says it was recorded late', /^BILLING_RECORDED_LATE /.test(after.rows[0]?.error_message || ''), after.rows[0]?.error_message);
+    const again = await generate(acct, { clientId: 'shop-1', saree: 'stub:ok:billing-down', jobId });
+    eq('the recovered jobId counts as delivered: a reuse is refused', [again.status, again.json?.code], [409, 'ALREADY_DELIVERED']);
+  }
+
   section('GET /internal/billing/usage  (the Gateway\'s view)');
   {
     const acct = `acct-${RUN}-b`;
