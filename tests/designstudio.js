@@ -1188,6 +1188,68 @@ async function runAll({ check, eq, section, SRC }) {
   low.designs[0].image = { ...prepared, lowResolution: true, original: { width: 330, height: 440 } };
   eq('a low-resolution design produces a warning naming it', buildPrompt(low).warnings, ['designs[0] (PALLU) is only 440px; fine detail in that design may be lost.']);
 
+  // ── SKETCH TO PHOTO (POST /sketch, 28 Oct 2026) ──────────────────────────────
+  section('DESIGN STUDIO: SKETCH TO PHOTO  (a hand-drawn sketch with labelled colours)');
+  const sketchMod = S('sketch');
+  const skJob = (over = {}) => sketchMod.resolveSketchRequest({ clientId: 'sk', sketch: IMG, ...over });
+  eq('the request: only clientId and the sketch are needed; the garment, views and colours come from the drawing',
+    [skJob().garmentId, skJob().sketches.map((s) => s.view), skJob().presentation, skJob().model.kind], [null, ['front'], 'model', 'generated']);
+  const aliased = sketchMod.resolveSketchRequest({ clientId: 'sk', sketch_image: IMG, back_sketch: IMG, garment_key: 'lehenga', labels: [{ part: 'skirt', colour: 'maroon', color_hex: '800000', fabric: 'raw silk', embroidery: 'gold zari border' }] });
+  eq('snake_case and colour spellings are accepted; a back sketch and the caller\'s labels are kept',
+    [aliased.garmentId, aliased.sketches.map((s) => s.view), aliased.labels], ['LEHANGA', ['front', 'back'], [{ part: 'skirt', color: 'maroon', colorHex: '#800000', material: 'raw silk', work: 'gold zari border' }]]);
+  eq('refused before anything is spent: no sketch, presentation "sketch", a design area with no garment, own photo on a mannequin, an unknown field',
+    [code(() => skJob({ sketch: undefined })), code(() => skJob({ presentation: 'drawing' })), code(() => skJob({ designs: [{ area: 'PALLU', image: IMG }] })),
+      code(() => skJob({ presentation: 'mannequin', modelImage: IMG })), code(() => skJob({ customer_id: 'x' })), code(() => skJob({ garment: 'robe' }))],
+    ['INVALID_FIELD', 'PRESENTATION_NOT_AVAILABLE', 'GARMENT_REQUIRED', 'PRESENTATION_CONFLICT', 'INVALID_FIELD', 'UNKNOWN_GARMENT']);
+  eq('with the garment given, designs and fabrics work exactly as in /generate',
+    [skJob({ garment: 'SAREE', designs: [{ area: 'PALLU', image: IMG }], fabrics: [{ image: IMG, appliesTo: ['BORDER'] }] }).designs.map((d) => d.areaId),
+      skJob({ garment: 'SAREE', fabrics: [{ image: IMG, appliesTo: ['BORDER'] }] }).fabrics[0].appliesTo, code(() => skJob({ fabrics: [{ image: IMG, appliesTo: ['BORDER'] }] }))],
+    [['PALLU'], ['BORDER'], 'GARMENT_REQUIRED']);
+
+  const rawReading = {
+    isSketch: true, garment: 'lehenga', views: { front: true, back: false }, silhouette: 'Sweetheart neckline, elbow sleeves, floor-length flared skirt.',
+    parts: [{ label: 'Maroon raw silk', part: 'skirt', color: 'maroon', colorHex: '800000', material: 'raw silk', work: '' },
+      { label: 'gold zari', part: 'skirt border', color: 'gold', colorHex: 'not a hex', material: '', work: 'zari' },
+      { label: 'x', part: '', color: 'red' }],
+    notes: ['length till ankle'], unreadable: ['m?r??n']
+  };
+  const reading = sketchMod.cleanReading(rawReading);
+  eq('the reading is tidied, not trusted: the garment name becomes its id, a bad hex is dropped, a label with no part is left out',
+    [reading.garmentId, reading.views, reading.parts.map((p) => [p.part, p.colorHex, p.work]), reading.notes, reading.unreadable],
+    ['LEHANGA', { front: true, back: false }, [['skirt', '#800000', null], ['skirt border', null, 'zari']], ['length till ankle'], ['m?r??n']]);
+  eq('the back counts as drawn only when the reader says so; an unknown garment stays unknown',
+    [sketchMod.cleanReading({ ...rawReading, views: { front: true } }).views.back, sketchMod.cleanReading({ ...rawReading, garment: 'spacesuit' }).garmentId, sketchMod.cleanReading('nonsense')], [false, null, null]);
+  const merged = sketchMod.mergeLabels(reading.parts, [{ part: 'Skirt', color: 'bottle green', colorHex: null, material: null, work: null }, { part: 'dupatta', color: 'pink', colorHex: null, material: 'net', work: null }]);
+  eq('the caller\'s labels replace what was read for the same part (keeping what they did not say), and add new parts',
+    merged.map((p) => [p.part, p.color, p.colorHex, p.material, p.from]),
+    [['Skirt', 'bottle green', null, 'raw silk', 'you'], ['skirt border', 'gold', null, null, 'sketch'], ['dupatta', 'pink', null, 'net', 'you']]);
+
+  const lehJob = skJob({ garment: 'LEHANGA', fabrics: [{ image: IMG, appliesTo: ['BORDER'], material: 'tissue' }] });
+  lehJob.sketches[0].image = { ...prepared, base64: 'SKETCH' };
+  lehJob.fabrics[0].image = { ...prepared, base64: 'FABRIC' };
+  const skFront = sketchMod.buildSketchPrompt(lehJob, { reading, parts: reading.parts, view: 'front', presentation: 'model' });
+  const skImages = skFront.parts.filter((p) => p.inlineData).map((p) => p.inlineData.data);
+  check('the prompt: the sketch is [Image 1] and is the shape; nothing undrawn is added; no pencil, arrows or label text in the photo',
+    skImages[0] === 'SKETCH' && /Make the designer's hand-drawn sketch \[Image 1\] into a real photograph of the finished lehenga/.test(skFront.text)
+      && /Sweetheart neckline, elbow sleeves/.test(skFront.text) && /Nothing that is not drawn is added/.test(skFront.text)
+      && /no pencil or ink lines, no arrows, no handwriting or label text/.test(skFront.text));
+  check('the prompt: every label is a line with its part, colour, hex and material; a fabric picture follows the sketch and beats the colour word',
+    /- the skirt: maroon \(#800000\) raw silk/.test(skFront.text) && /- the skirt border: gold, with zari/.test(skFront.text)
+      && skImages[1] === 'FABRIC' && /\[Image 2\] is the fabric for .*\(tissue\)\. A fabric picture beats a colour word/.test(skFront.text)
+      && /WRITTEN ON THE SKETCH\n- "length till ankle"/.test(skFront.text));
+  check('the prompt: the garment guide only fills in what the sketch does not show - the sketch wins',
+    /Where the sketch does not show something, make it the way a lehenga is properly made/.test(skFront.text) && /Where the sketch shows it, the sketch wins\./.test(skFront.text));
+  const skBack = sketchMod.buildSketchPrompt({ ...lehJob, sketches: [...lehJob.sketches, { view: 'back', field: 'backSketch', image: { ...prepared, base64: 'BACKSKETCH' } }] },
+    { reading, parts: reading.parts, view: 'back', frontPhoto: { ...prepared, base64: 'FRONTPHOTO' }, presentation: 'mannequin' });
+  eq('back view: made from the back sketch, with the front sketch and the finished front photo; on a mannequin when asked',
+    [skBack.parts.filter((p) => p.inlineData).map((p) => p.inlineData.data), /made as drawn in the back sketch \[Image 1\] \(the front is \[Image 2\]\)/.test(skBack.text),
+      /\[Image 4\] is the front of the same garment, already made/.test(skBack.text), /headless dress-form mannequin/.test(skBack.text), /Exactly one mannequin and no person/.test(skBack.text)],
+    [['BACKSKETCH', 'SKETCH', 'FABRIC', 'FRONTPHOTO'], true, true, true, true]);
+  eq('the checks: the shape, one per labelled part, no sketch marks, then one person (or no person on a mannequin); back adds back_shown and same_as_front',
+    [sketchMod.sketchChecklist(skFront.review).map((c) => c.id), sketchMod.sketchChecklist(skBack.review).map((c) => c.id), sketchMod.sketchChecklist(skFront.review)[1].question],
+    [['shape_as_drawn', 'label_a', 'label_b', 'no_sketch_marks', 'one_person'], ['shape_as_drawn', 'label_a', 'label_b', 'no_sketch_marks', 'back_shown', 'same_as_front', 'no_person'],
+      'Is the skirt maroon (about #800000), raw silk?']);
+
   // ── GEMINI CALL ────────────────────────────────────────────────────────────
   section('DESIGN STUDIO: IMAGE MODEL CALL  (Gemini faked; retries, refusals, drafts)');
   const FINAL = await png(768, 1024, '#336699');
@@ -1673,7 +1735,75 @@ async function runAll({ check, eq, section, SRC }) {
       [true, false, ['supporting_plain']]);
     qa._setFetch(qaAnswer());
 
-    check('no log line contains the API key or raw base64', !logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
+    // POST /sketch over HTTP (28 Oct 2026): read the drawing, make the photo, check it.
+    const readFake = (payload) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }), { status: 200 });
+    const readCalls = [];
+    sketchMod._setFetch(async (url, opts) => { readCalls.push(JSON.parse(opts.body)); return readFake(rawReading)(); });
+    let skCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/sketch', { clientId: 'sk-1', sketch: IMG })));
+    let rd = events.find((e) => e.type === 'reading');
+    eq('POST /sketch: start, then what was read, then the photo and done; the garment is read from the drawing; the unreadable word is named',
+      [events.map((e) => e.type).filter((t) => t !== 'status'), rd && rd.garment, rd && rd.views, rd && rd.parts.map((p) => [p.part, p.color, p.from]), rd && rd.unreadable,
+        rd && rd.warnings.some((w) => /Could not read on the sketch: "m\?r\?\?n"/.test(w)), events[events.length - 1].views],
+      [['start', 'reading', 'image', 'done'], 'LEHANGA', ['front'], [['skirt', 'maroon', 'sketch'], ['skirt border', 'gold', 'sketch']], ['m?r??n'], true, ['front']]);
+    eq('the drawing is read once, as JSON, with the sketch; the photo is one image call with the sketch as [Image 1]; checked against the sketch and passed',
+      [readCalls.length, readCalls[0].generationConfig.responseMimeType, readCalls[0].contents[0].parts.filter((p) => p.inlineData).length,
+        skCalls.length, /hand-drawn sketch \[Image 1\]/.test(textOf(skCalls[0])), imagesIn(skCalls[0]), events[events.length - 1].quality.sketch],
+      [1, 'application/json', 1, 1, true, 1, { checked: true, passed: true, failures: [] }]);
+    eq('the image-only stream (production default) keeps the reading, so the app can show what was read',
+      S('controller').imageOnly({ type: 'reading', jobId: 'j', garment: 'LEHANGA', views: ['front'], parts: [{ part: 'skirt' }], notes: [], unreadable: [], warnings: ['w'], silhouette: 's' }),
+      { type: 'reading', jobId: 'j', garment: 'LEHANGA', views: ['front'], parts: [{ part: 'skirt' }], notes: [], unreadable: [] });
+
+    sketchMod._setFetch(readFake({ ...rawReading, views: { front: true, back: true } }));
+    skCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/sketch', { clientId: 'sk-2', sketch: IMG })));
+    eq('the back is made only when it is drawn: front, then back made with the finished front beside the sketch',
+      [events.filter((e) => e.type === 'image').map((e) => e.view), skCalls.length, /THIS IS THE BACK VIEW/.test(textOf(skCalls[1])),
+        /is the front of the same garment, already made/.test(textOf(skCalls[1])), imagesIn(skCalls[1])],
+      [['front', 'back'], 2, true, true, 2]);
+
+    sketchMod._setFetch(readFake(rawReading));
+    qa._setFetch(qaAnswer(['label_a']));
+    skCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/sketch', { clientId: 'sk-3', sketch: IMG, labels: [{ part: 'skirt', colour: 'bottle green' }] })));
+    rd = events.find((e) => e.type === 'reading');
+    const skDone = events[events.length - 1];
+    eq('a caller\'s label replaces the reading for that part; a failed label check is made once more with the fault named, and still reported',
+      [rd.parts[0], /- the skirt: bottle green raw silk/.test(textOf(skCalls[0])), skCalls.length, /The skirt is bottle green, raw silk, as labelled on the sketch\./.test(textOf(skCalls[1])),
+        skDone.quality.regenerated, skDone.quality.sketch.failures.map((f) => f.check)],
+      [{ label: 'Maroon raw silk', part: 'skirt', color: 'bottle green', colorHex: null, material: 'raw silk', work: null, from: 'you' }, true, 2, true, true, ['label_a']]);
+    qa._setFetch(qaAnswer());
+
+    const sketchError = async (readWith, payload) => {
+      sketchMod._setFetch(readWith);
+      skCalls = script([() => answer([imagePart(FINAL)])]);
+      const evs = (await readEvents(await post('/sketch', { clientId: 'sk-err', sketch: IMG, ...payload }))).events;
+      const err = evs.find((e) => e.type === 'error');
+      return [err && err.code, err && err.retryable, skCalls.length];
+    };
+    let readAttempts = 0;
+    eq('nothing is made when: the picture is not a drawing, the garment cannot be told (and was not sent), or the reader is down (asked twice, retryable)',
+      [await sketchError(readFake({ ...rawReading, isSketch: false }), {}), await sketchError(readFake({ ...rawReading, garment: 'UNKNOWN' }), {}),
+        await sketchError(async () => { readAttempts++; return new Response('down', { status: 500 }); }, {}), readAttempts],
+      [['NOT_A_SKETCH', false, 0], ['GARMENT_UNKNOWN', false, 0], ['SKETCH_NOT_READ', true, 0], 2]);
+    sketchMod._setFetch(readFake({ ...rawReading, garment: 'UNKNOWN' }));
+    skCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/sketch', { clientId: 'sk-4', sketch: IMG, garment: 'GOWN' })));
+    eq('...but a garment the caller sends is used when the drawing does not say',
+      [events.find((e) => e.type === 'reading').garment, events[events.length - 1].type], ['GOWN', 'done']);
+
+    sketchMod._setFetch(readFake(rawReading));
+    skCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/sketch', { clientId: 'sk-own', sketch: IMG, modelImage: NARROW }, { headers: { 'x-gateway-client-id': 'sketch-own-acct' } })));
+    const ownDone = events[events.length - 1];
+    eq('own photo: the garment is made on a mannequin from the sketch, then dressed onto the photo with the same checks as /generate',
+      [skCalls.length, /headless dress-form mannequin/.test(textOf(skCalls[0])), /virtual fitting session/.test(textOf(skCalls[1])),
+        skCalls[1].body.generationConfig.imageConfig.imageSize, ownDone.quality.sketch.passed, ownDone.quality.photo && ownDone.quality.photo.passed],
+      [2, true, true, '4K', true, true]);
+    const collected = await (await getResult(events[0].jobId, 'sketch-own-acct')).json();
+    eq('GET /result has the reading as well as the photo', [collected.status, collected.reading && collected.reading.garment, collected.images.map((i) => i.view)], ['done', 'LEHANGA', ['front']]);
+
+    check('no log line contains the API key or raw base64',!logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);
   } finally {
     console.log = realLog; console.warn = realWarn; console.error = realError;

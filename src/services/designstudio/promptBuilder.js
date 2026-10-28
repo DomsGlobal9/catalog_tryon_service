@@ -1001,4 +1001,4 @@ function sketchLabels(job, descriptions, sheetViews, g, pair, crowded = false) {
   return labels.slice(0, SKETCH_MAX_LABELS).filter((l) => l.label);
 }
 
-module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind };
+module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind, framingLine };

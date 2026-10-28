@@ -213,42 +213,48 @@ function canonicaliseFields(raw, warnings = []) {
 }
 
 // ── 2. Shape ─────────────────────────────────────────────────────────────────
+// The pieces are shared with POST /sketch (sketch.js), which takes the same designs and fabrics.
+const hexField = (example) => z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, `must be a 6-digit hex colour such as ${example}`);
+const designItem = z.object({
+  area: z.string().trim().min(1).max(40),
+  image: imageField,
+  note: text(config.limits.maxNoteChars).optional(),
+  label: text(80).optional(), // the caller's display name; not used in the prompt
+  // Per-part control, for when the reference photo and the intended product
+  // disagree. All optional; the defaults are what the earlier tests needed.
+  groundColor: text(60).optional(),
+  groundColorHex: hexField('#F2E8DC').optional(),
+  keepMotifColors: z.boolean().optional(), // default true: motif colours come from the reference
+  coverage: z.enum(['full', 'reference']).optional() // default full: no large bare gaps in a decorated part
+}).strict();
+const fabricItem = z.object({
+  image: imageField,
+  name: text(80).optional(),
+  material: text(120).optional(),
+  color: text(60).optional(),
+  colorHex: hexField('#722F37').optional(),
+  itemCode: text(40).optional(),
+  appliesTo: z.array(z.string().trim().min(1).max(40)).min(1).max(20).optional(),
+  note: text(config.limits.maxNoteChars).optional(),
+  quantityMeters: z.number().nonnegative().optional() // stock information; ignored
+}).strict();
+// The supporting pieces worn with the product (a saree's blouse, a blouse's
+// saree). They never carry a design; this only sets their colour and look.
+const pairWithItem = z.object({
+  color: text(60).optional(),
+  colorHex: hexField('#C9A227').optional(),
+  note: text(config.limits.maxNoteChars).optional()
+}).strict();
+
 const schema = z.object({
   clientId: z.string().trim().min(1).max(128),
   garment: z.string().trim().min(1).max(40),
   // A style hint only ("Bridal Banarasi Saree"). No text is ever drawn into the photo.
   productName: text(120).optional(),
-  designs: z.array(z.object({
-    area: z.string().trim().min(1).max(40),
-    image: imageField,
-    note: text(config.limits.maxNoteChars).optional(),
-    label: text(80).optional(), // the caller's display name; not used in the prompt
-    // Per-part control, for when the reference photo and the intended product
-    // disagree. All optional; the defaults are what the earlier tests needed.
-    groundColor: text(60).optional(),
-    groundColorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #F2E8DC').optional(),
-    keepMotifColors: z.boolean().optional(), // default true: motif colours come from the reference
-    coverage: z.enum(['full', 'reference']).optional() // default full: no large bare gaps in a decorated part
-  }).strict()).min(1, 'at least one design is required').max(config.limits.maxDesigns, `at most ${config.limits.maxDesigns} designs`),
-  fabrics: z.array(z.object({
-    image: imageField,
-    name: text(80).optional(),
-    material: text(120).optional(),
-    color: text(60).optional(),
-    colorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #722F37').optional(),
-    itemCode: text(40).optional(),
-    appliesTo: z.array(z.string().trim().min(1).max(40)).min(1).max(20).optional(),
-    note: text(config.limits.maxNoteChars).optional(),
-    quantityMeters: z.number().nonnegative().optional() // stock information; ignored
-  }).strict()).max(config.limits.maxFabrics, `at most ${config.limits.maxFabrics} fabrics`).default([]),
+  designs: z.array(designItem).min(1, 'at least one design is required').max(config.limits.maxDesigns, `at most ${config.limits.maxDesigns} designs`),
+  fabrics: z.array(fabricItem).max(config.limits.maxFabrics, `at most ${config.limits.maxFabrics} fabrics`).default([]),
   modelImage: imageField.optional(),
-  // The supporting pieces worn with the product (a saree's blouse, a blouse's
-  // saree). They never carry a design; this only sets their colour and look.
-  pairWith: z.object({
-    color: text(60).optional(),
-    colorHex: z.string().trim().regex(/^#?[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #C9A227').optional(),
-    note: text(config.limits.maxNoteChars).optional()
-  }).strict().optional(),
+  pairWith: pairWithItem.optional(),
   modelGender: z.enum(MODEL_GENDERS).optional(),
   // Which sides to photograph: ["front"], ["back"] or both. Every garment gives
   // both by default (since 10 Oct 2026; before, only blouse, kurti, anarkali,
@@ -330,7 +336,68 @@ function resolveRequest(rawBody) {
       [{ field: 'garment', code: 'UNKNOWN_GARMENT' }]);
   }
 
+  const { designs, fabrics } = resolveParts(input, garment);
+
+  const guide = garmentGuide(garment.id);
+  const sides = guide.sides || ['front'];
+  let views = input.views ? [...new Set(input.views)] : null;
+  if (views) {
+    const bad = views.filter((v) => !sides.includes(v));
+    if (bad.length) {
+      throw validation(`${garment.name} can only be photographed from the ${sides.join(' and ')}; "${bad[0]}" is not available for it.`,
+        [{ field: 'views', code: 'VIEW_NOT_AVAILABLE' }]);
+    }
+    views = sides.filter((s) => views.includes(s)); // front before back, always
+  }
+
+  const presentation = input.presentation || 'model';
+  if (presentation !== 'model' && input.modelImage) {
+    throw validation(`modelImage dresses a real person, so it cannot be used with presentation "${presentation}". Send it with presentation "model", or leave it out.`,
+      [{ field: 'modelImage', code: 'PRESENTATION_CONFLICT' }]);
+  }
+
+  return {
+    presentation,
+    inputWarnings, // shown in start.warnings
+    clientId: input.clientId,
+    productName: input.productName || null,
+    garmentId: garment.id,
+    // null: the garment's own default (both sides for a two-sided garment).
+    views: views || (sides.length > 1 ? [...sides] : null),
+    garmentName: garment.name,
+    designs,
+    fabrics,
+    ...resolvePerson(input, garment)
+  };
+}
+
+/** The model and what is worn with the product - shared with POST /sketch. */
+function resolvePerson(input, garment) {
+  return {
+    model: input.modelImage
+      ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
+      : { kind: 'generated', gender: input.modelGender || (garment ? garmentGuide(garment.id).wearer : null) },
+    notes: input.notes || null,
+    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note)
+      ? {
+        color: input.pairWith.color || null,
+        colorHex: input.pairWith.colorHex ? `#${input.pairWith.colorHex.replace('#', '').toUpperCase()}` : null,
+        note: input.pairWith.note || null
+      }
+      : null
+  };
+}
+
+/**
+ * Designs and fabrics, with their areas resolved for the garment. Shared with POST /sketch,
+ * where the garment can be unknown until the drawing is read: then any area at all is refused.
+ */
+function resolveParts(input, garment) {
   const resolveArea = (value, field) => {
+    if (!garment) {
+      throw validation(`${field} names a part ("${value}"), so the garment must be known: send garment as well.`,
+        [{ field: 'garment', code: 'GARMENT_REQUIRED' }]);
+    }
     const area = taxonomy.getDesignType(garment.id, value);
     if (!area) {
       throw validation(`"${value}" is not a design area of ${garment.id}. Use one of: ${taxonomy.designTypeIds(garment.id).join(', ')}.`,
@@ -394,48 +461,11 @@ function resolveRequest(rawBody) {
       source: classifyImage(f.image, `${field}.image`)
     };
   });
-
-  const guide = garmentGuide(garment.id);
-  const sides = guide.sides || ['front'];
-  let views = input.views ? [...new Set(input.views)] : null;
-  if (views) {
-    const bad = views.filter((v) => !sides.includes(v));
-    if (bad.length) {
-      throw validation(`${garment.name} can only be photographed from the ${sides.join(' and ')}; "${bad[0]}" is not available for it.`,
-        [{ field: 'views', code: 'VIEW_NOT_AVAILABLE' }]);
-    }
-    views = sides.filter((s) => views.includes(s)); // front before back, always
-  }
-
-  const presentation = input.presentation || 'model';
-  if (presentation !== 'model' && input.modelImage) {
-    throw validation(`modelImage dresses a real person, so it cannot be used with presentation "${presentation}". Send it with presentation "model", or leave it out.`,
-      [{ field: 'modelImage', code: 'PRESENTATION_CONFLICT' }]);
-  }
-
-  return {
-    presentation,
-    inputWarnings, // shown in start.warnings
-    clientId: input.clientId,
-    productName: input.productName || null,
-    garmentId: garment.id,
-    // null: the garment's own default (both sides for a two-sided garment).
-    views: views || (sides.length > 1 ? [...sides] : null),
-    garmentName: garment.name,
-    designs,
-    fabrics,
-    model: input.modelImage
-      ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
-      : { kind: 'generated', gender: input.modelGender || garmentGuide(garment.id).wearer },
-    notes: input.notes || null,
-    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note)
-      ? {
-        color: input.pairWith.color || null,
-        colorHex: input.pairWith.colorHex ? `#${input.pairWith.colorHex.replace('#', '').toUpperCase()}` : null,
-        note: input.pairWith.note || null
-      }
-      : null
-  };
+  return { designs, fabrics };
 }
 
-module.exports = { resolveRequest, canonicaliseFields, classifyImage, hostAllowed, MODEL_GENDERS, PRESENTATIONS, schema };
+module.exports = {
+  resolveRequest, canonicaliseFields, classifyImage, hostAllowed, MODEL_GENDERS, PRESENTATIONS, schema,
+  // for POST /sketch (sketch.js)
+  resolveParts, resolvePerson, formatZodIssues, canonicalPresentation, designItem, fabricItem, pairWithItem, hexField, text, imageField
+};

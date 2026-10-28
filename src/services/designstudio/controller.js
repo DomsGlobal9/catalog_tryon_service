@@ -27,7 +27,7 @@ const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
 const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
-const { framePerson, drapeParts } = require('./drapeOnPerson');
+const { framePerson, makeDresser } = require('./drapeOnPerson');
 const resultStore = require('./resultStore');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -293,38 +293,10 @@ async function generate(req, res, next) {
     const ownPhoto = job.model.kind === 'reference';
     const genJob = ownPhoto ? { ...job, presentation: 'mannequin', model: { kind: 'generated', gender: job.model.gender } } : job;
     const framed = ownPhoto ? await framePerson(job.model.image) : null;
-    let frontDraped = null;
+    const dress = ownPhoto ? makeDresser({ job, framed, generate, send, signal: abort.signal, startedAt, requestId, count: (out) => { attempts += out.attempts; } }) : null;
     const drapeView = async (view, viewPrompt, garment, quality) => {
-      send({ type: 'status', stage: 'draping', view, message: `Dressing the photo: the ${view} view.` });
-      const parts = drapeParts(job, view, garment.image, framed);
-      const make = async (correction) => {
-        const out = await generate(correction ? [...parts, { text: correction }] : parts, 'draping',
-          { imageSize: config.gemini.ownPhotoImageSize, aspectRatio: framed.aspectRatio });
-        attempts += out.attempts;
-        return { ...out, image: await framed.cutBack(out.image) };
-      };
-      let draped = await make();
+      const draped = await dress(view, viewPrompt.review, garment, quality);
       usage = draped.usage;
-      if (!config.pair.enabled) return draped;
-      // Same face (front) or a hidden face (back), one person, and the back against the front.
-      const review = { ...(viewPrompt.review || {}), presentation: undefined, layered: false, personPhoto: job.model.image, view, pose: view };
-      const check = (image) => reviewView(review, { image, frontImage: view === 'back' && frontDraped ? frontDraped.image : null, garmentImage: garment.image, references: [], signal: abort.signal });
-      send({ type: 'status', stage: 'checking', message: 'Checking the dressed photo.' });
-      let verdict = await check(draped.image);
-      if (verdict.checked && verdict.failures.length && config.pair.maxRegenerations > 0
-        && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
-        console.log(`[DesignStudio] requestId=${requestId} dressed ${view} photo: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
-        try {
-          const retry = await make(correctionsText(verdict.failures));
-          quality.regenerated = true;
-          send({ type: 'status', stage: 'checking', message: 'Checking the corrected photo.' });
-          const second = await check(retry.image);
-          if (!second.checked || second.failures.length <= verdict.failures.length) { draped = retry; usage = retry.usage; verdict = second; }
-        } catch (err) {
-          if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
-        }
-      }
-      quality.photo = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
       return draped;
     };
     const results = [];
@@ -344,10 +316,7 @@ async function generate(req, res, next) {
       if (isSketch) result = await checkLabels(viewPrompt, result, quality);
       // The mannequin front stays the reference for the mannequin back; the caller gets the dressed photo.
       if (view === 'front') frontResult = result;
-      if (ownPhoto) {
-        result = await drapeView(view || viewPrompt.pose, viewPrompt, result, quality);
-        if (view === 'front') frontDraped = result;
-      }
+      if (ownPhoto) result = await drapeView(view || viewPrompt.pose, viewPrompt, result, quality);
       results.push({ view: isSketch ? 'sheet' : view || viewPrompt.pose, result, quality });
       send({
         type: 'image',
@@ -406,6 +375,8 @@ function imageOnly(event) {
   switch (event.type) {
     // presentation is named only when it is not the default, so a model request's stream is unchanged.
     case 'start': return { type: 'start', jobId: event.jobId, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}) };
+    // POST /sketch only: what was read from the drawing, so the app can show it (owner, 28 Oct 2026).
+    case 'reading': return { type: 'reading', jobId: event.jobId, garment: event.garment, views: event.views, parts: event.parts, notes: event.notes, unreadable: event.unreadable };
     case 'image': return { type: 'image', jobId: event.jobId, view: event.view, ...(event.annotations ? { views: event.views, annotations: event.annotations } : {}), mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
     case 'done': return { type: 'done', jobId: event.jobId, status: event.status, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}), views: event.views };
     // details carries what the docs promise (GENERATION_BLOCKED's reason, which
@@ -449,7 +420,7 @@ function result(req, res) {
       message: `No result for this jobId. It is unknown, belongs to another account, or finished more than ${resultStore.KEEP_MS / 60000} minutes ago.` } });
     return;
   }
-  res.json({ success: true, jobId, status: j.status, images: j.images, done: j.done, error: j.error });
+  res.json({ success: true, jobId, status: j.status, images: j.images, ...(j.reading ? { reading: j.reading } : {}), done: j.done, error: j.error });
 }
 
 /** GET /options  - everything a client needs to build a valid request. */
@@ -488,4 +459,4 @@ function options(_req, res) {
   });
 }
 
-module.exports = { generate, cancel, result, options, PIPELINE };
+module.exports = { generate, cancel, result, options, imageOnly, logOutcome, PIPELINE };

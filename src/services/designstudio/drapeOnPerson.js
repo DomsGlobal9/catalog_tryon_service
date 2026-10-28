@@ -15,6 +15,9 @@
 
 const sharp = require('sharp');
 const { garmentGuide } = require('./garmentGuide');
+const { config } = require('./config');
+const { StudioError } = require('./errors');
+const { reviewView, correctionsText } = require('./qualityCheck');
 
 // The shapes the image model can make, as width / height.
 const RATIOS = [['21:9', 21 / 9], ['16:9', 16 / 9], ['3:2', 3 / 2], ['4:3', 4 / 3], ['5:4', 5 / 4], ['1:1', 1],
@@ -115,4 +118,55 @@ function drapeParts(job, view, garment, framed) {
   ];
 }
 
-module.exports = { framePerson, drapeParts, RATIOS };
+/**
+ * The whole second step for one view: drape, check the dressed photo against the person photo,
+ * the garment picture and (back) the dressed front, and drape once more with the faults named.
+ * Shared by POST /generate and POST /sketch, so both keep exactly the same checks.
+ *
+ * @param {Object} o
+ * @param {Function} o.generate   (parts, label, { imageSize, aspectRatio }) => image result
+ * @param {Function} o.send       stream event sender
+ * @param {Function} o.count      called with every image result (attempts)
+ * @returns {(view: string, reviewBase: Object, garment: Object, quality: Object) => Promise<Object>}
+ */
+function makeDresser({ job, framed, generate, send, signal, startedAt, requestId, count = () => {} }) {
+  let frontDraped = null;
+  return async function dress(view, reviewBase, garment, quality) {
+    send({ type: 'status', stage: 'draping', view, message: `Dressing the photo: the ${view} view.` });
+    const parts = drapeParts(job, view, garment.image, framed);
+    const make = async (correction) => {
+      const out = await generate(correction ? [...parts, { text: correction }] : parts, 'draping',
+        { imageSize: config.gemini.ownPhotoImageSize, aspectRatio: framed.aspectRatio });
+      count(out);
+      return { ...out, image: await framed.cutBack(out.image) };
+    };
+    let draped = await make();
+    if (!config.pair.enabled) {
+      if (view === 'front') frontDraped = draped;
+      return draped;
+    }
+    // Same face (front) or a hidden face (back), one person, and the back against the front.
+    const review = { ...(reviewBase || {}), presentation: undefined, layered: false, personPhoto: job.model.image, view, pose: view };
+    const check = (image) => reviewView(review, { image, frontImage: view === 'back' && frontDraped ? frontDraped.image : null, garmentImage: garment.image, references: [], signal });
+    send({ type: 'status', stage: 'checking', message: 'Checking the dressed photo.' });
+    let verdict = await check(draped.image);
+    if (verdict.checked && verdict.failures.length && config.pair.maxRegenerations > 0
+      && Date.now() - startedAt < config.qa.regenerateIfElapsedUnderMs) {
+      console.log(`[DesignStudio] requestId=${requestId} dressed ${view} photo: ${verdict.failures.map((f) => `${f.id} (${f.evidence})`).join('; ')} - regenerating`);
+      try {
+        const retry = await make(correctionsText(verdict.failures));
+        quality.regenerated = true;
+        send({ type: 'status', stage: 'checking', message: 'Checking the corrected photo.' });
+        const second = await check(retry.image);
+        if (!second.checked || second.failures.length <= verdict.failures.length) { draped = retry; verdict = second; }
+      } catch (err) {
+        if (err instanceof StudioError && err.code === 'CANCELLED') throw err;
+      }
+    }
+    quality.photo = { checked: verdict.checked, passed: verdict.checked ? verdict.failures.length === 0 : null, failures: verdict.failures.map((f) => ({ check: f.id, evidence: f.evidence })) };
+    if (view === 'front') frontDraped = draped;
+    return draped;
+  };
+}
+
+module.exports = { framePerson, drapeParts, makeDresser, RATIOS };

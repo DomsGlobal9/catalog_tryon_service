@@ -177,6 +177,8 @@ async function prepareOne(source, field, signal) {
  */
 async function prepareImages(job, signal) {
   const tasks = [
+    // POST /sketch: the drawing (and its back), checked like every other picture.
+    ...(job.sketches || []).map((s) => ({ target: s, field: s.field })),
     ...job.designs.map((d) => ({ target: d, field: `designs[${d.index}].image` })),
     ...job.fabrics.map((f) => ({ target: f, field: `fabrics[${f.index}].image` })),
     ...(job.model.kind === 'reference' ? [{ target: job.model, field: 'modelImage' }] : [])

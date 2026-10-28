@@ -29,7 +29,7 @@ function prune(now = Date.now()) {
 }
 
 function begin(jobId, account) {
-  jobs.set(jobId, { account: account || null, status: 'running', images: [], done: null, error: null, startedAt: Date.now(), finishedAt: null });
+  jobs.set(jobId, { account: account || null, status: 'running', images: [], reading: null, done: null, error: null, startedAt: Date.now(), finishedAt: null });
   prune();
 }
 
@@ -39,6 +39,8 @@ function record(jobId, event) {
   if (!j || !event) return;
   if (event.type === 'image') {
     j.images = [...j.images.filter((i) => i.view !== event.view), event];
+  } else if (event.type === 'reading') {
+    j.reading = event; // POST /sketch: what was read from the drawing
   } else if (event.type === 'done') {
     j.done = event; j.status = 'done'; j.finishedAt = Date.now();
   } else if (event.type === 'error') {

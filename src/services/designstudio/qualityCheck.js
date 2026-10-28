@@ -419,4 +419,4 @@ function correctionsText(failures) {
 /** Kept for callers of the older name: the back view against the front photograph only. */
 const reviewPair = (review, frontImage, backImage, opts = {}) => reviewView({ ...review, view: 'back' }, { image: backImage, frontImage, ...opts });
 
-module.exports = { reviewImage, reviewView, reviewLabels, labelFailures, viewChecklist, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { reviewImage, reviewView, reviewLabels, labelFailures, viewChecklist, reviewPair, pairChecklist, buildChecklist, correctionsText, sameColourFamily, askInspector, RESPONSE_SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

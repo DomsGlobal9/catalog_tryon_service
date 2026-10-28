@@ -12,6 +12,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/cat` |
 | **Headers** | `x-api-key: <your key>` and `Content-Type: application/json` |
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
+| **Sketch to photo** | `POST /api/v1/designstudio/sketch` — a hand-drawn sketch with labelled colours, made into a photograph (since 28 October 2026) |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
 | **Output** | JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up). **Two photographs (front and back)** for every garment by default; `views` can ask for one side |
@@ -756,6 +757,91 @@ async function generateGarment(payload, { onEvent, signal } = {}) {
 ```
 
 To stop, abort the request (`AbortController`) or call `/cancel`.
+
+---
+
+## `POST /api/v1/designstudio/sketch`
+
+**A hand-drawn dress sketch, with its colours written on it, made into a real photograph of the finished
+garment** (since 28 October 2026). The customer draws the garment and labels the parts ("maroon raw silk"
+with an arrow to the skirt, "gold zari" to the border); this answers with the garment made exactly as
+drawn, in those colours, worn by a model, on a mannequin, or on the customer's own photo.
+
+```json
+{
+  "clientId": "shop-42-user-9",
+  "sketch": "data:image/jpeg;base64,/9j/4AAQ..."
+}
+```
+
+That is enough: the garment, the sides drawn and every label are read from the drawing. Everything else
+is optional:
+
+| Field | Type | What it does |
+| :--- | :--- | :--- |
+| `sketch` | base64 or Cloudinary link | **Required.** The drawing (pencil, ink, marker, paint, or drawn on a tablet). Also accepted as `sketch_image`. |
+| `backSketch` | base64 or link | The back, when it is drawn on a separate sheet. Also `back_sketch`. |
+| `garment` | id from `/options` | Read from the drawing when left out. Send it when the drawing is unclear; it wins if the two disagree (said in `warnings`). Required when you send `designs`, or `fabrics` with `appliesTo`. |
+| `labels` | `[{ part, color, colorHex, material, work }]` | Corrections to the reading. Each one replaces what was read for the same `part` (only the fields you send); a new part is added. Also `colour`, `color_hex`, `fabric`, `embroidery`. |
+| `fabrics`, `designs` | as in `/generate` | A fabric picture beats a colour word: "maroon" alone can be any shade. |
+| `presentation` | `model` or `mannequin` | Default `model`. `sketch` is refused here (a drawing made into a drawing). |
+| `modelImage`, `modelGender`, `pairWith`, `productName`, `notes` | as in `/generate` | `modelImage` dresses the customer's own photo in the same two steps as `/generate` (garment on a mannequin first, then onto the photo; the face is never changed). |
+
+**One call (owner's decision).** The drawing is read and the photograph made in the same request. What
+was read comes back first, as a `reading` event, so your app can show it. If something was misread, the
+customer corrects it and you send the request again with `labels`.
+
+**Views.** The front always. The back **only when the back is drawn** (a figure seen from behind on the
+same sheet, or `backSketch`). An undrawn back would be invented, so it is not made.
+
+### The stream
+
+The same events as `/generate`, plus `reading` right after `start`. It is kept in the default image-only
+stream and in `GET /result/{jobId}`.
+
+```
+data: {"type":"start","jobId":"6c1f..."}
+data: {"type":"reading","jobId":"6c1f...","garment":"LEHANGA","views":["front"],
+       "parts":[{"label":"Maroon raw silk","part":"skirt","color":"maroon","colorHex":"#800000","material":"raw silk","work":null,"from":"sketch"},
+                {"label":"gold zari","part":"skirt border","color":"gold","colorHex":"#D4AF37","material":null,"work":"zari","from":"sketch"}],
+       "notes":["length till ankle"],"unreadable":[]}
+data: {"type":"image","jobId":"6c1f...","view":"front","mimeType":"image/jpeg","width":896,"height":1200,"image":"data:image/jpeg;base64,..."}
+data: {"type":"done","jobId":"6c1f...","status":"ok","views":["front"]}
+```
+
+| `reading` field | Meaning |
+| :--- | :--- |
+| `garment` | The garment made. |
+| `views` | The photographs that will follow. |
+| `parts[]` | One per label. `label` is the words exactly as written; `part` is what its line points to; `from` is `sketch` (read) or `you` (from `labels`). |
+| `notes` | Other writing about the garment ("deep back", "length till ankle"). |
+| `unreadable` | Labels that could not be read with confidence. They are **not used**; send the right words in `labels`. |
+
+### How it is made and checked
+
+1. **Read** (Gemini Flash, a few seconds): the garment, which sides are drawn, the shape (neckline,
+   sleeves, length, flare, panels) and every label with the part it points to. Labels are copied exactly
+   as written; an unreadable one is reported, never guessed.
+2. **Made** (the image model): the sketch is the shape, the labels set each part's colour and material.
+   Nothing undrawn is added (no extra dupatta, jacket or trim). Where the sketch is silent, the garment
+   is made the way that garment is properly made; where it shows something, the sketch wins.
+3. **Checked** against the sketch: `shape_as_drawn`, one `label_a`, `label_b`, ... per labelled part (its
+   colour, material and work), `no_sketch_marks` (no pencil lines, arrows or handwriting), `one_person`
+   (or `no_person` on a mannequin); the back also `back_shown` and `same_as_front`. A failure is made once
+   more with the fault named. A remaining fault is in `done.quality.sketch` (full detail stream).
+
+### Errors in the stream
+
+| `code` | When | Retry? |
+| :--- | :--- | :--- |
+| `NOT_A_SKETCH` | The picture is not a drawing of a garment (a photograph, a screenshot). | No: send the drawing. |
+| `GARMENT_UNKNOWN` | The drawing does not show which garment it is, and `garment` was not sent. | Send `garment`. |
+| `SKETCH_NOT_READ` | The reading step failed twice (the AI was busy). No photo was made. | Yes. |
+
+Before the stream (plain JSON): `400` for a bad request (`PRESENTATION_NOT_AVAILABLE`, `GARMENT_REQUIRED`,
+an unknown field), `422 IMAGE_UNUSABLE` for a picture that cannot be read, `429` as in `/generate`.
+**One job per `clientId` across `/generate` and `/sketch`**: a new request replaces the running one, and
+`/cancel` stops either.
 
 ---
 
