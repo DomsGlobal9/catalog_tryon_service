@@ -105,3 +105,32 @@ model ActiveJob {
   @@map("active_jobs")
   @@schema("se_catalog")
 }
+
+// ─── 4. BILLABLE RUNS (what a third party is charged for) ───
+// One row per FULLY delivered run, written by src/modules/billing when the run
+// completes. A failed, cancelled or partial run writes nothing. The Gateway
+// (Platform Console) reads these through GET /internal/billing/usage, prices
+// them and makes the monthly bill; nothing about money is decided here.
+// `kind` is plain text on purpose (CATALOG | COLOUR_VARIANT): a new kind must
+// never need a database enum change. The garment photo is never stored, only
+// a hash of it in garment_ref so colour runs can be grouped under their garment.
+model BillableRun {
+  id               String   @id @default(uuid())
+  clientId         String   @map("client_id")
+  kind             String
+  // Caller's jobId ("job:<id>"), else the Gateway request id ("req:<id>").
+  // Unique per client, so the same request retried is charged once.
+  requestKey       String   @map("request_key")
+  colourName       String?  @map("colour_name")
+  colourHex        String?  @map("colour_hex")
+  garmentRef       String?  @map("garment_ref")
+  views            Int
+  drapeJobId       String?  @map("drape_job_id")
+  gatewayRequestId String?  @map("gateway_request_id")
+  deliveredAt      DateTime @default(now()) @map("delivered_at") @db.Timestamptz(6)
+
+  @@unique([clientId, requestKey])
+  @@index([clientId, deliveredAt])
+  @@map("billable_runs")
+  @@schema("se_catalog")
+}

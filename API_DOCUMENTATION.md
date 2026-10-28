@@ -108,6 +108,30 @@ sitting — generated onto a chosen AI model.
 | `dupattaStyleUrl` | String | No | **LEHANGA only.** See *Dupatta style*. |
 | `color` | String or Object | No | **Colour variant:** the same garment in another colour. A name, a hex code, or `{ name, hex, border, blouse }`. See *Colour variants*. `colour` and `colorVariant` are accepted as aliases. |
 | `topBack` | String | No | **Accepted but ignored** — see below. |
+| `jobId` | String | No | Your own id for this run (up to 128 letters, digits, `.` `_` `-` `:`). A run is charged once per `jobId`: sending a `jobId` that was already delivered is refused with `409 ALREADY_DELIVERED` before any work starts. See *Billing*. |
+
+#### Billing — what is charged
+
+Catalogs made through the gateway are billed monthly. **Only a fully delivered run is charged, and only once:**
+
+| Run | Charged as |
+| :--- | :--- |
+| Four views delivered, no `color` | one **catalog** |
+| Four views delivered, with `color` | one **colour variant** |
+| Failed, cancelled, replaced, timed out, or fewer than four views | nothing |
+| The same `jobId` sent again after it was delivered | refused: `409` `{"code":"ALREADY_DELIVERED"}`, nothing charged |
+| The same `jobId` sent again after it **failed** | runs again; charged once if delivered |
+
+Without a `jobId` each gateway request is its own run. The men's catalog, Design Studio and discovery are not charged yet.
+
+**Monthly limit.** Each client has a monthly limit (₹5,000 unless agreed otherwise). Once this month's amount
+(before GST) reaches it, the gateway refuses new catalog requests **before** they start, with
+`402` `{"error":{"code":"MONTHLY_LIMIT_REACHED","message":"This month's limit is reached. Ask ScaleEzy to raise it."}}`.
+
+**See your own usage.** `GET https://api-super-admin.onrender.com/api/v1/usage?month=YYYY-MM` with your `x-api-key`
+(month optional, default this month, India time) returns the counts, each line with its price, the subtotal, GST
+(18%, added on top), the total, where you stand against the limit, and every charged run. Amounts are given both as
+integer `paise` and as `rupees` strings.
 
 #### ⚠️ `topBack` is accepted and silently discarded
 

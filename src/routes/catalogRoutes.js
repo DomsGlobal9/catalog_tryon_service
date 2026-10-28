@@ -19,6 +19,7 @@ const shared = require('../lib/shared');
 const { admitGeneration, cancelGeneration } = require('../middleware/generationGuard');
 const { parseColourVariant, colourSummary } = require('../services/colourVariant');
 const { publicMessage } = require('../lib/publicError');
+const billing = require('../modules/billing/billing.service');
 
 /** A job-status write must never take the stream down with it. */
 async function recordJob(jobId, data) {
@@ -111,6 +112,26 @@ router.post('/generate-catalog/women', async (req, res) => {
       throw err;
     }
     const variant = colourSummary(colour);
+
+    // BILLING: what makes this run "the same request" (the caller's jobId, else
+    // the Gateway request id). A jobId that was already delivered and charged
+    // is refused here, before any AI work, so reusing one cannot buy a second
+    // catalog for free and a retry can never be charged twice.
+    let requestKey = null;
+    try {
+      requestKey = billing.requestKeyFor(req, billing.callerJobId(req.body));
+    } catch (err) {
+      if (err instanceof billing.BillingInputError) return res.status(400).json({ success: false, error: err.message, code: err.code });
+      throw err;
+    }
+    if (requestKey && requestKey.startsWith('job:') && await billing.findDelivered(req.account, requestKey)) {
+      return res.status(409).json({
+        success: false,
+        code: 'ALREADY_DELIVERED',
+        error: 'This jobId was already delivered and charged. Send a new jobId to make another catalog.'
+      });
+    }
+    let viewsDelivered = 0;
 
     // 1. Fetch the exact 4 Base Poses from the Database for this model
     const model = await prisma.aiModel.findUnique({
@@ -216,12 +237,24 @@ console.log('==========================');
         }
         // Fire events back to the client the millisecond a view finishes!
         res.write(`data: ${JSON.stringify({ type: 'VIEW_READY', ...progressEvent })}\n\n`);
+        viewsDelivered += 1;
       },
       abortController.signal
     );
 
     // 4. Update Job Status to COMPLETED
     await recordJob(jobId, { status: 'COMPLETED', latencyMs: Date.now() - startTime });
+
+    // 4b. Charge it: one row, only for a full delivery, only once. Never throws.
+    await billing.recordDeliveredRun({
+      clientId: req.account,
+      requestKey,
+      colour,
+      garment: fullDress,
+      views: viewsDelivered,
+      drapeJobId: jobId,
+      gatewayRequestId: billing.gatewayRequestId(req)
+    });
 
     // 5. Close stream
     res.write(`data: ${JSON.stringify(variant ? { type: 'COMPLETE', jobId: jobId, colorVariant: variant } : { type: 'COMPLETE', jobId: jobId })}\n\n`);
