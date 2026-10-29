@@ -224,8 +224,8 @@ console.log('==========================');
     colour
   },
       {
+        // No back view (29 Oct): the model's back pose is kept in the database, never drawn.
         front: finalFrontBaseUrl,
-        back: model.backBaseUrl,
         side: model.sideBaseUrl,
         sitting: model.sittingBaseUrl
       },

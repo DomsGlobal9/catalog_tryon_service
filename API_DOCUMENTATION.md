@@ -63,7 +63,7 @@ Each capability has its own endpoint:
 
 | Endpoint | Capability |
 | :--- | :--- |
-| `POST /api/v1/draping/generate-catalog/women` | Women's catalog — 4 views |
+| `POST /api/v1/draping/generate-catalog/women` | Women's catalog — 3 views |
 | `POST /api/v1/draping/generate-catalog/men` | Men's catalog — one image per size |
 | `POST /api/v1/discovery/search` | Design discovery |
 
@@ -92,8 +92,12 @@ bottom of this document for exactly what was run.
 
 ## `POST /api/v1/draping/generate-catalog`
 
-Takes one or more garment images and streams back a 4-view catalog — front, back, side and
-sitting — generated onto a chosen AI model.
+Takes one or more garment images and streams back a 3-view catalog — front, side and sitting —
+generated onto a chosen AI model.
+
+> **No back view since 29 October 2026.** A catalog was four views (front, back, side, sitting); the
+> back view is no longer made or charged. A caller that still keys its state on four views must
+> treat `COMPLETE` as the end, not a count of four. Test records below dated before then show four.
 
 ### Request payload
 
@@ -116,9 +120,9 @@ Catalogs made through the gateway are billed monthly. **Only a fully delivered r
 
 | Run | Charged as |
 | :--- | :--- |
-| Four views delivered, no `color` | one **catalog** |
-| Four views delivered, with `color` | one **colour variant** |
-| Failed, cancelled, replaced, timed out, or fewer than four views | nothing |
+| Three views delivered, no `color` | one **catalog** |
+| Three views delivered, with `color` | one **colour variant** |
+| Failed, cancelled, replaced, timed out, or fewer than three views | nothing |
 | The same `jobId` sent again after it was delivered | refused: `409` `{"code":"ALREADY_DELIVERED"}`, nothing charged |
 | The same `jobId` sent again after it **failed** | runs again; charged once if delivered |
 
@@ -302,7 +306,7 @@ Lehenga with a dupatta drape style, garment as base64:
 
 ## 📥 Response — Server-Sent Events
 
-Generation takes roughly **30–70 seconds** for all four views, so this endpoint does not return a
+Generation takes roughly **30–70 seconds** for all three views, so this endpoint does not return a
 single JSON body. It streams `text/event-stream`.
 
 Chunks are separated by `\n\n`. Frames carrying data are prefixed `data: ` and contain JSON.
@@ -319,8 +323,8 @@ the connection out:
 They start with `:`, not `data: `. Skip any chunk not prefixed `data: ` — which the SSE spec
 requires anyway.
 
-**2. Views arrive out of order.** `front` is always first, because the other three use it as their
-consistency reference. `back`, `side` and `sitting` are then generated **concurrently** and
+**2. Views arrive out of order.** `front` is always first, because the other two use it as their
+consistency reference. `side` and `sitting` are then generated **concurrently** and
 complete in whatever order the model returns them. Key your state off `event.view`, never off
 arrival position.
 
@@ -339,7 +343,7 @@ arrival position.
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..."
 }
 ```
-`view` is one of `front`, `back`, `side`, `sitting`. Output: JPEG, **3:4 portrait, 896×1200**, about
+`view` is one of `front`, `side`, `sitting`. Output: JPEG, **3:4 portrait, 896×1200**, about
 380–600 KB per view. Every view of a catalog has the same shape (since 29 September 2026; before that
 the shape followed each base pose photo, so a 2:3 back view could sit among 3:4 views).
 
@@ -353,7 +357,7 @@ framing; make them again to get the new one.
 **`COLOR_VARIANT`** — only when the request carried `color`; sent right after the first `STATUS`.
 Says what colour was understood and that the result is approximate. See *Colour variants*.
 
-**`COMPLETE`** — all four views done. With `color`, it also carries `colorVariant` (the same fields
+**`COMPLETE`** — all three views done. With `color`, it also carries `colorVariant` (the same fields
 as `COLOR_VARIANT`).
 ```json
 { "type": "COMPLETE", "jobId": "a1b2c3d4-..." }

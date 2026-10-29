@@ -292,13 +292,14 @@ const {
 
     // Base models: cached, and prepared concurrently on a cold cache. Was four
     // sequential download+resize round trips on every single request.
-    const cacheWarm = [baseModels.front, baseModels.back, baseModels.side, baseModels.sitting]
+    // No back view (29 Oct): shops did not want it, so it is neither drawn nor paid for. A catalog
+    // is front, side and sitting.
+    const cacheWarm = [baseModels.front, baseModels.side, baseModels.sitting]
       .every((u) => baseModelCache.has(u));
     console.log(`Preparing Base Model Images (cache ${cacheWarm ? 'HIT' : 'MISS'})...`);
     const prepStarted = Date.now();
-    const [frontBase, backBase, sideBase, sittingBase] = await Promise.all([
+    const [frontBase, sideBase, sittingBase] = await Promise.all([
       prepareBaseModel(baseModels.front),
-      prepareBaseModel(baseModels.back),
       prepareBaseModel(baseModels.side),
       prepareBaseModel(baseModels.sitting)
     ]);
@@ -425,7 +426,7 @@ const buildPayloadParts = (
     if (onProgress) onProgress({ view: 'front', image: generatedFront });
 
     // 2. Generate Dependent Views (passing the generatedFront as a reference)
-    console.log('Generating Dependent Views (Back, Side, Sitting) using Front as reference...');
+    console.log('Generating Dependent Views (Side, Sitting) using Front as reference...');
     
     // For strict consistency, we hide the flat-lays from the prompt builder so it strictly relies on the reference lock
     inputSlots.hasReference = true; 
@@ -433,10 +434,10 @@ const buildPayloadParts = (
     inputSlots.hasTop = false;
     inputSlots.hasBottom = false;
 
-    // The three dependent views each reference ONLY the generated front view -
+    // The dependent views each reference ONLY the generated front view -
     // never each other - so there is no ordering constraint between them.
     // They used to run in series at ~14s each; concurrently they cost roughly
-    // one view's time instead of three.
+    // one view's time instead of two.
     //
     // They were originally serialised to avoid Gemini 503 "Deadline Exceeded".
     // That predates the retry-with-backoff in callGeminiImageGen, which now
@@ -451,26 +452,25 @@ const buildPayloadParts = (
       );
       console.log(`✅ ${viewName} View generated successfully.`);
       // Fired the moment each view lands, so the client still streams results
-      // as they arrive rather than waiting for the slowest of the three.
+      // as they arrive rather than waiting for the slowest of them.
       if (onProgress) onProgress({ view: viewKey, image });
       return image;
     };
 
     const views = [
-      ['back', 'BACK', backBase],
       ['side', 'SIDE', sideBase],
       ['sitting', 'SITTING', sittingBase]
     ];
 
     const dependentStarted = Date.now();
-    let generatedBack, generatedSide, generatedSitting;
+    let generatedSide, generatedSitting;
 
     if (process.env.PARALLEL_VIEWS === 'false') {
       const out = [];
       for (const [k, n, b] of views) out.push(await runView(k, n, b));
-      [generatedBack, generatedSide, generatedSitting] = out;
+      [generatedSide, generatedSitting] = out;
     } else {
-      [generatedBack, generatedSide, generatedSitting] =
+      [generatedSide, generatedSitting] =
         await Promise.all(views.map(([k, n, b]) => runView(k, n, b)));
     }
 
@@ -478,7 +478,6 @@ const buildPayloadParts = (
 
     return {
       front: generatedFront,
-      back: generatedBack,
       side: generatedSide,
       sitting: generatedSitting
     };

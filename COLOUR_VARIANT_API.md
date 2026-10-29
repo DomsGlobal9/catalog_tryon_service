@@ -111,7 +111,7 @@ Tip: to get the product's **original** colour in the same plain studio as its va
 
 1. **Validates `color` first.** A colour it cannot read is refused as a JSON `400` before any generation slot is taken or any AI call is made (section 5).
 2. **Makes the front view in the new colour.** The recolour rule is part of the front-view prompt: the base fabric takes the target colour; zari, embroidery, motifs, border and blouse are each told to keep theirs, and the blouse and border are told outright which colour they must **not** become.
-3. **Makes back, side and sitting from that front.** These three views never see the original picture; they copy the finished front. So the colour is decided once and the four views cannot disagree.
+3. **Makes side and sitting from that front.** These two views never see the original picture; they copy the finished front. So the colour is decided once and the three views cannot disagree. (No back view since 29 October 2026.)
 4. **Pins the background.** Without `color`, each catalog gets a random studio prop. With `color`, every request uses the same plain, prop-free studio, so all the colours of one product sit in the same setting.
 5. **Reports the colour back**, with `colorAccuracy: "approximate"` (section 4).
 
@@ -121,7 +121,7 @@ Cost: **4 image calls**, the same as a catalog without `color`. Time: **28–110
 
 ## 4. Response — the SSE stream
 
-`200 OK`, `Content-Type: text/event-stream`. Each event is one `data: {...}` line followed by a blank line. Two things every consumer must handle: **keepalive comment lines** (`: keepalive 1757000000000`, skip anything not starting with `data: `) and **views arriving out of order** (`front` is always first; `back`, `side` and `sitting` finish in any order, so key your state by `event.view`).
+`200 OK`, `Content-Type: text/event-stream`. Each event is one `data: {...}` line followed by a blank line. Two things every consumer must handle: **keepalive comment lines** (`: keepalive 1757000000000`, skip anything not starting with `data: `) and **views arriving out of order** (`front` is always first; `side` and `sitting` finish in either order, so key your state by `event.view`).
 
 ### 4.1 Event sequence
 
@@ -130,8 +130,8 @@ Cost: **4 image calls**, the same as a catalog without `color`. Time: **28–110
 | 1 | `STATUS` | The pipeline starts | no |
 | 2 | `COLOR_VARIANT` | Right after the first `STATUS` | **yes** |
 | 3 | `VIEW_READY` (`front`) | The front is ready, about 10–30 s in | no |
-| 4–6 | `VIEW_READY` (`back`, `side`, `sitting`) | Each as it finishes, any order | no |
-| 7 | `COMPLETE` | All four done. Carries `colorVariant`. | field only with `color` |
+| 4–5 | `VIEW_READY` (`side`, `sitting`) | Each as it finishes, either order | no |
+| 6 | `COMPLETE` | All three done. Carries `colorVariant`. | field only with `color` |
 | — | `ERROR` | Instead of the rest, if generation fails after the stream opened | no |
 
 In the server's 5-call mode a second `STATUS` (`"Recolouring the front view to Royal Blue..."`) appears between 2 and 3.
@@ -168,7 +168,7 @@ In the server's 5-call mode a second `STATUS` (`"Recolouring the front view to R
 ```json
 { "type": "VIEW_READY", "view": "front", "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..." }
 ```
-`view` is one of `front`, `back`, `side`, `sitting`.
+`view` is one of `front`, `side`, `sitting`.
 
 **`COMPLETE`** — with `color`, it repeats the summary as `colorVariant` so you can store it with the images.
 ```json
@@ -308,7 +308,7 @@ async function catalogInColour({ clientId, modelId, garmentUrl, colour, category
 // three colours of one product, one request each
 for (const [key, colour] of [['red', '#C8102E'], ['green', '#0B6E4F'], ['blue', '#2745A8']]) {
   const out = await catalogInColour({ clientId: `sku-991-${key}`, modelId: 'saree2', garmentUrl: 'https://cdn.shop/sku-991.jpg', colour });
-  console.log(out.variant.colorName, Object.keys(out.views));        // e.g. "Royal Blue" [ 'front', 'side', 'back', 'sitting' ]
+  console.log(out.variant.colorName, Object.keys(out.views));        // e.g. "Royal Blue" [ 'front', 'side', 'sitting' ]
 }
 ```
 

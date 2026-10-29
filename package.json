@@ -8,7 +8,8 @@
     "test": "node tests/run.js",
     "test:live": "node tests/run.js --live",
     "test:shared": "node tests/shared-state.js --servers",
-    "test:billing": "node tests/billing.js"
+    "test:billing": "node tests/billing.js",
+    "test:noback": "node tests/noback.js"
   },
   "keywords": [],
   "author": "",

@@ -11,7 +11,7 @@
 //
 // WHAT IS STUBBED, AND WHY
 //   The image model is replaced, inside this process only, by a stand-in that
-//   COUNTS every generation it is asked for and streams four fake views (or
+//   COUNTS every generation it is asked for and streams three fake views (or
 //   fails / stalls on request). Everything else is the real service: the real
 //   routes, the real admission checks, the real database writes. So these
 //   checks prove what is charged, without spending a rupee of AI. The real
@@ -19,9 +19,9 @@
 //   live delivery writes exactly one row is left for the owner to approve.
 //
 //   What the stand-in does is chosen by the garment string the test sends:
-//     "stub:ok:<anything>"            four views, then done
+//     "stub:ok:<anything>"            three views, then done
 //     "stub:fail-after:<n>:<any>"     n views, then a provider error
-//     "stub:slow:<ms>:<any>"          four views, <ms> apart (cancellable)
+//     "stub:slow:<ms>:<any>"          three views, <ms> apart (cancellable)
 //
 // SAFETY
 //   * Refuses to run unless the database is on localhost. It never reads .env
@@ -71,7 +71,7 @@ aiService.generate4ViewCatalog = async function stubGenerate(inputs, _bases, onP
   const failAfter = mode === 'fail-after' ? Number(arg) : Infinity;
   const gapMs = mode === 'slow' ? Number(arg) : 5;
   const out = {};
-  for (const view of ['front', 'back', 'side', 'sitting']) {
+  for (const view of ['front', 'side', 'sitting']) {
     await new Promise((resolve, reject) => {
       const t = setTimeout(resolve, gapMs);
       if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('AbortError: Generation cancelled by client')); }, { once: true });
@@ -177,11 +177,11 @@ async function main() {
     const rid = crypto.randomUUID();
     const before = stub.generations;
     const r = await generate(acct, { clientId: 'shop-1', saree: 'stub:ok:red-banarasi' }, { requestId: rid });
-    eq('stream: STATUS, four VIEW_READY, COMPLETE', r.types, ['STATUS', 'VIEW_READY', 'VIEW_READY', 'VIEW_READY', 'VIEW_READY', 'COMPLETE']);
+    eq('stream: STATUS, three VIEW_READY, COMPLETE', r.types, ['STATUS', 'VIEW_READY', 'VIEW_READY', 'VIEW_READY', 'COMPLETE']);
     eq('the model was asked once', stub.generations - before, 1);
-    eq('one row, CATALOG, 4 views, keyed on the Gateway request id, garment hashed', await rows(acct), [{
+    eq('one row, CATALOG, 3 views, keyed on the Gateway request id, garment hashed', await rows(acct), [{
       kind: 'CATALOG', request_key: `req:${rid}`, colour_name: null, colour_hex: null,
-      garment_ref: sha('stub:ok:red-banarasi'), views: 4, gateway_request_id: rid
+      garment_ref: sha('stub:ok:red-banarasi'), views: 3, gateway_request_id: rid
     }]);
   }
 
@@ -192,7 +192,7 @@ async function main() {
     check('stream completed', r.types.at(-1) === 'COMPLETE', r.types.join(','));
     eq('one COLOUR_VARIANT row keyed on the caller jobId, same garment as the plain run', (await rows(acct)).map(({ gateway_request_id, ...x }) => x), [{
       kind: 'COLOUR_VARIANT', request_key: 'job:blue-1', colour_name: 'Royal Blue', colour_hex: '#2745A8',
-      garment_ref: sha('stub:ok:red-banarasi'), views: 4
+      garment_ref: sha('stub:ok:red-banarasi'), views: 3
     }]);
     const hexOnly = await generate(acct, { clientId: 'shop-1', saree: 'stub:ok:red-banarasi', color: '#0F5132' });
     check('hex-only colour completed', hexOnly.types.at(-1) === 'COMPLETE');
@@ -205,8 +205,8 @@ async function main() {
     const acct = `acct-${RUN}-c`;
     const failed = await generate(acct, { clientId: 'shop-1', saree: 'stub:fail-after:0:x' });
     eq('failed before any view: ERROR event', failed.types, ['STATUS', 'ERROR']);
-    const partial = await generate(acct, { clientId: 'shop-1', saree: 'stub:fail-after:3:x' });
-    eq('partial (3 of 4 views, then an error): three views then ERROR', partial.types, ['STATUS', 'VIEW_READY', 'VIEW_READY', 'VIEW_READY', 'ERROR']);
+    const partial = await generate(acct, { clientId: 'shop-1', saree: 'stub:fail-after:2:x' });
+    eq('partial (2 of 3 views, then an error): two views then ERROR', partial.types, ['STATUS', 'VIEW_READY', 'VIEW_READY', 'ERROR']);
 
     // Cancelled from the cancel route while running.
     const running = generate(acct, { clientId: 'shop-cancel', saree: 'stub:slow:400:x' });

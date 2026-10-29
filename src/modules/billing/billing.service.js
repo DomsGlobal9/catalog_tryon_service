@@ -23,12 +23,12 @@ const crypto = require('crypto');
 const { prisma, pool } = require('../../lib/db');
 
 const KIND = Object.freeze({
-  CATALOG: 'CATALOG',               // four views, in the garment's own colour
-  COLOUR_VARIANT: 'COLOUR_VARIANT'  // four views, in a requested colour
+  CATALOG: 'CATALOG',               // three views, in the garment's own colour
+  COLOUR_VARIANT: 'COLOUR_VARIANT'  // three views, in a requested colour
 });
 
-/** A full women's catalog is four views; anything less is not charged. */
-const FULL_CATALOG_VIEWS = 4;
+/** A full women's catalog is three views (front, side, sitting -- no back since 29 Oct); anything less is not charged. */
+const FULL_CATALOG_VIEWS = 3;
 
 const CALLER_JOB_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const GATEWAY_REQUEST_ID = /^[A-Za-z0-9-]{8,64}$/;
