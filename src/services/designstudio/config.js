@@ -69,6 +69,8 @@ const config = {
     // now has its own limit inside an overall deadline.
     timeoutMs: int('DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS', 25000, { min: 100 }),
     deadlineMs: int('DESIGNSTUDIO_DESCRIBE_DEADLINE_MS', 55000, { min: 200 }),
+    // How long a picture's reading is remembered (the same picture for the same part). 0 = off.
+    cacheMinutes: int('DESIGNSTUDIO_DESCRIBE_CACHE_MIN', 60, { min: 0, max: 1440 }),
     // gemini-2.5-flash is a thinking model and its thinking counts against this
     // cap. Measured: ~550 thinking + ~360-540 answer tokens for four references,
     // so 2048 left too little room on an unlucky run. Thinking is capped

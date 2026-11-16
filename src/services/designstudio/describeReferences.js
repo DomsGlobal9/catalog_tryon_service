@@ -28,6 +28,7 @@
 // NEVER REQUIRED. It has its own time limit, and any failure (timeout, quota,
 // unparseable answer) simply means generation continues with the pictures alone.
 //
+const crypto = require('crypto');
 const { config } = require('./config');
 const { redact } = require('./errors');
 
@@ -193,11 +194,31 @@ async function ask(items, signal) {
  * @returns {Promise<Map<number, Object>>} ref number -> description (empty on any failure).
  *   `.declined` holds the refs a real answer left out.
  */
+// Speed (16 Nov 2026): the same pictures come back again and again - the blouse, then the lehenga
+// made with it, then "Draw again" - and reading them took 8-10 s every time. A reading is kept for
+// the same picture read for the same part. In memory on this instance; 0 minutes turns it off.
+const remembered = new Map(); // key -> { info, at }
+const MAX_REMEMBERED = 500;
+const keyOf = (item) => `${crypto.createHash('sha1').update(item.image.base64).digest('hex')}|${item.kind}|${item.label}|${item.part || ''}`;
+const recall = (item) => {
+  const ms = config.describe.cacheMinutes * 60000;
+  const hit = ms > 0 && remembered.get(keyOf(item));
+  return hit && Date.now() - hit.at < ms ? hit.info : null;
+};
+const remember = (item, info) => {
+  if (!(config.describe.cacheMinutes > 0)) return;
+  remembered.set(keyOf(item), { info, at: Date.now() });
+  while (remembered.size > MAX_REMEMBERED) remembered.delete(remembered.keys().next().value);
+};
+
 async function describeReferences(items, { signal } = {}) {
   const out = new Map();
   // A model photo is a person, not a design: nothing in it may be described.
-  const wanted = items.filter((i) => i.kind === 'design' || i.kind === 'fabric');
-  if (!config.describe.enabled || !wanted.length || !config.gemini.apiKey()) return out;
+  const all = items.filter((i) => i.kind === 'design' || i.kind === 'fabric');
+  if (!config.describe.enabled || !all.length || !config.gemini.apiKey()) return out;
+  for (const item of all) { const info = recall(item); if (info) out.set(item.ref, info); }
+  const wanted = all.filter((i) => !out.has(i.ref));
+  if (!wanted.length) { out.declined = new Set(); return out; }
 
   // The whole step has a deadline; each attempt has its own shorter limit inside
   // it, so one stuck call cannot use up the time the retry needs.
@@ -216,6 +237,7 @@ async function describeReferences(items, { signal } = {}) {
     second = await ask(wanted.filter((i) => !out.has(i.ref)), attempt());
     for (const [ref, info] of second.map) out.set(ref, info);
   }
+  for (const item of wanted) if (out.has(item.ref)) remember(item, out.get(item.ref));
   const missing = wanted.filter((i) => !out.has(i.ref));
   // Left out of a real answer (not lost to a timeout or network error): the model
   // looked at the picture and had nothing to say - a shop rack, a greeting poster.

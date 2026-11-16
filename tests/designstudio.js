@@ -39,6 +39,9 @@ async function runAll({ check, eq, section, SRC }) {
     DESIGNSTUDIO_MAX_IMAGE_MB: '2',
     // Short, so the "it hangs" cases finish in milliseconds instead of minutes.
     DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS: '1000',
+    // Each test gives the describe step its own answer; remembered readings would mix them up.
+    // The memory itself is tested on its own, switched on there.
+    DESIGNSTUDIO_DESCRIBE_CACHE_MIN: '0',
     DESIGNSTUDIO_DEADLINE_MS: '5000',
     DESIGNSTUDIO_DESCRIBE_TIMEOUT_MS: '300',
     DESIGNSTUDIO_DESCRIBE_DEADLINE_MS: '3000'
@@ -912,7 +915,11 @@ async function runAll({ check, eq, section, SRC }) {
   check('the old single-photo behaviour is unchanged for a saree (no view named)',
     buildPrompt(fakeJob('SAREE', ['PALLU'])).pose === 'front' && !/photographed from the front/.test(buildPrompt(fakeJob('SAREE', ['PALLU'])).text));
   eq('the pair check compares garment, sleeves, person, a true back view, studio and the supporting piece',
-    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear', 'one_person']);
+    qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_colours', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear', 'one_person']);
+  check('the back keeps the front\'s colours: a colour lock in the back prompt and its own check (16 Nov: green brocade on a black gown, navy dupatta ends)',
+    /COLOUR LOCK: every cloth colour in the back photograph is a colour this photograph already has/.test(backPrompt.text)
+      && /the pallu or dupatta and its ends, the borders\) looks exactly the same in both, in the same colours/.test(backPrompt.text)
+      && /a colour the front does not show/.test(qa.pairChecklist(backPrompt.review).find((c) => c.id === 'same_colours').question));
   const refs = [{ area: 'BACK', part: 'back of the blouse', ref: 1 }, { area: 'HAND', part: 'hand of the blouse', ref: 2 }];
   eq('every view is also checked against its own references: neckline shape/depth for a neckline, motifs and sheer panels for every part; the front view gets only those',
     [qa.viewChecklist(backPrompt.review, refs).map((c) => c.id).slice(0, 2), qa.viewChecklist(frontPrompt.review, [{ area: 'NECK', part: 'neck of the blouse', ref: 1 }]).map((c) => c.id),
@@ -951,6 +958,27 @@ async function runAll({ check, eq, section, SRC }) {
   eq('an answer wrapped in code fences is still read', (await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])))).get(1).motifs, 'paisley');
   describe._setFetch(describeAnswer({ candidates: [{ content: { parts: [{ text: 'thinking...', thought: true }, { text: '{"references":[{"ref":1,"colours":"wine"}]}' }] } }] }));
   eq('thinking output is skipped', (await describe.describeReferences(referenceList(fakeJob('SAREE', ['PALLU'])))).get(1).colours, 'wine');
+
+  // Speed (16 Nov 2026): a picture's reading is remembered for the same part, so a repeat skips the 8-10 s.
+  {
+    const { config: dsConfig } = S('config');
+    const before = dsConfig.describe.cacheMinutes;
+    dsConfig.describe.cacheMinutes = 60;
+    let asked = 0;
+    describe._setFetch(async (...a) => { asked++; return describeAnswer(goodDescription)(...a); });
+    const memJob = fakeJob('SAREE', ['PALLU']);
+    memJob.designs[0].image = { ...prepared, base64: 'REMEMBER-ME' };
+    const firstRead = await describe.describeReferences(referenceList(memJob));
+    const againRead = await describe.describeReferences(referenceList(memJob));
+    const otherPart = fakeJob('SAREE', ['BORDER']);
+    otherPart.designs[0].image = { ...prepared, base64: 'REMEMBER-ME' };
+    await describe.describeReferences(referenceList(otherPart));
+    dsConfig.describe.cacheMinutes = 0;
+    await describe.describeReferences(referenceList(memJob));
+    eq('the same picture for the same part is read once; for another part it is read again; switched off, always read',
+      [asked, againRead.get(1) && againRead.get(1).motifs === firstRead.get(1).motifs], [3, true]);
+    dsConfig.describe.cacheMinutes = before;
+  }
   for (const [name, fake] of [
     ['the model answers with prose instead of JSON', describeAnswer({ candidates: [{ content: { parts: [{ text: 'Sure! Here is a lovely description.' }] } }] })],
     ['the describe call fails (HTTP 500)', describeAnswer('boom', 500)],
@@ -1811,6 +1839,33 @@ async function runAll({ check, eq, section, SRC }) {
     eq('if the regeneration itself fails, the first photograph is returned instead of an error',
       [events.some((e) => e.type === 'image'), events.some((e) => e.type === 'error'), events[events.length - 1].quality.failures.map((f) => f.check)],
       [true, false, ['supporting_plain']]);
+    qa._setFetch(qaAnswer());
+
+    // Speed (16 Nov 2026): the back starts as soon as the front exists, not after the front's checks.
+    qa._setFetch(async (url, opts) => { await new Promise((r) => setTimeout(r, 120)); return qaAnswer()(url, opts); });
+    const overlapCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'overlap-1', garment: 'KURTHI', designs: [{ area: 'NECK', image: IMG }, { area: 'BACK', image: IMG }] })));
+    const at = (pred) => events.findIndex(pred);
+    eq('the back is being made while the front is still checked: its "generating" comes before the front\'s check ends, and only two photos are made',
+      [at((e) => e.type === 'status' && e.stage === 'generating' && e.view === 'back') < at((e) => e.type === 'image' && e.view === 'front'),
+        events.filter((e) => e.type === 'image').map((e) => e.view), overlapCalls.length, events[events.length - 1].type],
+      [true, ['front', 'back'], 2, 'done']);
+    // A front that fails its check is made again; the early back (made from the first front) is not used.
+    const IMG_A = await png(768, 1024, '#aa0000'); const IMG_B = await png(768, 1024, '#00aa00');
+    const IMG_C = await png(768, 1024, '#0000aa'); const IMG_D = await png(768, 1024, '#aaaa00');
+    let neckAsked = 0;
+    qa._setFetch(async (url, opts) => {
+      const ids = [...JSON.parse(opts.body).contents[0].parts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]);
+      return qaAnswer(ids.includes('ref_neck') && neckAsked++ === 0 ? ['ref_neck'] : [])(url, opts);
+    });
+    const redoCalls = script([() => answer([imagePart(IMG_A)]), () => answer([imagePart(IMG_B)]), () => answer([imagePart(IMG_C)]), () => answer([imagePart(IMG_D)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'overlap-2', garment: 'KURTHI', designs: [{ area: 'NECK', image: IMG }, { area: 'BACK', image: IMG }] })));
+    const frontShown = events.find((e) => e.type === 'image' && e.view === 'front').image.split(',')[1];
+    const lastBackFront = redoCalls[redoCalls.length - 1].body.contents[0].parts.filter((p) => p.inlineData).map((p) => p.inlineData.data);
+    eq('a front made again: the early back is thrown away and the back is made from the CORRECTED front',
+      [redoCalls.length, /THE FRONT VIEW of this exact/.test(textOf(redoCalls[redoCalls.length - 1])), lastBackFront.includes(frontShown),
+        redoCalls[1].body.contents[0].parts.filter((p) => p.inlineData).some((p) => p.inlineData.data === frontShown), events[events.length - 1].type],
+      [4, true, true, false, 'done']);
     qa._setFetch(qaAnswer());
 
     // The matching piece over HTTP (16 Nov 2026): a lehenga made with the blouse that was made for it.

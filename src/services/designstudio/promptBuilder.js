@@ -681,7 +681,11 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
         : `Make the BACK view of this same ${g.product} on this same ${onMannequin ? 'mannequin' : 'model'}. Only the viewpoint changes. Do not redesign, recolour or restyle anything that this photograph already shows.`,
       `The front of the ${g.product} is not visible from behind: nothing from its front neckline, front panel or placket appears in the new photograph.`,
       // Measured: a back photo added a waistband and put a back reference's motifs on a skirt that was plain in front.
-      `Every part that continues round the body keeps exactly its look from this photograph: a plain skirt, flare or sleeve stays plain, and no waistband, belt, band or trim appears that this photograph does not show. Only a design reference assigned to the back adds anything new, and only on the part it is assigned to.`
+      `Every part that continues round the body keeps exactly its look from this photograph: a plain skirt, flare or sleeve stays plain, and no waistband, belt, band or trim appears that this photograph does not show. Only a design reference assigned to the back adds anything new, and only on the part it is assigned to.`,
+      // Measured 16 Nov 2026 (12-garment run): a black gown got a green-gold brocade back, a black
+      // dupatta navy ends and tassels at the back only, a green saree a teal pallu at the back -
+      // each the colour of the photo its back design came from.
+      `COLOUR LOCK: every cloth colour in the back photograph is a colour this photograph already has. No new colour appears - not a panel, yoke, pallu, dupatta end or border in another colour - even where a back design reference is in another colour: its motifs are made in this photograph's colours. And no tassels, fringe or trims appear that this photograph does not show on the same part.`
     ].join('\n'));
     addImage(frontPhoto, 'front view');
   }
@@ -960,7 +964,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // the back while the front skirt was plain, despite the rule in the FRONT VIEW block.
     // Measured (12 Oct 2026, paid run): on a gown sheet the BACK design's leaves spread onto the back of the skirt.
     ...(sheetBoth ? ['Final check between the two figures: every part that shows on both (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same on both. If a part is plain on the front figure it is plain on the back figure - no motifs, band, belt or border there that the front does not have. Only the back of the bodice or back panel of the back figure may carry the back design.'] : []),
-    ...(frontPhotoNumber ? [`Final check against the front view [Image ${frontPhotoNumber}]: every part that shows in both photographs (the skirt or flare, the hem, the sleeves, the waist) looks exactly the same in both. If that part is plain in the front view it is plain here - no motifs, no band, no belt, no border that the front view does not have. Only the back of the bodice or back panel may carry the back design.`] : []),
+    ...(frontPhotoNumber ? [`Final check against the front view [Image ${frontPhotoNumber}]: every part that shows in both photographs (the skirt or flare, the hem, the sleeves, the waist, the pallu or dupatta and its ends, the borders) looks exactly the same in both, in the same colours - no colour here that the front view does not have. If that part is plain in the front view it is plain here - no motifs, no band, no belt, no border that the front view does not have. Only the back of the bodice or back panel may carry the back design.`] : []),
     'Correct garment construction and believable fabric physics: real seams, folds and drape weight.',
     onMannequin
       ? 'Exactly one mannequin and no person: no head, face, hands, legs or feet - only the form, its stand and the garment.'

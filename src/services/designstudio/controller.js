@@ -155,8 +155,9 @@ async function generate(req, res, next) {
     }
 
     const generationStarted = Date.now();
-    const generate = (parts, label, { imageSize, aspectRatio } = {}) => generateImage(parts, {
-      signal: abort.signal,
+    // `signal` stops one call on its own (an early back view that is no longer wanted).
+    const generate = (parts, label, { imageSize, aspectRatio, signal } = {}) => generateImage(parts, {
+      signal: signal ? AbortSignal.any([abort.signal, signal]) : abort.signal,
       imageSize: imageSize || config.gemini.imageSize,
       aspectRatio,
       onAttempt: ({ attempt, reason }) => send({
@@ -304,15 +305,47 @@ async function generate(req, res, next) {
     };
     const results = [];
     let frontResult = null;
-    for (const view of views) {
+    const planView = (view, frontImage) => {
       const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(genJob, descriptions, view) : { job: genJob, descriptions };
-      const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontResult ? frontResult.image : null })
+      const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontImage ? frontImage : null })
         : ownPhoto ? buildPrompt(genJob, { descriptions }) : prompt;
-      if (view === 'back' && frontResult) viewPrompt.frontPhoto = frontResult.image;
+      if (view === 'back' && frontImage) viewPrompt.frontPhoto = frontImage;
+      return { viewJob, viewDescriptions, viewPrompt };
+    };
+    const firstDraft = async (view, viewPrompt, signal) => {
       if (view) send({ type: 'status', stage: 'generating', view, message: ownPhoto ? `Making the ${view} of the garment.` : `Generating the ${view} view.` });
-      let result = await generate(viewPrompt.parts, 'generating');
-      attempts += result.attempts;
-      usage = result.usage;
+      const out = await generate(viewPrompt.parts, 'generating', { signal });
+      attempts += out.attempts;
+      usage = out.usage;
+      return out;
+    };
+    // Speed (16 Nov 2026: front + back took 105 s). The back is made from the front photograph, so
+    // it has to wait for the front - but not for the front's checks. It starts as soon as the front
+    // exists; if the front is then made again, this early back is stopped and made from the new one.
+    let early = null; // { from: front image, plan, draft: Promise, stop: AbortController }
+    try {
+    for (const view of views) {
+      let plan;
+      let result;
+      if (view === 'back' && early && frontResult && early.from === frontResult.image) {
+        plan = early.plan;
+        result = await early.draft;
+        if (result.error) {
+          if ((result.error instanceof StudioError && result.error.code === 'CANCELLED') || abort.signal.aborted) throw result.error;
+          result = await firstDraft(view, plan.viewPrompt); // the early attempt failed: one normal try
+        }
+      } else {
+        if (early) early.stop.abort();
+        early = null;
+        plan = planView(view, frontResult && frontResult.image);
+        result = await firstDraft(view, plan.viewPrompt);
+      }
+      if (view === 'front' && views.includes('back') && !isSketch) {
+        const stop = new AbortController();
+        const backPlan = planView('back', result.image);
+        early = { from: result.image, plan: backPlan, stop, draft: firstDraft('back', backPlan.viewPrompt, stop.signal).catch((error) => ({ error })) };
+      }
+      const { viewJob, viewDescriptions, viewPrompt } = plan;
       let quality;
       ({ result, quality } = await inspect(viewPrompt, viewJob, viewDescriptions, result));
       if (view) result = await matchReferences(viewPrompt, viewJob, viewDescriptions, frontResult, result, quality);
@@ -333,6 +366,10 @@ async function generate(req, res, next) {
         bytes: result.image.bytes,
         image: `data:${result.image.mimeType};base64,${result.image.base64}`
       });
+    }
+    } finally {
+      // An early back still being made when anything failed is not paid for to the end.
+      if (early) early.stop.abort();
     }
     send({
       type: 'done',

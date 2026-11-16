@@ -192,7 +192,7 @@ async function reviewImage(review, image, { signal } = {}) {
  */
 // Checks that compare the back photograph with the front one. Without a front
 // photograph (views: ["back"] alone) they have nothing to compare with.
-const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_person', 'same_mannequin', 'same_studio', 'same_supporting']);
+const NEEDS_FRONT = new Set(['same_garment', 'same_sleeves', 'same_colours', 'same_person', 'same_mannequin', 'same_studio', 'same_supporting']);
 
 function viewChecklist(review, references = [], { withFront = true, withGarment = false } = {}) {
   const product = review.product;
@@ -269,6 +269,11 @@ function viewChecklist(review, references = [], { withFront = true, withGarment 
       `The back view is the same ${product} as the front view in cloth and cut: identical fabric base colour and shade, texture, fit and length. Its decoration follows the back design reference, not the front's.`],
     ['same_sleeves', `Are the sleeves the same in both photographs - the same length, the same shape (puff, fitted, flared), the same fabric and the same sleeve-end finish?`,
       'The sleeves are identical to the front view: same length, shape and sleeve ends.'],
+    // Measured 16 Nov 2026: same_garment ignores decoration, so a black gown's green-gold brocade
+    // back, a black dupatta's navy ends and back-only tassels, and a teal pallu at a green saree's
+    // back all passed it. Colour and added trims are asked about on their own.
+    ['same_colours', `Look at the colours only. Does the BACK photograph use only the cloth colours of the FRONT photograph - with no panel, yoke, pallu, dupatta end, border or embroidered area in a colour the front does not show (for example a navy, green or teal area on a black or green garment) - and no tassels, fringe or trims that the front does not show on the same part?`,
+      `Every cloth colour in the back view is a colour of the front view: no panel, yoke, pallu, dupatta end, border or embroidered area in another colour, and no tassels, fringe or trims the front view does not have.`],
     onMannequin
       ? ['same_mannequin', 'Is it the same mannequin in both photographs - the same headless dress form on the same stand?',
         'The same headless dress form on the same stand as the front view.']
