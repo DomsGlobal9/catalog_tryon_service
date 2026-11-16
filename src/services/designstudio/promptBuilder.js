@@ -82,6 +82,38 @@ function referenceGroundOf(info) {
   return backgroundColourOf(info.colours) || solidColourOf(info.colours);
 }
 
+/** A gold or beige zari ground: the metal IS the design, never recoloured. */
+const isZariGround = (ground, info) => !!ground && (sameColourFamily(ground, 'gold') || sameColourFamily(ground, 'beige'))
+  && /zari|metallic|brocade|tissue|paithani|banaras|kanjiv/i.test(`${(info && info.technique) || ''} ${(info && info.motifs) || ''}`);
+
+// Which part's photograph sets the garment's one cloth colour, most telling first.
+const MAIN_COLOUR_ORDER = ['OVERALL', 'BODY', 'SKIRT', 'FRONT', 'FLARE', 'SKIRT_FLARE', 'FLARE_PANTS', 'LEG', 'BOTTOM_SALWAR', 'PLEAT', 'PRINT', 'PRINT_PATTERN', 'PALLU', 'BACK'];
+
+/**
+ * ONE cloth colour for the whole garment when no fabric says it (16 Nov 2026). Measured on a real
+ * saree: with only fabric ids sent, each part took the cloth colour of the garment its design was
+ * photographed on - a pink body, a red pallu, a teal border at the back - "two three colours mixing
+ * up" (owner). The main design's cloth colour now covers every part; motifs keep their own colours.
+ * Decided once from ALL the designs, so the front and the back photographs get the same colour.
+ * @returns {null | { words: string, from: string }}
+ */
+function garmentColourOf(job, descriptions) {
+  const main = job.fabrics.find((f) => !f.appliesTo);
+  if (main) return null; // a main fabric decides the colour (its stated colour or its photograph)
+  const designs = job.allDesigns || job.designs;
+  const product = garmentGuide(job.garmentId).product;
+  const candidates = [...MAIN_COLOUR_ORDER.map((a) => designs.findIndex((d) => d.areaId === a)).filter((i) => i >= 0), ...designs.map((d, i) => i)];
+  for (const i of candidates) {
+    const info = descriptions.get(i + 1);
+    if (!info) continue;
+    const colour = referenceGroundOf(info) || clean(info.garmentColour || '');
+    if (colour && !isZariGround(colour, info)) {
+      return { words: colour, from: `the ${areaWords(designs[i].areaId)} design - one cloth colour for the whole ${product}` };
+    }
+  }
+  return null;
+}
+
 /** "Solid bright red." -> "bright red". */
 function solidColourOf(colours) {
   const m = String(colours || '').trim().match(/^(?:solid|plain)\s+([a-z][a-z /-]{2,30}?)\.?$/i);
@@ -331,6 +363,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     }
   }
 
+  // One cloth colour when no fabric decides it. The controller sets job.garmentColour from ALL the
+  // designs before the views are split, so front and back agree; otherwise it is worked out here.
+  const unified = job.garmentColour !== undefined ? job.garmentColour : garmentColourOf(job, descriptions);
   const pair = pairing(job);
   if (job.pairWith && !pair) {
     warnings.push(`pairWith was not used: a ${g.product} is the whole outfit, so nothing else is worn with it.`);
@@ -508,16 +543,22 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // contrast panel, whatever the describe step called it (aqua trim on turquoise).
     const sameAsGarment = info.garmentColour && info.groundColour && sameColourFamily(info.groundColour, info.garmentColour);
     const contrastColour = !MAIN_PANEL_AREAS.has(d.areaId) && /contrast/i.test(info.groundType || '') && !sameAsGarment && clean(info.groundColour || '');
+    const referenceBackground = referenceGroundOf(info);
+    // No fabric at all: the one garment colour covers this part too - even one read as a contrast
+    // panel, whose "contrast" is then only the colour of another photo (the teal saree border).
+    // A gold zari ground stays gold. The caller's own ground colour still wins.
+    const oneColour = unified && !partFabric && !isZariGround(referenceBackground, info) ? unified : null;
     const ground = (d.groundColor || d.groundColorHex)
       ? { words: d.groundColor, hex: d.groundColorHex, from: 'the caller' }
-      : contrastColour
+      : contrastColour && !oneColour
         ? { words: contrastColour, contrast: true }
         : (partFabric && (partFabric.color || partFabric.colorHex))
           ? { words: partFabric.color, hex: partFabric.colorHex, from: `its fabric${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
           : fabricRead
             ? { words: fabricRead, from: `its fabric photograph${partFabric.name ? ` (${clean(partFabric.name)})` : ''}` }
-            : null;
-    const referenceBackground = referenceGroundOf(info);
+            : oneColour
+              ? { words: oneColour.words, from: oneColour.from }
+              : null;
     const printed = printKind(info.technique) === 'flat' || printKind(info.technique) === 'foil';
     // Measured: gold zari borders and a Paithani pallu photographed on mustard and
     // beige were failed as "gold ground, not wine" - zari is gold, that is right.
@@ -1033,4 +1074,4 @@ function sketchLabels(job, descriptions, sheetViews, g, pair, crowded = false) {
   return labels.slice(0, SKETCH_MAX_LABELS).filter((l) => l.label);
 }
 
-module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind, framingLine };
+module.exports = { buildPrompt, referenceList, pairing, viewOf, visibleIn, DEFAULT_PAIRING_COLOUR, backgroundColourOf, referenceGroundOf, printKind, framingLine, garmentColourOf };

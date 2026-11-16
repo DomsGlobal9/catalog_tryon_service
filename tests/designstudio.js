@@ -842,6 +842,36 @@ async function runAll({ check, eq, section, SRC }) {
       qa.viewChecklist({ ...pairedPrompt.review, view: 'back' }, [], { withFront: true }).map((c) => c.id).includes('pair_matches'),
       qa.viewChecklist(plainPrompt.review, []).map((c) => c.id).includes('pair_matches')],
     [true, false, false, false]);
+
+  // 16 Nov 2026, a real saree: no fabric picture (only an id), so each part took the cloth colour of
+  // the garment its design was photographed on - pink body, red pallu, a teal border at the back.
+  const { garmentColourOf } = S('promptBuilder');
+  const mixed = fakeJob('SAREE', ['PALLU', 'BORDER', 'BODY', 'PLEAT']);
+  const mixedRead = new Map([
+    [1, { motifs: 'paisley', colours: 'Gold paisleys. Background is bright red.', technique: 'embroidery', groundType: 'garment fabric', groundColour: 'bright red', garmentColour: 'bright red' }],
+    [2, { motifs: 'floral vine', colours: 'Gold vine on teal.', technique: 'embroidery', groundType: 'contrast panel', groundColour: 'teal', garmentColour: 'red' }],
+    [3, { motifs: 'small buttis', colours: 'Pink buttis. Background is pink.', technique: 'thread work', groundType: 'garment fabric', groundColour: 'pink', garmentColour: 'pink' }],
+    [4, { motifs: 'stripes', colours: 'Background is crimson.', technique: 'weave', groundType: 'garment fabric', groundColour: 'crimson' }]
+  ]);
+  mixed.garmentColour = garmentColourOf(mixed, mixedRead);
+  const mixedFront = buildPrompt(viewOf(mixed, mixedRead, 'front').job, { descriptions: viewOf(mixed, mixedRead, 'front').descriptions, view: 'front' });
+  const mixedBack = buildPrompt(viewOf(mixed, mixedRead, 'back').job, { descriptions: viewOf(mixed, mixedRead, 'back').descriptions, view: 'back', frontPhoto: prepared });
+  eq('no fabric: ONE cloth colour for the whole garment, from the BODY design - the red pallu, the teal "contrast" border and the crimson pleats are all pink cloth, front and back alike',
+    [mixed.garmentColour && mixed.garmentColour.words, mixedFront.review.parts.map((p) => [p.area, p.ground, p.contrast]), mixedBack.review.parts.map((p) => [p.area, p.ground])],
+    ['pink', [['PALLU', 'pink', false], ['BORDER', 'pink', false], ['BODY', 'pink', false], ['PLEAT', 'pink', false]], [['PALLU', 'pink'], ['BORDER', 'pink'], ['BODY', 'pink']]]);
+  check('...and each part is told its photo\'s cloth colour is NOT the garment\'s (the motifs keep their own colours)',
+    /Ground colour for this part: pink - from the body design - one cloth colour for the whole saree/.test(mixedFront.text) && /this part's cloth is bright red\. That is only the colour of the garment that was photographed/.test(mixedFront.text)
+      && /this part's cloth is teal\./.test(mixedFront.text) && !/is a separately coloured contrast panel/.test(mixedFront.text) && /Keep the motif colours exactly as they are in this reference/.test(mixedFront.text));
+  const zariRead = new Map([...mixedRead, [2, { motifs: 'temple border', colours: 'Gold zari. Background is gold.', technique: 'woven zari', groundType: 'garment fabric', groundColour: 'gold' }]]);
+  const zariJob = { ...mixed, garmentColour: garmentColourOf(mixed, zariRead) };
+  const withFabric = fakeJob('SAREE', ['PALLU', 'BODY'], { fabrics: [{ image: IMG, color: 'emerald green' }] });
+  const callerGround = fakeJob('SAREE', ['PALLU', 'BODY'], { designs: [{ area: 'PALLU', image: IMG, groundColor: 'red' }, { area: 'BODY', image: IMG }] });
+  eq('a gold zari border stays gold; a main fabric decides instead (no one-colour rule); a colour the caller gives a part still wins',
+    [buildPrompt(zariJob, { descriptions: zariRead }).review.parts.find((p) => p.area === 'BORDER').ground,
+      garmentColourOf(withFabric, mixedRead), buildPrompt(withFabric, { descriptions: mixedRead }).review.parts.map((p) => p.ground),
+      buildPrompt(callerGround, { descriptions: mixedRead }).review.parts.map((p) => [p.area, p.ground])],
+    // (callerGround's second description - teal - is its BODY's, so teal is the one colour there)
+    [null, null, ['emerald green', 'emerald green'], [['PALLU', 'red'], ['BODY', 'teal']]]);
   eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,

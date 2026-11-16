@@ -21,7 +21,7 @@ const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
 const { resolveRequest, PRESENTATIONS } = require('./validate');
 const { prepareImages } = require('./imageInput');
-const { buildPrompt, referenceList, pairing, viewOf, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
+const { buildPrompt, referenceList, pairing, viewOf, garmentColourOf, DEFAULT_PAIRING_COLOUR } = require('./promptBuilder');
 const { describeReferences } = require('./describeReferences');
 const { locateParts, cropReferences } = require('./cropReferences');
 const { generateImage } = require('./geminiImage');
@@ -138,6 +138,9 @@ async function generate(req, res, next) {
       // Show the image model only the part each design reference is for.
       const crops = await cropReferences(job, boxes, { only: forcedCrops });
       if (crops.length) console.log(`[DesignStudio] requestId=${requestId} cropped to the part: ${crops.map((c) => `${c.area} ${c.from}->${c.to}`).join(', ')}`);
+      // One cloth colour for the whole garment, decided from ALL its designs before the views are
+      // split, so the front and the back photographs agree (16 Nov 2026: a teal border only at the back).
+      job.garmentColour = garmentColourOf(job, descriptions);
       if (descriptions.size || crops.length) {
         const before = prompt.warnings;
         prompt = buildPrompt(job, { descriptions });
