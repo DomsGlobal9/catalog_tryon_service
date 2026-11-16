@@ -272,7 +272,7 @@ function viewChecklist(review, references = [], { withFront = true, withGarment 
     // Measured 16 Nov 2026: same_garment ignores decoration, so a black gown's green-gold brocade
     // back, a black dupatta's navy ends and back-only tassels, and a teal pallu at a green saree's
     // back all passed it. Colour and added trims are asked about on their own.
-    ['same_colours', `Look at the colours only. Does the BACK photograph use only the cloth colours of the FRONT photograph - with no panel, yoke, pallu, dupatta end, border or embroidered area in a colour the front does not show (for example a navy, green or teal area on a black or green garment) - and no tassels, fringe or trims that the front does not show on the same part?`,
+    ['same_colours', `Look at the colours only. Does the BACK photograph use only the cloth colours of the FRONT photograph - with no panel, yoke, pallu, dupatta end, border or embroidered area in a colour the front does not show (for example a navy, green or teal area on a black or green garment) - and no tassels, fringe or trims that the front does not show on the same part? A back design does NOT excuse a new colour: a large green yoke on the back of a black gown fails this check.`,
       `Every cloth colour in the back view is a colour of the front view: no panel, yoke, pallu, dupatta end, border or embroidered area in another colour, and no tassels, fringe or trims the front view does not have.`],
     onMannequin
       ? ['same_mannequin', 'Is it the same mannequin in both photographs - the same headless dress form on the same stand?',

@@ -929,6 +929,8 @@ async function runAll({ check, eq, section, SRC }) {
     qa.pairChecklist(backPrompt.review).map((c) => c.id), ['same_garment', 'same_sleeves', 'same_colours', 'same_person', 'back_shown', 'no_front_on_back', 'same_studio', 'same_supporting', 'arms_clear', 'one_person']);
   check('the back keeps the front\'s colours: a colour lock in the back prompt and its own check (16 Nov: green brocade on a black gown, navy dupatta ends)',
     /COLOUR LOCK: every cloth colour in the back photograph is a colour this photograph already has/.test(backPrompt.text)
+      && /A back design reference gives ONLY the shape of the back/.test(backPrompt.text)
+      && /A back design does NOT excuse a new colour/.test(qa.pairChecklist(backPrompt.review).find((c) => c.id === 'same_colours').question)
       && /the pallu or dupatta and its ends, the borders\) looks exactly the same in both, in the same colours/.test(backPrompt.text)
       && /a colour the front does not show/.test(qa.pairChecklist(backPrompt.review).find((c) => c.id === 'same_colours').question));
   const refs = [{ area: 'BACK', part: 'back of the blouse', ref: 1 }, { area: 'HAND', part: 'hand of the blouse', ref: 2 }];

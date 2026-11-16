@@ -692,7 +692,10 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       // Measured 16 Nov 2026 (12-garment run): a black gown got a green-gold brocade back, a black
       // dupatta navy ends and tassels at the back only, a green saree a teal pallu at the back -
       // each the colour of the photo its back design came from.
-      `COLOUR LOCK: every cloth colour in the back photograph is a colour this photograph already has. No new colour appears - not a panel, yoke, pallu, dupatta end or border in another colour - even where a back design reference is in another colour: its motifs are made in this photograph's colours. And no tassels, fringe or trims appear that this photograph does not show on the same part.`
+      `COLOUR LOCK: every cloth colour in the back photograph is a colour this photograph already has. No new colour appears - not a panel, yoke, pallu, dupatta end or border in another colour - even where a back design reference is in another colour: its motifs are made in this photograph's colours. And no tassels, fringe or trims appear that this photograph does not show on the same part.`,
+      // Measured 16 Nov 2026 (third run): a black lace gown's BACK reference was a maroon-and-green
+      // gown, and the back still got a big green brocade yoke and lost the lace of the skirt.
+      `A back design reference gives ONLY the shape of the back (its neckline, cut-out, ties) and the kind of motifs - never its colours or the rest of the garment it was photographed on. A large area of it in another colour (a green yoke, a maroon skirt) is made in this photograph's own cloth and colour, and the skirt, sleeves and cloth below and around it stay exactly as here (the same lace, net or weave).`
     ].join('\n'));
     addImage(frontPhoto, 'front view');
   }
