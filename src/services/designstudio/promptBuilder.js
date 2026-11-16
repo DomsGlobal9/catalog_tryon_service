@@ -294,7 +294,9 @@ function pairing(job) {
     looks: g.pairedWith.looks,
     note: job.pairWith && job.pairWith.note ? clean(job.pairWith.note) : null,
     // The matching piece itself, made for this outfit (16 Nov 2026): worn exactly as pictured.
-    image: (job.pairWith && job.pairWith.image) || null
+    image: (job.pairWith && job.pairWith.image) || null,
+    // ...and its back (the blouse's tie-up and latkans), for the back view.
+    backImage: (job.pairWith && job.pairWith.back && job.pairWith.back.image) || null
   };
 
   if (job.pairWith && (job.pairWith.color || job.pairWith.colorHex)) {
@@ -598,9 +600,19 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
       // Measured again in production: a lighter tint of that blue survived as stripes.
       lines.push(`If this design is stripes, checks, bands or blocks, the stripes or blocks in the reference's background colour are ground, not motif: they become ${stated} too - and so does every lighter or darker shade or tint of that background colour (for example sky blue, light blue or teal stripes when the reference's background is blue). Only the decorative colours (for example gold zari stripes or coloured buttis) keep their own colour.`);
     }
-    lines.push(d.keepMotifColors
-      ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
-      : 'Recolour the motifs to suit this part\'s own fabric palette rather than copying the reference\'s motif colours.');
+    // Measured 16 Nov 2026 (three runs): a black lace gown's BACK design was a maroon-and-green gown,
+    // and its green-gold brocade came back as a big green yoke every time, colour lock or not. A
+    // design seen from behind only, photographed in another colour than this garment, gives its
+    // motifs' SHAPES; their colours follow the front photograph.
+    const foreignBack = view === 'back' && frontPhoto && !visibleIn('front', d.areaId, job.garmentId)
+      && unified && referenceBackground && !sameColourFamily(referenceBackground, unified.words) && !isZariGround(referenceBackground, info);
+    if (foreignBack) {
+      lines.push(`[Image ${n}] was photographed on a ${referenceBackground} garment: take only the SHAPE of its back and the kind and layout of its motifs. Every colour on this back - its cloth and its motifs - is a colour of the front view photograph (${unified.words} with that photograph's own accents); none of [Image ${n}]'s colours (its ${referenceBackground}) appears.`);
+    } else {
+      lines.push(d.keepMotifColors
+        ? 'Keep the motif colours exactly as they are in this reference, including multi-coloured motifs - do not turn them into a single colour.'
+        : 'Recolour the motifs to suit this part\'s own fabric palette rather than copying the reference\'s motif colours.');
+    }
     // Measured: a pallu ended in a large blank panel of plain fabric.
     lines.push(d.coverage === 'reference'
       ? 'Follow this reference\'s own layout exactly, including any plain areas it shows.'
@@ -661,17 +673,23 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   // The matching piece, made for this outfit (16 Nov 2026). Measured on a real order: the lehenga
   // and its blouse were made in two requests and came out as two outfits - a plain red choli on the
   // lehenga, a white skirt under the blouse. With this picture the model wears THAT piece.
+  // The back view uses the piece's own back photo when it is sent: measured 16 Nov 2026 in production,
+  // a lehenga's back showed the blouse without its tie-up and latkans - only its front was known.
   let pairPhotoNumber = null;
-  if (pair && pair.image) {
+  const pairIsBack = !!(pair && view === 'back' && pair.backImage);
+  const pairImage = pair ? (pairIsBack ? pair.backImage : pair.image) : null;
+  if (pair && pairImage) {
     n += 1;
     pairPhotoNumber = n;
     addText([
-      `[Image ${n}] THE MATCHING PIECE - the ${pair.pieces} of this same outfit, worn with the ${g.product} exactly as it is here.`,
+      pairIsBack
+        ? `[Image ${n}] THE MATCHING PIECE FROM BEHIND - the back of the ${pair.pieces} of this same outfit, worn with the ${g.product} exactly as it is here: its back neckline, ties, dori, latkans and back work, unchanged.`
+        : `[Image ${n}] THE MATCHING PIECE - the ${pair.pieces} of this same outfit, worn with the ${g.product} exactly as it is here.`,
       // A picture of a whole outfit (a lehenga with its own choli) may be sent for a blouse's skirt.
       `Take from this picture ONLY the ${pair.pieces} - whatever of it the picture shows: its colour, cloth, cut, neckline, sleeves, embroidery and work, unchanged. Not the person, the pose, the background, or any other garment in it.`,
       `It is not the product and no design reference below belongs on it; the ${g.product} is the product.`
     ].join('\n'));
-    addImage(pair.image, 'matching piece');
+    addImage(pairImage, pairIsBack ? 'matching piece, back' : 'matching piece');
   }
 
   // The back view is made from the finished front photograph, so the two are one
@@ -1006,7 +1024,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     garmentId: job.garmentId,
     framing: g.framing,
     pose,
-    pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId), image: pair.image || null } : null,
+    pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId), image: pairImage || null, back: pairIsBack } : null,
     noDupatta: !areasSent.has('DUPATTA') && job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA',
     noTassels: (job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL')) || job.garmentId === 'SAREE',
     onePallu: job.garmentId === 'SAREE',

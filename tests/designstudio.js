@@ -857,6 +857,26 @@ async function runAll({ check, eq, section, SRC }) {
       qa.viewChecklist(plainPrompt.review, []).map((c) => c.id).includes('pair_matches')],
     [true, false, false, false]);
 
+  // 16 Nov 2026, production: the lehenga's back showed the blouse without its tie-up and latkans -
+  // only the blouse's front photo had been sent. Now the matching piece can come with its back.
+  const twoSides = resolveRequest(body({ garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { images: [cloud('blouse-front.png'), cloud('blouse-back.png')] } }));
+  const viaKeys = resolveRequest(body({ garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image: cloud('f.png'), back_image: cloud('b.png') } }));
+  eq('the matching piece\'s back photo: as images [front, back] or back_image / backImage; three images is refused',
+    [twoSides.pairWith.source.url.pathname.split('/').pop(), twoSides.pairWith.back.source.url.pathname.split('/').pop(), viaKeys.pairWith.back.source.url.pathname.split('/').pop(),
+      code(() => resolveRequest(body({ garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { images: [IMG, IMG, IMG] } })))],
+    ['blouse-front.png', 'blouse-back.png', 'b.png', 'INVALID_FIELD']);
+  const sidesJob = fakeJob('LEHANGA', ['SKIRT'], { pair_with: { image: cloud('f.png'), backImage: cloud('b.png') } });
+  sidesJob.pairWith.image = { ...prepared, base64: 'PIECE-FRONT' };
+  sidesJob.pairWith.back.image = { ...prepared, base64: 'PIECE-BACK' };
+  const sidesFront = buildPrompt(viewOf(sidesJob, new Map(), 'front').job, { view: 'front' });
+  const sidesBack = buildPrompt(viewOf(sidesJob, new Map(), 'back', { fromFront: true }).job, { view: 'back', frontPhoto: prepared });
+  const sentOf = (p) => p.parts.filter((x) => x.inlineData).map((x) => x.inlineData.data);
+  eq('the front wears the piece\'s front photo, the back its back photo - each checked against its own picture',
+    [sentOf(sidesFront).includes('PIECE-FRONT') && !sentOf(sidesFront).includes('PIECE-BACK'), sentOf(sidesBack).includes('PIECE-BACK') && !sentOf(sidesBack).includes('PIECE-FRONT'),
+      /THE MATCHING PIECE FROM BEHIND - the back of the choli and dupatta/.test(sidesBack.text),
+      qa.viewChecklist(sidesBack.review, [], { withFront: true }).map((c) => c.id).includes('pair_matches'), sidesBack.review.pair.image.base64],
+    [true, true, true, true, 'PIECE-BACK']);
+
   // 16 Nov 2026, a real saree: no fabric picture (only an id), so each part took the cloth colour of
   // the garment its design was photographed on - pink body, red pallu, a teal border at the back.
   const { garmentColourOf } = S('promptBuilder');
@@ -886,6 +906,24 @@ async function runAll({ check, eq, section, SRC }) {
       buildPrompt(callerGround, { descriptions: mixedRead }).review.parts.map((p) => [p.area, p.ground])],
     // (callerGround's second description - teal - is its BODY's, so teal is the one colour there)
     [null, null, ['emerald green', 'emerald green'], [['PALLU', 'red'], ['BODY', 'teal']]]);
+
+  // 16 Nov 2026, three paid runs: a black lace gown's BACK design was a maroon-and-green gown, and
+  // the back got a green brocade yoke every time. Its colours are not used, only its shape.
+  const blackGown = fakeJob('GOWN', ['FRONT', 'BACK']);
+  const blackGownRead = new Map([
+    [1, { motifs: 'ruched lace', colours: 'Background is black.', technique: 'lace', groundType: 'garment fabric', groundColour: 'black' }],
+    [2, { motifs: 'brocade yoke', colours: 'Green and gold brocade. Background is maroon.', technique: 'brocade weave', groundType: 'garment fabric', groundColour: 'maroon' }]
+  ]);
+  blackGown.garmentColour = garmentColourOf(blackGown, blackGownRead);
+  const blackGownBackPlan = viewOf(blackGown, blackGownRead, 'back', { fromFront: true });
+  const blackGownBack = buildPrompt(blackGownBackPlan.job, { descriptions: blackGownBackPlan.descriptions, view: 'back', frontPhoto: prepared });
+  const blackSameRead = new Map([...blackGownRead, [2, { ...blackGownRead.get(2), groundColour: 'black' }]]);
+  const blackSamePlan = viewOf({ ...blackGown, garmentColour: garmentColourOf(blackGown, blackSameRead) }, blackSameRead, 'back', { fromFront: true });
+  const blackSameBack = buildPrompt(blackSamePlan.job, { descriptions: blackSamePlan.descriptions, view: 'back', frontPhoto: prepared });
+  check('a back-only design photographed in another colour gives only its shape: none of its colours (a maroon gown\'s design on a black gown)',
+    /\[Image 1\] was photographed on a maroon garment: take only the SHAPE of its back/.test(blackGownBack.text) && /none of \[Image 1\]'s colours \(its maroon\) appears/.test(blackGownBack.text)
+      && !/Keep the motif colours exactly as they are in this reference/.test(blackGownBack.text)
+      && !/was photographed on a/.test(blackSameBack.text) && /Keep the motif colours exactly as they are in this reference/.test(blackSameBack.text));
   eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
@@ -1903,6 +1941,9 @@ async function runAll({ check, eq, section, SRC }) {
     res = await post('/generate', { clientId: 'leh-pair-bad', garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image: cloud('gone.png') } });
     json = await res.json();
     eq('a matching piece that cannot be read is a 422 naming it, before anything is made', [res.status, json.error.details.map((d) => d.field)], [422, ['pairWith.image']]);
+    res = await post('/generate', { clientId: 'leh-pair-back-bad', garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image: IMG, back_image: cloud('gone.png') } });
+    json = await res.json();
+    eq('...and so is its back photo', [res.status, json.error.details.map((d) => d.field)], [422, ['pairWith.backImage']]);
 
     // POST /sketch over HTTP (28 Oct 2026): read the drawing, make the photo, check it.
     const readFake = (payload) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }), { status: 200 });

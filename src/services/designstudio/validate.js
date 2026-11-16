@@ -171,6 +171,13 @@ function canonicaliseFields(raw, warnings = []) {
     pick(pair, 'description', 'note');
     pick(pair, 'image_url', 'image');
     pick(pair, 'imageUrl', 'image');
+    for (const k of ['back_image', 'backImageUrl', 'back_image_url', 'image_back']) pick(pair, k, 'backImage');
+    // "images": [front, back] - the matching piece's two photos.
+    if (Array.isArray(pair.images)) {
+      if (pair.image === undefined && pair.images[0]) pair.image = pair.images[0];
+      if (pair.backImage === undefined && pair.images[1]) pair.backImage = pair.images[1];
+      if (pair.images.length <= 2) delete pair.images; // more than two is refused by the schema, named
+    }
     // The design library sends {"color":"","color_hex":"","note":""} when nothing is chosen.
     for (const k of Object.keys(pair)) if (typeof pair[k] === 'string' && !pair[k].trim()) delete pair[k];
     if (Object.keys(pair).length) body.pairWith = pair; else delete body.pairWith;
@@ -266,7 +273,9 @@ const pairWithItem = z.object({
   // The matching piece itself (16 Nov 2026): a photo of the blouse made for this lehenga, the
   // lehenga made for this blouse... The model then wears exactly that piece, so the two photos of
   // one outfit match. Without it the piece is a plain one in the colour above.
-  image: imageField.optional()
+  image: imageField.optional(),
+  // Its back (16 Nov 2026): the back view then shows the piece's own back - its tie-up and latkans.
+  backImage: imageField.optional()
 }).strict();
 
 const schema = z.object({
@@ -401,13 +410,14 @@ function resolvePerson(input, garment) {
       ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
       : { kind: 'generated', gender: input.modelGender || (garment ? garmentGuide(garment.id).wearer : null) },
     notes: input.notes || null,
-    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note || input.pairWith.image)
+    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note || input.pairWith.image || input.pairWith.backImage)
       ? {
         color: input.pairWith.color || null,
         colorHex: input.pairWith.colorHex ? `#${input.pairWith.colorHex.replace('#', '').toUpperCase()}` : null,
         note: input.pairWith.note || null,
-        // imageInput.js puts the decoded picture in .image beside this.
-        ...(input.pairWith.image ? { source: classifyImage(input.pairWith.image, 'pairWith.image') } : {})
+        // imageInput.js puts the decoded picture in .image beside this (and in .back.image).
+        ...(input.pairWith.image ? { source: classifyImage(input.pairWith.image, 'pairWith.image') } : {}),
+        ...(input.pairWith.backImage ? { back: { source: classifyImage(input.pairWith.backImage, 'pairWith.backImage') } } : {})
       }
       : null
   };

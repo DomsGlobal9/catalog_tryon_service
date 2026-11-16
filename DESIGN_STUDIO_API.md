@@ -68,6 +68,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
 | `pairWith.note` | string, ≤300 | No | e.g. `"short puff sleeves"`, `"matte crepe skirt"`. |
 | `pairWith.image` | base64 or Cloudinary link | No | **The matching piece itself** (since 16 November 2026): the finished photo of the blouse made for this lehenga, or of the lehenga made for this blouse. The model wears exactly that piece, so the photos of one outfit match. See *One outfit, two requests*. Also `image_url`. |
+| `pairWith.backImage` | base64 or Cloudinary link | No | The matching piece's **back** photo: the back view then shows the piece's own back (a blouse's tie-up, dori and latkans). Also `back_image`, or send both as `"images": [front, back]`. |
 | `notes` | string, ≤600 | No | Anything else. The reference images always take priority over notes. |
 
 Unknown fields are refused, so a typo never silently does nothing.
@@ -273,14 +274,18 @@ Make one piece first, then send its finished photo with the other as `pairWith.i
 ```
 ```json
 { "clientId": "order-88-lehenga", "garment": "LEHANGA", "designs": [ ... ],
-  "pairWith": { "image": "<the front photo the blouse request returned>" } }
+  "pairWith": { "images": ["<the blouse's front photo>", "<the blouse's back photo>"] } }
 ```
 
-The lehenga's model then wears **that blouse**: the same colour, cut, neckline, sleeves and work. What the
-picture does not show (the dupatta) stays plain, in `pairWith.color` or the default. The photo is checked
-against the picture (`pair_matches`) and made once more if the piece differs. The back view keeps the
-same piece as the front (`same_supporting`). To make the blouse photo show the real lehenga too, send
-the lehenga's photo as the blouse request's `pairWith.image`.
+The lehenga's model then wears **that blouse**: the same colour, cut, neckline, sleeves and work - the front
+view from its front photo, the back view from its back photo (its tie-up and latkans). What the pictures
+do not show (the dupatta) stays plain, in `pairWith.color` or the default. Each photo is checked against
+its picture (`pair_matches`) and made once more if the piece differs. With only the front photo, the back
+keeps the same piece as the front (`same_supporting`) but its back is not known.
+
+Recommended order, measured in production on 16 November 2026 (blouse 58 s, lehenga 45 s, front and back):
+1. the **blouse**, with the **lehenga's design picture** as `pairWith.image` - so its skirt is the real lehenga;
+2. the **lehenga**, with the blouse's **front and back photos** as `pairWith.images`.
 
 Why this exists, measured: when the blouse was only described as "plain unless a design reference
 describes it", a saree's pallu design came out on the blouse instead.

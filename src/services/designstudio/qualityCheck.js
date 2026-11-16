@@ -252,9 +252,10 @@ function viewChecklist(review, references = [], { withFront = true, withGarment 
       `REFERENCE ${r.ref} was sent ONLY for the ${r.part}. If it shows a whole garment, every other part of that garment (its sleeves, body, neckline, hem, colour) is NOT part of this reference and must be ignored - those parts of the PHOTOGRAPH follow other references. Ignore the fabric colour too (the garment is made in its own fabric on purpose), and the model and background.${layeredNote(r.area)} Look ONLY at the ${r.part} in the PHOTOGRAPH against the ${r.part} in REFERENCE ${r.ref}. ${neck ? 'Is the neckline the SAME SHAPE, DEPTH and WIDTH as in the reference (not deeper, wider or a different shape), with the same closure (tie-up, keyhole, buttons) at the same size, and ' : 'Are '}the motifs on that part of the same kind, size, spacing and placement, with any sheer or net area of that part still sheer, and any trim, lace, band or edging on that part as in the reference?`,
       `The ${r.part} must follow reference ${r.ref} exactly: ${neck ? 'the same neckline shape, depth and width and the same closure at the same size; ' : ''}the same motifs at the same size, spacing and placement; sheer areas stay sheer; trims and edging as in the reference.`]);
   }
-  // The matching piece of the outfit, pictured (16 Nov 2026): the front must show THAT piece.
-  // From behind it is compared with the front photograph instead (same_supporting).
-  if (review.pair && review.pair.image && review.view !== 'back') {
+  // The matching piece of the outfit, pictured (16 Nov 2026): the front must show THAT piece. From
+  // behind it is checked against the piece's own back photo when one was sent; otherwise against
+  // the front photograph (same_supporting).
+  if (review.pair && review.pair.image && (review.view !== 'back' || review.pair.back)) {
     // Measured 16 Nov (paid run): the choli matched perfectly, but the check failed the photo because
     // "the dupatta does not match" - a dupatta the blouse picture never showed. Only what it shows counts.
     checks.push(['pair_matches', `Look only at the ${review.pair.pieces} worn with the ${product}, and judge only what the MATCHING PIECE picture actually shows of it - anything it does not show (for example a dupatta, or the lower part of a skirt) is ignored. Is what it shows the same in the PHOTOGRAPH - the same colour and shade, cut, neckline, sleeves, embroidery and work - and not a plain or different one?`,
