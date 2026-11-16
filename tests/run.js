@@ -1084,7 +1084,7 @@ async function live() {
 
   section('LIVE: discovery');
   let r = await call('/api/v1/discovery/taxonomy', null, 'GET');
-  check('taxonomy served', r.status === 200 && r.body.designAreaCount === 107, r.body && (r.body.garmentCount + '/' + r.body.designAreaCount));
+  check('taxonomy served', r.status === 200 && r.body.designAreaCount === 108, r.body && (r.body.garmentCount + '/' + r.body.designAreaCount));
   r = await call('/api/v1/discovery/search', { clientId: 'test', keywords: ['red', 'bridal', 'saree'] });
   check('search returns results', r.status === 200 && r.body.results.length > 0,
     r.status === 200 ? r.body.results.length + ' results' : 'HTTP ' + r.status + ' ' + (r.body && r.body.error && r.body.error.message));

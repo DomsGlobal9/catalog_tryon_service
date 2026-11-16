@@ -794,6 +794,52 @@ async function runAll({ check, eq, section, SRC }) {
   let badCoverage = null;
   try { resolveRequest({ ...libraryPayload, coverage: 'half' }); } catch (err) { badCoverage = err.status; }
   eq('a wrong shared coverage value is still refused (400), not silently dropped', badCoverage, 400);
+
+  // 16 Nov 2026, a real order: the library sent the customer's uploads in part_refs with parts empty
+  // (the request had no designs at all), and model_gender; the lehenga and its blouse did not match.
+  const refOf = (part, url) => [{ id: `upload:${url}`, part, part_label: part, image_url: url, source: 'customer_upload', design_title: 'x.jpeg' }];
+  const libBlouse = {
+    clientId: 'lib-blouse', garment_key: 'blouse', parts: {}, model_gender: 'female', fabrics: { MAIN_FABRIC: ['39c27dc1-836f-492f-b0fc-bd43070d2926'] },
+    part_refs: { front_design: refOf('front_design', cloud('f.png')), back_design: refOf('back_design', cloud('b.png')), tassel_latkan: refOf('tassel_latkan', cloud('t.png')) },
+    pair_with: { color: '', color_hex: '', note: '' }
+  };
+  const fromRefs = resolveRequest(libBlouse);
+  eq('part_refs are the customer\'s designs: front, back and the tassels all used (tassel_latkan is the blouse\'s new TASSEL area); model_gender accepted',
+    [fromRefs.designs.map((d) => d.areaId), fromRefs.designs.map((d) => d.source.url && d.source.url.pathname.split('/').pop()), fromRefs.model.gender, fromRefs.pairWith],
+    [['FRONT', 'BACK', 'TASSEL'], ['f.png', 'b.png', 't.png'], 'female', null]);
+  const refsAndParts = resolveRequest({ ...libBlouse, parts: { front_design: { image_url: cloud('chosen.png') } }, part_refs: { ...libBlouse.part_refs, front_design: [...refOf('front_design', cloud('first.png')), ...refOf('front_design', cloud('second.png'))] } });
+  eq('a part in parts keeps its own picture; a part with several uploads uses the first, and says so',
+    [refsAndParts.designs.find((d) => d.areaId === 'FRONT').source.url.pathname.split('/').pop(), resolveRequest({ ...libBlouse, part_refs: { back_design: [...refOf('back_design', cloud('one.png')), ...refOf('back_design', cloud('two.png'))] } }).inputWarnings],
+    ['chosen.png', ['part_refs.back_design has 2 pictures; the first was used.', 'fabrics.MAIN_FABRIC[0] (39c27dc1-836f-492f-b0fc-bd43070d2926) has no picture, so it was not used. Send its photograph (an https Cloudinary link or base64) to fix the garment\'s colour.']]);
+  eq('the blouse\'s tassels hang from its back tie-up: back view only (a dupatta\'s tassels show from the front too)',
+    [viewOf(fromRefs, new Map(), 'front').job.designs.map((d) => d.areaId), viewOf(fromRefs, new Map(), 'back').job.designs.map((d) => d.areaId), visibleIn('front', 'TASSEL', 'DUPATTA')],
+    [['FRONT'], ['BACK', 'TASSEL'], true]);
+  eq('the library\'s area spellings: tassel_latkan, "Tassel/Latkan", "skirt border" (the last word) - an unknown one is still a 400',
+    [resolveRequest(body({ garment: 'DUPATTA', designs: [{ area: 'tassel_latkan', image: IMG }] })).designs[0].areaId,
+      resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'Tassel/Latkan', image: IMG }] })).designs[0].areaId,
+      resolveRequest(body({ garment: 'LEHANGA', designs: [{ area: 'skirt border', image: IMG }] })).designs[0].areaId,
+      code(() => resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'pocket flap', image: IMG }] })))],
+    ['TASSEL', 'TASSEL', 'BORDER', 'UNKNOWN_DESIGN_AREA']);
+
+  const lehWithBlouse = fakeJob('LEHANGA', ['SKIRT'], { pair_with: { image: cloud('blouse-made.png') } });
+  eq('pair_with.image (the matching piece) is accepted, also as image_url; colour alone still has no picture',
+    [!!lehWithBlouse.pairWith.source, !!resolveRequest(body({ garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image_url: cloud('b.png') } })).pairWith.source,
+      'source' in resolveRequest(body({ pairWith: { color: 'maroon' } })).pairWith],
+    [true, true, false]);
+  lehWithBlouse.pairWith.image = { ...prepared, base64: 'BLOUSEPHOTO' };
+  const pairedPrompt = buildPrompt(lehWithBlouse, { view: 'front' });
+  const plainPrompt = buildPrompt(fakeJob('LEHANGA', ['SKIRT']), { view: 'front' });
+  check('with the matching piece: it is a picture of its own, worn EXACTLY as pictured - never made plain or "one solid colour"',
+    pairedPrompt.parts.some((p) => p.inlineData && p.inlineData.data === 'BLOUSEPHOTO') && /\[Image 2\] THE MATCHING PIECE - made for this same outfit/.test(pairedPrompt.text)
+      && /Whatever of the choli and dupatta \[Image 2\] shows is worn EXACTLY as it is there/.test(pairedPrompt.text) && /looks? exactly like \[Image 2\]/.test(pairedPrompt.text)
+      && !/plain and solid/.test(pairedPrompt.text) && !/one solid colour from edge to edge/.test(pairedPrompt.text) && !/choli sleeve ends look exactly like the middle/.test(pairedPrompt.text));
+  check('without it, the lehenga prompt is as before: a plain choli in one solid colour',
+    /plain and solid/.test(plainPrompt.text) && /one solid colour from edge to edge/.test(plainPrompt.text) && !/MATCHING PIECE/.test(plainPrompt.text));
+  eq('the checks: the front asks pair_matches (and no longer supporting_plain); the back compares with the front instead',
+    [qa.viewChecklist(pairedPrompt.review, []).map((c) => c.id).includes('pair_matches'), qa.buildChecklist(pairedPrompt.review).map((c) => c.id).includes('supporting_plain'),
+      qa.viewChecklist({ ...pairedPrompt.review, view: 'back' }, [], { withFront: true }).map((c) => c.id).includes('pair_matches'),
+      qa.viewChecklist(plainPrompt.review, []).map((c) => c.id).includes('pair_matches')],
+    [true, false, false, false]);
   eq('views: a blouse gives both by default, can be limited to one, always front before back',
     [resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }] })).views,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'NECK', image: IMG }], views: ['front'] })).views,
@@ -1734,6 +1780,26 @@ async function runAll({ check, eq, section, SRC }) {
       [events.some((e) => e.type === 'image'), events.some((e) => e.type === 'error'), events[events.length - 1].quality.failures.map((f) => f.check)],
       [true, false, ['supporting_plain']]);
     qa._setFetch(qaAnswer());
+
+    // The matching piece over HTTP (16 Nov 2026): a lehenga made with the blouse that was made for it.
+    const BLOUSE_MADE = await png(600, 800, '#aa2233');
+    const pairAsks = [];
+    qa._setFetch(async (url, opts) => {
+      const askParts = JSON.parse(opts.body).contents[0].parts;
+      pairAsks.push({ ids: [...askParts[0].text.matchAll(/^- ([a-z_]+):/gm)].map((m) => m[1]), picture: askParts.some((p, i) => p.text === 'MATCHING PIECE picture:' && askParts[i + 1] && askParts[i + 1].inlineData) });
+      return qaAnswer()(url, opts);
+    });
+    const matchCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/generate', { clientId: 'leh-pair', garment: 'LEHANGA', views: ['front'], designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image: BLOUSE_MADE } })));
+    const sentPair = matchCalls[0].body.contents[0].parts.filter((p) => p.inlineData);
+    eq('over HTTP: the matching piece is checked like every picture, sent to the image model after the design, and the photo is checked against it',
+      [events[events.length - 1].type, sentPair.length, /\[Image 2\] THE MATCHING PIECE/.test(textOf(matchCalls[0])),
+        pairAsks.filter((a) => a.ids.includes('pair_matches')).map((a) => a.picture)],
+      ['done', 2, true, [true]]);
+    qa._setFetch(qaAnswer());
+    res = await post('/generate', { clientId: 'leh-pair-bad', garment: 'LEHANGA', designs: [{ area: 'SKIRT', image: IMG }], pair_with: { image: cloud('gone.png') } });
+    json = await res.json();
+    eq('a matching piece that cannot be read is a 422 naming it, before anything is made', [res.status, json.error.details.map((d) => d.field)], [422, ['pairWith.image']]);
 
     // POST /sketch over HTTP (28 Oct 2026): read the drawing, make the photo, check it.
     const readFake = (payload) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }), { status: 200 });

@@ -504,7 +504,7 @@ returns **links to garment design images** found on the web, **Pinterest**, **In
 | :--- | :--- |
 | `POST /api/v1/discovery/search` | Search. Waits for every platform, answers once in JSON. |
 | `POST /api/v1/discovery/search/stream` | The same search as **Server-Sent Events**: each platform's results as soon as that platform finishes. |
-| `GET /api/v1/discovery/taxonomy` | The garment → design-area tree (12 garments, 107 areas). |
+| `GET /api/v1/discovery/taxonomy` | The garment → design-area tree (12 garments, 108 areas). |
 | `GET /api/v1/discovery/categories` | Garment ids, sources, recency values, shot types, result-filter shape and limits. |
 
 Both search endpoints take the **same body**:
@@ -723,7 +723,7 @@ using a normal client API key — not against a local build.
 
 | Call | Result |
 | :--- | :--- |
-| `GET /discovery/taxonomy` | `200` — 12 garments, 107 design areas |
+| `GET /discovery/taxonomy` | `200` — 12 garments, 108 design areas |
 | `GET /discovery/categories` | `200` — 12 ids, 3 shot types, limits |
 | `POST /discovery/search` structured | `200` |
 | `POST /discovery/search` natural language | `200` |

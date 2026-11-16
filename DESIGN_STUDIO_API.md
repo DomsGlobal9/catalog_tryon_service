@@ -67,6 +67,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | `pairWith.color` | string, ≤60 | No | e.g. `"antique gold"`. |
 | `pairWith.colorHex` | string | No | e.g. `"#C9A227"`. |
 | `pairWith.note` | string, ≤300 | No | e.g. `"short puff sleeves"`, `"matte crepe skirt"`. |
+| `pairWith.image` | base64 or Cloudinary link | No | **The matching piece itself** (since 16 November 2026): the finished photo of the blouse made for this lehenga, or of the lehenga made for this blouse. The model wears exactly that piece, so the photos of one outfit match. See *One outfit, two requests*. Also `image_url`. |
 | `notes` | string, ≤600 | No | Anything else. The reference images always take priority over notes. |
 
 Unknown fields are refused, so a typo never silently does nothing.
@@ -146,7 +147,9 @@ This shape is accepted exactly as the design library produces it - no rewriting 
 | `parts` as an object | `designs` | The key (`front_design`, `back_design`, `neck_design`, `hand_design`, `sleeve_design`, ...) names the area; `_design` is dropped. Ordered by `sequence`. |
 | `parts.*.image_url` | `designs[].image` | |
 | `parts.*.caption` | `designs[].note` | Only when not empty |
-| `parts.*.part_label`, `id`, `design_id`, `design_title`, `designer_name`, `part_refs` | accepted, not used | Your own bookkeeping |
+| `parts.*.part_label`, `id`, `design_id`, `design_title`, `designer_name` | accepted, not used | Your own bookkeeping |
+| `part_refs` (`{ part: [picture, ...] }`) | `designs` | Since 16 November 2026: the customer's own uploads **are used as designs** (before, they were dropped and the request had no designs). Each part's first picture is used; a part also in `parts` keeps that one. Part names are matched loosely: `tassel_latkan`, `Tassel/Latkan` and `skirt border` work. |
+| `model_gender` | `modelGender` | Since 16 November 2026. |
 | `fabrics` as an object of roles | `fabrics[]` | `MAIN_FABRIC` is the main fabric; `BORDER` applies to the `BORDER` area (dropped when the garment has no border area, like a blouse); `LINING` and `BACKING_FABRIC` are inside the garment and never used. |
 | `model_image` | `modelImage` | A link or base64 |
 | `pair_with` (`color`, `color_hex`, `note`) | `pairWith` | Since 19 October 2026. Empty strings are ignored; an all-empty `pair_with` is the same as none. |
@@ -256,6 +259,28 @@ To choose the supporting piece's colour or look yourself, send `pairWith`:
 Your designs still never go on the supporting piece, even with a `note`. If you send `pairWith` for
 a garment that is the whole outfit (`GOWN`, `SUIT`, `SHARARA`), it is simply not used. `GET /options`
 lists the supporting pieces and default colour for every garment.
+
+### One outfit, two requests: send the matching piece
+
+A lehenga and its blouse (or a saree and its blouse) are two requests. Each request knows only its own
+designs, so without help the lehenga is photographed with a plain choli and the blouse with a plain
+skirt - two different outfits. Measured on a real order on 16 November 2026.
+
+Make one piece first, then send its finished photo with the other as `pairWith.image`:
+
+```json
+{ "clientId": "order-88-blouse", "garment": "BLOUSE", "designs": [ ... ] }
+```
+```json
+{ "clientId": "order-88-lehenga", "garment": "LEHANGA", "designs": [ ... ],
+  "pairWith": { "image": "<the front photo the blouse request returned>" } }
+```
+
+The lehenga's model then wears **that blouse**: the same colour, cut, neckline, sleeves and work. What the
+picture does not show (the dupatta) stays plain, in `pairWith.color` or the default. The photo is checked
+against the picture (`pair_matches`) and made once more if the piece differs. The back view keeps the
+same piece as the front (`same_supporting`). To make the blouse photo show the real lehenga too, send
+the lehenga's photo as the blouse request's `pairWith.image`.
 
 Why this exists, measured: when the blouse was only described as "plain unless a design reference
 describes it", a saree's pallu design came out on the blouse instead.

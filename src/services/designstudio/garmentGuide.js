@@ -115,7 +115,8 @@ const GUIDE = {
     pairedWith: { pieces: 'skirt', plural: false, looks: 'a plain, high-waisted, floor-length skirt, of which only the waistband and a few centimetres below it are in the frame', colour: 'contrast' },
     poseHint: 'Arms are relaxed and held slightly away from the body so the sleeves and sides of the blouse are fully visible.',
     areas: {
-      HAND: 'the sleeve ends of the blouse: the cuff, sleeve hem or armhole finishing and its detailing'
+      HAND: 'the sleeve ends of the blouse: the cuff, sleeve hem or armhole finishing and its detailing',
+      TASSEL: 'the tassels (latkans) hanging from the tie-up dori at the back of the blouse: copy their shape, beads, colours, length and spacing'
     }
   },
 

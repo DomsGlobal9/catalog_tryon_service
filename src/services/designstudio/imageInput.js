@@ -181,7 +181,9 @@ async function prepareImages(job, signal) {
     ...(job.sketches || []).map((s) => ({ target: s, field: s.field })),
     ...job.designs.map((d) => ({ target: d, field: `designs[${d.index}].image` })),
     ...job.fabrics.map((f) => ({ target: f, field: `fabrics[${f.index}].image` })),
-    ...(job.model.kind === 'reference' ? [{ target: job.model, field: 'modelImage' }] : [])
+    ...(job.model.kind === 'reference' ? [{ target: job.model, field: 'modelImage' }] : []),
+    // The matching piece of the outfit (pairWith.image, 16 Nov 2026).
+    ...(job.pairWith && job.pairWith.source ? [{ target: job.pairWith, field: 'pairWith.image' }] : [])
   ];
 
   const settled = await Promise.allSettled(tasks.map((t) => prepareOne(t.target.source, t.field, signal)));

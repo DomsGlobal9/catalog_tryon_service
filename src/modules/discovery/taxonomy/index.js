@@ -19,7 +19,7 @@ const { DESIGN_TYPES } = require('./designTypes');
 // Expected totals. These are asserted, not assumed: writing 107 entries by hand
 // is exactly the kind of task that silently ends up at 106 or 108.
 const EXPECTED_GARMENTS = 12;
-const EXPECTED_DESIGN_AREAS = 107;
+const EXPECTED_DESIGN_AREAS = 108; // since 16 Nov 2026: BLOUSE.TASSEL
 
 // ── Integrity ────────────────────────────────────────────────────────────────
 

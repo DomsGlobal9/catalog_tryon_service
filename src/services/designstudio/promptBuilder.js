@@ -120,8 +120,10 @@ const TRIM_AREAS = new Set(['TASSEL', 'BUTTON']);
  */
 const FRONT_ONLY_AREAS = new Set(['FRONT', 'NECK', 'BUTTON', 'POCKET', 'PLEAT']); // a saree's pleats are at the front
 const BACK_ONLY_AREAS = new Set(['BACK']);
-function visibleIn(view, areaId) {
-  if (view === 'front') return !BACK_ONLY_AREAS.has(areaId);
+// A blouse's tassels hang from its back tie-up; a dupatta's from both ends, seen from the front too.
+const backOnly = (areaId, garmentId) => BACK_ONLY_AREAS.has(areaId) || (garmentId === 'BLOUSE' && areaId === 'TASSEL');
+function visibleIn(view, areaId, garmentId = null) {
+  if (view === 'front') return !backOnly(areaId, garmentId);
   if (view === 'back') return !FRONT_ONLY_AREAS.has(areaId);
   return true;
 }
@@ -131,7 +133,7 @@ function visibleIn(view, areaId) {
  * the description map renumbered to match (refs are positions in referenceList).
  */
 function viewOf(job, descriptions, view) {
-  const designs = job.designs.filter((d) => visibleIn(view, d.areaId));
+  const designs = job.designs.filter((d) => visibleIn(view, d.areaId, job.garmentId));
   const remapped = new Map();
   designs.forEach((d, k) => { const info = descriptions.get(job.designs.indexOf(d) + 1); if (info) remapped.set(k + 1, info); });
   job.fabrics.forEach((f, j) => { const info = descriptions.get(job.designs.length + j + 1); if (info) remapped.set(designs.length + j + 1, info); });
@@ -251,7 +253,9 @@ function pairing(job) {
     pieces: g.pairedWith.pieces,
     plural: g.pairedWith.plural,
     looks: g.pairedWith.looks,
-    note: job.pairWith && job.pairWith.note ? clean(job.pairWith.note) : null
+    note: job.pairWith && job.pairWith.note ? clean(job.pairWith.note) : null,
+    // The matching piece itself, made for this outfit (16 Nov 2026): worn exactly as pictured.
+    image: (job.pairWith && job.pairWith.image) || null
   };
 
   if (job.pairWith && (job.pairWith.color || job.pairWith.colorHex)) {
@@ -606,6 +610,21 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     }
   }
 
+  // The matching piece, made for this outfit (16 Nov 2026). Measured on a real order: the lehenga
+  // and its blouse were made in two requests and came out as two outfits - a plain red choli on the
+  // lehenga, a white skirt under the blouse. With this picture the model wears THAT piece.
+  let pairPhotoNumber = null;
+  if (pair && pair.image) {
+    n += 1;
+    pairPhotoNumber = n;
+    addText([
+      `[Image ${n}] THE MATCHING PIECE - made for this same outfit, and worn with the ${g.product} exactly as it is here.`,
+      `Take from this picture ONLY that piece of clothing: its colour, cloth, cut, neckline, sleeves, embroidery and work, unchanged. Not the person, the pose, the background, or any other garment in it.`,
+      `It is not the product and no design reference below belongs on it; the ${g.product} is the product.`
+    ].join('\n'));
+    addImage(pair.image, 'matching piece');
+  }
+
   // The back view is made from the finished front photograph, so the two are one
   // garment on one person: same colour, cut, sleeves, hem, hair and studio.
   let frontPhotoNumber = null;
@@ -642,7 +661,17 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
   ].join('\n'));
 
   // ── 3b. WHAT THE MODEL WEARS WITH IT ───────────────────────────────────────
-  if (pair) {
+  if (pair && pairPhotoNumber) {
+    // The matching piece is pictured: worn as it is, never made plain or re-coloured.
+    const is = pair.plural ? 'are' : 'is';
+    addText([onMannequin ? 'WHAT THE MANNEQUIN WEARS WITH IT' : isSketch ? 'WHAT THE FIGURE WEARS WITH IT' : 'WHAT THE MODEL WEARS WITH IT', bullets([
+      `The product is the ${g.product}. The ${pair.pieces} ${is} NOT the product, but ${pair.plural ? 'they belong' : 'it belongs'} to the same outfit.`,
+      `Whatever of the ${pair.pieces} [Image ${pairPhotoNumber}] shows is worn EXACTLY as it is there: the same colour and shade, cloth, cut, neckline, sleeve length, embroidery, stone work and borders. Never a plain or different ${pair.pieces}.`,
+      `Any part of the ${pair.pieces} that [Image ${pairPhotoNumber}] does not show (for example a dupatta) is plain, in ${pair.colour}.`,
+      `No design reference of the ${g.product} goes onto the ${pair.pieces}, and nothing from [Image ${pairPhotoNumber}] goes onto the ${g.product}.`,
+      ...(pair.note ? [`Customer note for the ${pair.pieces}: ${pair.note}.`] : [])
+    ])].join('\n'));
+  } else if (pair) {
     const is = pair.plural ? 'are' : 'is';
     const it = pair.plural ? 'them' : 'it';
     const lines = [
@@ -878,11 +907,13 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     // whole sharara kurta, and one correction did not undo it.
     ...(plainRest ? [`Final check on the rest of the ${g.product}: only these parts carry a design - ${plainRest.join(', ')}. Everywhere else the ${g.product} is plain fabric: no embroidery, sequins, buttis or print spread there from any reference photograph. If decoration appears outside those parts, remove it.`] : []),
     ...(plainSleeves ? [`Final check on the sleeves of the ${g.product}: if it has sleeves, they are plain ${g.product} fabric from shoulder to wrist, with no print, embroidery, band or motif anywhere on them. If a pattern appears on a sleeve, remove it.`] : []),
-    ...(pair ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${edgesOf(pair.pieces, job.garmentId)}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
+    // With the matching piece pictured, it is checked against that picture instead of being made plain.
+    ...(pair && pairPhotoNumber ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they look' : 'it looks'} exactly like [Image ${pairPhotoNumber}] - the same colour, cut, neckline, sleeves and work. If ${pair.plural ? 'they differ' : 'it differs'}, make ${pair.plural ? 'them' : 'it'} match.`] : []),
+    ...(pair && !pairPhotoNumber ? [`Final check on the ${pair.pieces}: ${pair.plural ? 'they are' : 'it is'} one solid colour from edge to edge. Look at the ${edgesOf(pair.pieces, job.garmentId)}: there is NO gold, zari, metallic or patterned band there. If one appears, remove it.`] : []),
     // Measured again with striped saree references: the band returned on both runs.
     // A perceptual test the model can check works better than naming the band.
-    ...(pair && job.garmentId === 'SAREE' ? ['The blouse is sleeveless: its armholes and neckline are finished only with a narrow folded edge of the same plain cloth - no trim, piping, edge line or border of any width or colour.'] : []),
-    ...(pair && job.garmentId === 'LEHANGA' ? ['The choli sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth - no trim, piping, edge line or border of any width or colour.'] : []),
+    ...(pair && !pairPhotoNumber && job.garmentId === 'SAREE' ? ['The blouse is sleeveless: its armholes and neckline are finished only with a narrow folded edge of the same plain cloth - no trim, piping, edge line or border of any width or colour.'] : []),
+    ...(pair && !pairPhotoNumber && job.garmentId === 'LEHANGA' ? ['The choli sleeve ends look exactly like the middle of the sleeve: the same plain cloth, the same colour, no stripe or band of any kind, finished only with a narrow folded hem of that same cloth - no trim, piping, edge line or border of any width or colour.'] : []),
     // Measured twice on a gown: a whole-garment BACK photo put its skirt leaves and a waist band on
     // the back while the front skirt was plain, despite the rule in the FRONT VIEW block.
     // Measured (12 Oct 2026, paid run): on a gown sheet the BACK design's leaves spread onto the back of the skirt.
@@ -919,7 +950,7 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     garmentId: job.garmentId,
     framing: g.framing,
     pose,
-    pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId) } : null,
+    pair: pair ? { pieces: pair.pieces, colour: pair.colour, edges: edgesOf(pair.pieces, job.garmentId), image: pair.image || null } : null,
     noDupatta: !areasSent.has('DUPATTA') && job.garmentId !== 'DUPATTA' && job.garmentId !== 'LEHANGA',
     noTassels: (job.garmentId === 'DUPATTA' && !areasSent.has('TASSEL')) || job.garmentId === 'SAREE',
     onePallu: job.garmentId === 'SAREE',
@@ -984,7 +1015,7 @@ function shortDescription(info, note) {
 function sketchLabels(job, descriptions, sheetViews, g, pair, crowded = false) {
   const labels = [];
   job.designs.forEach((d, k) => {
-    const on = sheetViews.filter((v) => visibleIn(v, d.areaId));
+    const on = sheetViews.filter((v) => visibleIn(v, d.areaId, job.garmentId));
     if (!on.length) return; // a BACK design on a front-only sheet has nowhere to point
     const short = shortDescription(descriptions.get(k + 1), d.note);
     const name = d.areaName.replace(/\s+design$/i, ''); // "Pallu Design" -> "Pallu": the label has 40 characters
@@ -997,7 +1028,7 @@ function sketchLabels(job, descriptions, sheetViews, g, pair, crowded = false) {
     if (words) labels.push({ part: 'FABRIC', label: labelText(`Fabric: ${words}`), on: [...sheetViews], pointsTo: `the main fabric of the ${g.product}` });
   }
   // Pointed at the first figure only: left free to choose, it was drawn beside both (12 Oct 2026).
-  if (pair) labels.push({ part: 'WORN_WITH', label: labelText(`Worn with: plain ${pair.pieces}`), on: [sheetViews[0]], pointsTo: `the ${pair.pieces}` });
+  if (pair) labels.push({ part: 'WORN_WITH', label: labelText(`Worn with: ${pair.image ? 'matching' : 'plain'} ${pair.pieces}`), on: [sheetViews[0]], pointsTo: `the ${pair.pieces}` });
   return labels.slice(0, SKETCH_MAX_LABELS).filter((l) => l.label);
 }
 

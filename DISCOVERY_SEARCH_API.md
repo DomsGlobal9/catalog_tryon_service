@@ -72,7 +72,7 @@ GOWN    SUIT     SHERWANI  BOTTOM_WEAR   LEHANGA   SHARARA
 Note the spelling: **`LEHANGA`** (shown as *Lehenga*) and **`KURTHI`** (shown as *Kurti*). `LEHENGA`,
 `KURTI`, `KURTA`, `SARI`, `GHAGRA` and `GHARARA` are accepted and converted — the `interpreted` block
 in the response shows what you actually got. The full list of design areas per garment (12 garments,
-107 areas) is at `GET /api/v1/discovery/taxonomy`.
+108 areas) is at `GET /api/v1/discovery/taxonomy`.
 
 ### Plain English
 

@@ -67,7 +67,9 @@ const DESIGN_TYPES = {
     c('BACK'),
     c('NECK'),
     c('SLEEVE'),
-    { id: 'HAND', name: 'Hand Design', aliases: ['hand', 'hand design', 'armhole', 'cuff'], queryTerms: ['hand'] }
+    { id: 'HAND', name: 'Hand Design', aliases: ['hand', 'hand design', 'armhole', 'cuff'], queryTerms: ['hand'] },
+    // 16 Nov 2026: the design library sends blouse tassels (latkans on the back tie-up).
+    { id: 'TASSEL', name: 'Tassel / Latkan Design', aliases: ['tassel', 'tassels', 'latkan', 'latkans', 'phundi', 'tassel latkan'], queryTerms: ['latkan', 'closeup'] }
   ],
 
   DUPATTA: [

@@ -132,7 +132,24 @@ function canonicaliseFields(raw, warnings = []) {
   pick(body, 'product_name', 'productName');
   pick(body, 'model_image', 'modelImage');
   pick(body, 'client_id', 'clientId');
-  delete body.part_refs; // the design library's own bookkeeping
+  pick(body, 'model_gender', 'modelGender');
+  // Measured 16 Nov 2026: the design library now sends the customer's uploads in part_refs
+  // ({ part: [picture, ...] }) with parts empty, and they were thrown away as bookkeeping - the
+  // request had no designs at all. They ARE the designs: each part's first picture is used, and a
+  // part also in `parts` keeps that one.
+  if (body.part_refs && typeof body.part_refs === 'object' && !Array.isArray(body.part_refs)
+    && !(Array.isArray(body.parts) && body.parts.length)) {
+    const parts = body.parts && typeof body.parts === 'object' && !Array.isArray(body.parts) ? { ...body.parts } : {};
+    for (const [key, list] of Object.entries(body.part_refs)) {
+      const pictures = (Array.isArray(list) ? list : [list])
+        .filter((e) => (typeof e === 'string' && e.trim()) || (e && typeof e === 'object' && (e.image_url || e.imageUrl || e.image)));
+      if (!pictures.length || parts[key] !== undefined) continue;
+      if (pictures.length > 1) warnings.push(`part_refs.${key} has ${pictures.length} pictures; the first was used.`);
+      parts[key] = pictures[0];
+    }
+    if (Object.keys(parts).length) body.parts = parts;
+  }
+  delete body.part_refs;
   if (body.parts && typeof body.parts === 'object' && !Array.isArray(body.parts)) {
     body.parts = partsObjectToDesigns(body.parts);
   }
@@ -152,6 +169,8 @@ function canonicaliseFields(raw, warnings = []) {
     pick(pair, 'color_hex', 'colorHex');
     pick(pair, 'colour_hex', 'colorHex');
     pick(pair, 'description', 'note');
+    pick(pair, 'image_url', 'image');
+    pick(pair, 'imageUrl', 'image');
     // The design library sends {"color":"","color_hex":"","note":""} when nothing is chosen.
     for (const k of Object.keys(pair)) if (typeof pair[k] === 'string' && !pair[k].trim()) delete pair[k];
     if (Object.keys(pair).length) body.pairWith = pair; else delete body.pairWith;
@@ -243,7 +262,11 @@ const fabricItem = z.object({
 const pairWithItem = z.object({
   color: text(60).optional(),
   colorHex: hexField('#C9A227').optional(),
-  note: text(config.limits.maxNoteChars).optional()
+  note: text(config.limits.maxNoteChars).optional(),
+  // The matching piece itself (16 Nov 2026): a photo of the blouse made for this lehenga, the
+  // lehenga made for this blouse... The model then wears exactly that piece, so the two photos of
+  // one outfit match. Without it the piece is a plain one in the colour above.
+  image: imageField.optional()
 }).strict();
 
 const schema = z.object({
@@ -378,11 +401,13 @@ function resolvePerson(input, garment) {
       ? { kind: 'reference', source: classifyImage(input.modelImage, 'modelImage'), gender: input.modelGender || null }
       : { kind: 'generated', gender: input.modelGender || (garment ? garmentGuide(garment.id).wearer : null) },
     notes: input.notes || null,
-    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note)
+    pairWith: input.pairWith && (input.pairWith.color || input.pairWith.colorHex || input.pairWith.note || input.pairWith.image)
       ? {
         color: input.pairWith.color || null,
         colorHex: input.pairWith.colorHex ? `#${input.pairWith.colorHex.replace('#', '').toUpperCase()}` : null,
-        note: input.pairWith.note || null
+        note: input.pairWith.note || null,
+        // imageInput.js puts the decoded picture in .image beside this.
+        ...(input.pairWith.image ? { source: classifyImage(input.pairWith.image, 'pairWith.image') } : {})
       }
       : null
   };
@@ -398,7 +423,12 @@ function resolveParts(input, garment) {
       throw validation(`${field} names a part ("${value}"), so the garment must be known: send garment as well.`,
         [{ field: 'garment', code: 'GARMENT_REQUIRED' }]);
     }
-    const area = taxonomy.getDesignType(garment.id, value);
+    // Exact first; then the library's spellings ("tassel_latkan", "Tassel/Latkan"): as words, then
+    // each word from the last ("skirt border" is a border). Only reached by names refused before.
+    const words = String(value).toLowerCase().split(/[\s_/&+,-]+/).filter(Boolean);
+    const area = taxonomy.getDesignType(garment.id, value)
+      || taxonomy.getDesignType(garment.id, words.join(' '))
+      || [...words].reverse().map((w) => taxonomy.getDesignType(garment.id, w)).find(Boolean);
     if (!area) {
       throw validation(`"${value}" is not a design area of ${garment.id}. Use one of: ${taxonomy.designTypeIds(garment.id).join(', ')}.`,
         [{ field, code: 'UNKNOWN_DESIGN_AREA' }]);
