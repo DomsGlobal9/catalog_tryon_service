@@ -817,6 +817,17 @@ async function runAll({ check, eq, section, SRC }) {
   eq('the blouse\'s tassels hang from its back tie-up: back view only (a dupatta\'s tassels show from the front too)',
     [viewOf(fromRefs, new Map(), 'front').job.designs.map((d) => d.areaId), viewOf(fromRefs, new Map(), 'back').job.designs.map((d) => d.areaId), visibleIn('front', 'TASSEL', 'DUPATTA')],
     [['FRONT'], ['BACK', 'TASSEL'], true]);
+  // 16 Nov 2026: given its picture again, a dupatta's end turned navy at the back only. A back made
+  // from the finished front gets only what is seen from behind alone.
+  const dupattaAll = fakeJob('DUPATTA', ['BODY', 'BORDER', 'PALLU_END']);
+  const dupattaBackPlan = viewOf(dupattaAll, new Map(), 'back', { fromFront: true });
+  let dupattaBackPrompt = null;
+  try { dupattaBackPrompt = buildPrompt(dupattaBackPlan.job, { descriptions: dupattaBackPlan.descriptions, view: 'back', frontPhoto: prepared }); } catch (e) { dupattaBackPrompt = { error: e.message }; }
+  eq('the back made from the front: only back-only designs (the blouse\'s back and tassels; nothing at all for a dupatta), and the prompt still builds',
+    [viewOf(fromRefs, new Map(), 'back', { fromFront: true }).job.designs.map((d) => d.areaId), dupattaBackPlan.job.designs.length,
+      !!(dupattaBackPrompt && dupattaBackPrompt.parts), dupattaBackPrompt.parts && dupattaBackPrompt.parts.filter((p) => p.inlineData).length,
+      viewOf(dupattaAll, new Map(), 'back').job.designs.length],
+    [['BACK', 'TASSEL'], 0, true, 1, 3]);
   eq('the library\'s area spellings: tassel_latkan, "Tassel/Latkan", "skirt border" (the last word) - an unknown one is still a 400',
     [resolveRequest(body({ garment: 'DUPATTA', designs: [{ area: 'tassel_latkan', image: IMG }] })).designs[0].areaId,
       resolveRequest(body({ garment: 'BLOUSE', designs: [{ area: 'Tassel/Latkan', image: IMG }] })).designs[0].areaId,
@@ -1584,9 +1595,12 @@ async function runAll({ check, eq, section, SRC }) {
       [['front', 'back'], ['front', 'back'], ['front', 'back'], 'ok', 'object', 'object']);
     const imagesIn = (call) => call.body.contents[0].parts.filter((p) => p.inlineData).length;
     const textOf = (call) => call.body.contents[0].parts.filter((p) => p.text).map((p) => p.text).join('\n');
-    eq('the image model was called twice: the front with front+hand+fabric, the back with back+hand+fabric+the finished front photograph',
-      [twoCalls.length, imagesIn(twoCalls[0]), imagesIn(twoCalls[1]), /THE FRONT VIEW of this exact blouse/.test(textOf(twoCalls[1])), /THE FRONT VIEW/.test(textOf(twoCalls[0]))],
-      [2, 3, 4, true, false]);
+    // Since 16 Nov 2026 the back gets only the back-only designs: the sleeve ends (HAND) are seen in
+    // the front photograph and copied from it, not from their picture a second time.
+    eq('the image model was called twice: the front with front+hand+fabric, the back with back+fabric+the finished front photograph (the sleeve ends come from the front)',
+      [twoCalls.length, imagesIn(twoCalls[0]), imagesIn(twoCalls[1]), /THE FRONT VIEW of this exact blouse/.test(textOf(twoCalls[1])), /THE FRONT VIEW/.test(textOf(twoCalls[0])),
+        /DESIGN for HAND/.test(textOf(twoCalls[1])), /DESIGN for BACK/.test(textOf(twoCalls[1]))],
+      [2, 3, 3, true, false, false, true]);
     check('the pair check was run on the two photographs (front then back) and passed',
       doneTwo.quality.back.pair && doneTwo.quality.back.pair.checked === true && doneTwo.quality.back.pair.passed === true, JSON.stringify(doneTwo.quality.back));
 

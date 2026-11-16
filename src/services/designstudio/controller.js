@@ -306,7 +306,7 @@ async function generate(req, res, next) {
     const results = [];
     let frontResult = null;
     const planView = (view, frontImage) => {
-      const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(genJob, descriptions, view) : { job: genJob, descriptions };
+      const { job: viewJob, descriptions: viewDescriptions } = view ? viewOf(genJob, descriptions, view, { fromFront: view === 'back' && !!frontImage }) : { job: genJob, descriptions };
       const viewPrompt = view ? buildPrompt(viewJob, { descriptions: viewDescriptions, view, frontPhoto: view === 'back' && frontImage ? frontImage : null })
         : ownPhoto ? buildPrompt(genJob, { descriptions }) : prompt;
       if (view === 'back' && frontImage) viewPrompt.frontPhoto = frontImage;

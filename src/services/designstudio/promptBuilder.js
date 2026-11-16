@@ -163,9 +163,16 @@ function visibleIn(view, areaId, garmentId = null) {
 /**
  * The job and descriptions as one view sees them: only that view's designs, with
  * the description map renumbered to match (refs are positions in referenceList).
+ *
+ * `fromFront`: the back is made from the finished front photograph, so it gets only the designs
+ * that can be seen from behind alone (a back neck, a blouse's tassels). Everything the front also
+ * shows - borders, pallu, dupatta ends, sleeves, prints - is copied from that photograph. Measured
+ * 16 Nov 2026: given its picture a second time, a dupatta's end turned navy (the colour of the end
+ * photo) only at the back, and a back border failed its own check over and over - a redo each time.
  */
-function viewOf(job, descriptions, view) {
-  const designs = job.designs.filter((d) => visibleIn(view, d.areaId, job.garmentId));
+function viewOf(job, descriptions, view, { fromFront = false } = {}) {
+  const designs = job.designs.filter((d) => visibleIn(view, d.areaId, job.garmentId)
+    && !(fromFront && view === 'back' && visibleIn('front', d.areaId, job.garmentId)));
   const remapped = new Map();
   designs.forEach((d, k) => { const info = descriptions.get(job.designs.indexOf(d) + 1); if (info) remapped.set(k + 1, info); });
   job.fabrics.forEach((f, j) => { const info = descriptions.get(job.designs.length + j + 1); if (info) remapped.set(designs.length + j + 1, info); });
