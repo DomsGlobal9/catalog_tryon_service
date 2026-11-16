@@ -255,7 +255,9 @@ function viewChecklist(review, references = [], { withFront = true, withGarment 
   // The matching piece of the outfit, pictured (16 Nov 2026): the front must show THAT piece.
   // From behind it is compared with the front photograph instead (same_supporting).
   if (review.pair && review.pair.image && review.view !== 'back') {
-    checks.push(['pair_matches', `Look only at the ${review.pair.pieces} worn with the ${product}. Is it the same as in the MATCHING PIECE picture - the same colour and shade, cut, neckline, sleeves, embroidery and work - and not a plain or different one?`,
+    // Measured 16 Nov (paid run): the choli matched perfectly, but the check failed the photo because
+    // "the dupatta does not match" - a dupatta the blouse picture never showed. Only what it shows counts.
+    checks.push(['pair_matches', `Look only at the ${review.pair.pieces} worn with the ${product}, and judge only what the MATCHING PIECE picture actually shows of it - anything it does not show (for example a dupatta, or the lower part of a skirt) is ignored. Is what it shows the same in the PHOTOGRAPH - the same colour and shade, cut, neckline, sleeves, embroidery and work - and not a plain or different one?`,
       `The ${review.pair.pieces} is exactly the one in the MATCHING PIECE picture: the same colour, cut, neckline, sleeves, embroidery and work.`]);
   }
   if (review.view !== 'back') return [...checks, ...onePerson].map(([id, question, correction]) => ({ id, question, correction }));

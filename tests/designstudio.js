@@ -830,7 +830,9 @@ async function runAll({ check, eq, section, SRC }) {
   const pairedPrompt = buildPrompt(lehWithBlouse, { view: 'front' });
   const plainPrompt = buildPrompt(fakeJob('LEHANGA', ['SKIRT']), { view: 'front' });
   check('with the matching piece: it is a picture of its own, worn EXACTLY as pictured - never made plain or "one solid colour"',
-    pairedPrompt.parts.some((p) => p.inlineData && p.inlineData.data === 'BLOUSEPHOTO') && /\[Image 2\] THE MATCHING PIECE - made for this same outfit/.test(pairedPrompt.text)
+    pairedPrompt.parts.some((p) => p.inlineData && p.inlineData.data === 'BLOUSEPHOTO') && /\[Image 2\] THE MATCHING PIECE - the choli and dupatta of this same outfit/.test(pairedPrompt.text)
+      && /Take from this picture ONLY the choli and dupatta - whatever of it the picture shows/.test(pairedPrompt.text)
+      && /anything it does not show \(for example a dupatta, or the lower part of a skirt\) is ignored/.test(qa.viewChecklist(pairedPrompt.review, []).find((c) => c.id === 'pair_matches').question)
       && /Whatever of the choli and dupatta \[Image 2\] shows is worn EXACTLY as it is there/.test(pairedPrompt.text) && /looks? exactly like \[Image 2\]/.test(pairedPrompt.text)
       && !/plain and solid/.test(pairedPrompt.text) && !/one solid colour from edge to edge/.test(pairedPrompt.text) && !/choli sleeve ends look exactly like the middle/.test(pairedPrompt.text));
   check('without it, the lehenga prompt is as before: a plain choli in one solid colour',

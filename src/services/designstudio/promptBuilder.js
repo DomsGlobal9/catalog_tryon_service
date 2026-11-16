@@ -618,8 +618,9 @@ function buildPrompt(job, { descriptions = new Map(), view = null, frontPhoto = 
     n += 1;
     pairPhotoNumber = n;
     addText([
-      `[Image ${n}] THE MATCHING PIECE - made for this same outfit, and worn with the ${g.product} exactly as it is here.`,
-      `Take from this picture ONLY that piece of clothing: its colour, cloth, cut, neckline, sleeves, embroidery and work, unchanged. Not the person, the pose, the background, or any other garment in it.`,
+      `[Image ${n}] THE MATCHING PIECE - the ${pair.pieces} of this same outfit, worn with the ${g.product} exactly as it is here.`,
+      // A picture of a whole outfit (a lehenga with its own choli) may be sent for a blouse's skirt.
+      `Take from this picture ONLY the ${pair.pieces} - whatever of it the picture shows: its colour, cloth, cut, neckline, sleeves, embroidery and work, unchanged. Not the person, the pose, the background, or any other garment in it.`,
       `It is not the product and no design reference below belongs on it; the ${g.product} is the product.`
     ].join('\n'));
     addImage(pair.image, 'matching piece');
