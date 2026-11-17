@@ -184,6 +184,9 @@ function readingPrompt(job) {
     '- silhouette: one or two sentences on the shape as drawn: neckline shape and depth, sleeves (sleeveless, cap, elbow, full), waist, length, fit and flare, panels, slits, ties, closures, layers. Only what is drawn.',
     '- parts: one entry per label written on the sketch. label = the words exactly as written, spelling and all (do not correct them). part = the part of the garment that label\'s arrow, line or position points to, in plain words ("skirt", "blouse sleeves", "border of the dupatta"). color = the colour the label names; when the label names no colour but the drawing is coloured there, the drawn colour. colorHex = your best 6-digit hex for that colour ("maroon" -> #800000). material = the fabric named ("raw silk", "net", "georgette"), else empty. work = the embellishment named ("gold zari border", "mirror work", "stone work"), else empty.',
     '- When the drawing is coloured in but a part has no label, add an entry for that part with label "" and its drawn colour.',
+    // Measured 17 Nov 2026 on real web sketches: a pencil blouse was read as colour "black and white
+    // sketch" (and came out black), a line drawing's grey shading as a "grey" hem layer.
+    '- A pencil, ink or line drawing that is NOT coloured in has no colour: leave color and colorHex empty for it. Grey shading, hatching, outlines and the paper are never a colour, and "black and white", "pencil" or "sketch" is never a colour. Do not add a label-less entry for an uncoloured part.',
     '- notes: any other writing on the sketch that describes the garment (for example "length till ankle", "deep back"), exactly as written. Not names, dates or signatures.',
     '- unreadable: every label or note you cannot read with confidence, as you see it (for example "m?r??n silk"). Never guess a word into a part.'
   ].join('\n');
@@ -197,18 +200,26 @@ function cleanReading(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const garment = taxonomy.getGarment(asText(raw.garment)) || null;
   const views = raw.views && typeof raw.views === 'object' ? raw.views : {};
+  // The way a drawing is made is not the garment's colour (17 Nov 2026: "black and white sketch").
+  const NOT_A_COLOUR = /sketch|pencil|graphite|charcoal|\bink\b|black (and|&) white|line drawing|outline|shading|uncoloured|not coloured|monochrome/i;
   const parts = (Array.isArray(raw.parts) ? raw.parts : [])
     .filter((p) => p && typeof p === 'object' && asText(p.part))
     .slice(0, MAX_LABELS)
-    .map((p) => ({
-      label: asText(p.label),
-      part: asText(p.part).slice(0, 60),
-      color: asText(p.color).slice(0, 60) || null,
-      colorHex: HEX.test(asText(p.colorHex)) ? `#${asText(p.colorHex).replace('#', '').toUpperCase()}` : null,
-      material: asText(p.material).slice(0, 120) || null,
-      work: asText(p.work).slice(0, 200) || null,
-      from: 'sketch'
-    }));
+    .map((p) => {
+      const named = asText(p.color).slice(0, 60);
+      const colour = named && !NOT_A_COLOUR.test(named) ? named : null;
+      return {
+        label: asText(p.label),
+        part: asText(p.part).slice(0, 60),
+        color: colour,
+        colorHex: colour && HEX.test(asText(p.colorHex)) ? `#${asText(p.colorHex).replace('#', '').toUpperCase()}` : null,
+        material: asText(p.material).slice(0, 120) || null,
+        work: asText(p.work).slice(0, 200) || null,
+        from: 'sketch'
+      };
+    })
+    // A label-less entry says only a drawn colour; without one it says nothing.
+    .filter((p) => p.label || p.color || p.material || p.work);
   return {
     isSketch: raw.isSketch !== false,
     garmentId: garment ? garment.id : null,

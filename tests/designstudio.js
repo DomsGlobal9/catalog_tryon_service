@@ -1374,6 +1374,14 @@ async function runAll({ check, eq, section, SRC }) {
   eq('the reading is tidied, not trusted: the garment name becomes its id, a bad hex is dropped, a label with no part is left out',
     [reading.garmentId, reading.views, reading.parts.map((p) => [p.part, p.colorHex, p.work]), reading.notes, reading.unreadable],
     ['LEHANGA', { front: true, back: false }, [['skirt', '#800000', null], ['skirt border', null, 'zari']], ['length till ankle'], ['m?r??n']]);
+  // 17 Nov 2026, real web sketches: a pencil blouse was read as colour "black and white sketch".
+  const pencil = sketchMod.cleanReading({ ...rawReading, parts: [
+    { label: '', part: 'blouse body and sleeves', color: 'black and white sketch', colorHex: '000000', work: 'floral embroidery' },
+    { label: '', part: 'inner layer of hem', color: 'pencil shading', colorHex: '808080' },
+    { label: 'red silk', part: 'skirt', color: 'red', colorHex: 'FF0000' }] });
+  eq('the way a drawing is made is not a colour: "black and white sketch" and pencil shading are dropped (and an entry left with nothing is too); a real colour stays',
+    pencil.parts.map((p) => [p.part, p.color, p.colorHex, p.work]),
+    [['blouse body and sleeves', null, null, 'floral embroidery'], ['skirt', 'red', '#FF0000', null]]);
   eq('the back counts as drawn only when the reader says so; an unknown garment stays unknown',
     [sketchMod.cleanReading({ ...rawReading, views: { front: true } }).views.back, sketchMod.cleanReading({ ...rawReading, garment: 'spacesuit' }).garmentId, sketchMod.cleanReading('nonsense')], [false, null, null]);
   const merged = sketchMod.mergeLabels(reading.parts, [{ part: 'Skirt', color: 'bottle green', colorHex: null, material: null, work: null }, { part: 'dupatta', color: 'pink', colorHex: null, material: 'net', work: null }]);
