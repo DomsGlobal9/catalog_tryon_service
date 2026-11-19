@@ -28,6 +28,9 @@ function enhanceParts(job, part, cut) {
     '- The same materials and work: woven stays woven, embroidery stays embroidery with its stitches, a print stays a print; zari has its metallic thread, sequins and stones their sparkle.',
     '- Nothing is added and nothing is removed: no new motif, border, trim, piping, seam, button, tassel or embellishment, and nothing that is there is left out. Small dots stay dots; plain fabric stays plain.',
     '- Where the picture is blurry, sharpen what is there, continuing the pattern exactly as it repeats in the clearer places. Never invent a detail that the picture does not suggest.',
+    // Measured 19 Nov in production: blurry red ikat flowers on a blouse came back as small parrots.
+    '- A shape never becomes a recognisable figure it is not clearly in the picture: no bird, animal, face, peacock, elephant, flower or leaf appears where the picture shows only a blot, a dash or an abstract shape. Ikat, block-print and woven blurs stay the same soft abstract shapes, only crisper.',
+    ...(cut.lowDetail ? ['- THIS PIECE IS SMALL AND BLURRY: sharpen edges and fabric texture only. Keep every motif exactly as simple as it appears - its outline, size and colour - and add no fine detail inside it.'] : []),
     '',
     'THE SAME FRAME: keep the framing, the angle, the folds and the drape as they are. Whatever else is in the picture (skin, hair, hands, jewellery, background) stays where it is and as it is, only sharper - nothing is removed or added, no person is restyled.',
     '',
@@ -42,7 +45,9 @@ const CHECKS = [
   ['same_design', 'Every motif, border and pattern of the ORIGINAL is in the CLOSE-UP with the same shapes, count and placement.'],
   ['same_colours', 'The fabric and the work are in the same hue and brightness.'],
   ['nothing_added', 'No motif, trim, piping, seam, border or embellishment that the ORIGINAL does not have.'],
-  ['nothing_removed', 'Nothing of the ORIGINAL is left out.']
+  ['nothing_removed', 'Nothing of the ORIGINAL is left out.'],
+  // The parrot case (19 Nov): every motif was "there", so same_design passed - but as a new figure.
+  ['no_new_figures', 'No motif has become a recognisable figure (a bird, animal, face, flower or leaf) that it is not clearly in the ORIGINAL; abstract or blurry shapes stay abstract.']
 ];
 const CHECK_SCHEMA = {
   type: 'OBJECT',
