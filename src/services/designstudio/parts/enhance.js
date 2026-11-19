@@ -33,6 +33,8 @@ function enhanceParts(job, part, cut) {
     ...(cut.lowDetail ? ['- THIS PIECE IS SMALL AND BLURRY: sharpen edges and fabric texture only. Keep every motif exactly as simple as it appears - its outline, size and colour - and add no fine detail inside it.'] : []),
     '',
     'THE SAME FRAME: keep the framing, the angle, the folds and the drape as they are. Whatever else is in the picture (skin, hair, hands, jewellery, background) stays where it is and as it is, only sharper - nothing is removed or added, no person is restyled.',
+    // A sleeve cut tight to itself, padded to a shape the model can make (cut.js).
+    ...(cut.padded ? ['THE GREY BANDS: the flat grey bands at the edges are padding, not part of the photo. Fill them with a soft, plain, out-of-focus background in the same light and tones as the photo behind the sleeve. Never extend the sleeve, the arm, the body or the blouse into them, and put nothing else there: the sleeve stays exactly the size and in the place it is, alone in the frame.'] : []),
     '',
     'QUALITY: crisp focus on the fabric, the fine texture of the weave and the work visible, natural soft light, no blur, no noise, no watermark, no text, no frame. Produce exactly one photograph.'
   ].join('\n');

@@ -20,6 +20,9 @@ const MAX_CUT_EDGE = 2048;
 const MAX_ELONGATION = 2;
 // A sleeve or hand is shown whole, shoulder to end: a full-length sleeve is about four times as long as wide.
 const WHOLE_ELONGATION = 4;
+// ...and is cut tight to itself: only this much room is added around a thin sleeve.
+const WHOLE_MIN_SHARE = 0.08;
+const PAD = { r: 128, g: 128, b: 128 };
 
 /**
  * The pixel rectangle to keep.
@@ -59,14 +62,39 @@ function cutRect(box, width, height, { margin = config.parts.margin, minShare = 
 async function cutPart(image, box, { whole = false } = {}) {
   const input = Buffer.from(image.base64, 'base64');
   const meta = await sharp(input).metadata();
-  const rect = cutRect(box, meta.width, meta.height, { maxElongation: whole ? WHOLE_ELONGATION : MAX_ELONGATION });
+  // A sleeve or hand is cut tight to itself (owner, 19 Nov 2026: "crop only the sleeve") - grown to
+  // 30% of the photo, a narrow sleeve took in the bodice beside it.
+  const rect = cutRect(box, meta.width, meta.height, whole
+    ? { maxElongation: WHOLE_ELONGATION, minShare: WHOLE_MIN_SHARE }
+    : { maxElongation: MAX_ELONGATION });
   let pipeline = sharp(input).extract(rect);
   if (Math.max(rect.width, rect.height) > MAX_CUT_EDGE) pipeline = pipeline.resize({ width: MAX_CUT_EDGE, height: MAX_CUT_EDGE, fit: 'inside' });
-  const { data, info } = await pipeline.jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer({ resolveWithObject: true });
+  let { data, info } = await pipeline.jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer({ resolveWithObject: true });
+  let aspectRatio = nearestRatio(rect.width / rect.height);
+  let padded = false;
+  // Narrower or wider than any shape the image model can make: flat grey bands bring it to the
+  // nearest one, and the model fills them with plain background (enhance.js) - so the frame never
+  // has to be filled with more of the body or the blouse.
+  const ratio = info.width / info.height;
+  const [minName, minRatio] = RATIOS[RATIOS.length - 1];
+  const [maxName, maxRatio] = RATIOS[0];
+  if (whole && (ratio < minRatio * 0.97 || ratio > maxRatio * 1.03)) {
+    const narrow = ratio < minRatio;
+    const w = narrow ? Math.round(info.height * minRatio) : info.width;
+    const h = narrow ? info.height : Math.round(info.width / maxRatio);
+    const left = Math.floor((w - info.width) / 2);
+    const top = Math.floor((h - info.height) / 2);
+    ({ data, info } = await sharp(data)
+      .extend({ left, right: w - info.width - left, top, bottom: h - info.height - top, background: PAD })
+      .jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer({ resolveWithObject: true }));
+    aspectRatio = narrow ? minName : maxName;
+    padded = true;
+  }
   return {
     image: { mimeType: 'image/jpeg', base64: data.toString('base64'), width: info.width, height: info.height, bytes: data.length },
     rect,
-    aspectRatio: nearestRatio(rect.width / rect.height),
+    aspectRatio,
+    padded,
     // Little detail to work from: the close-up may have to fill in fine work. The boutique is told.
     lowDetail: Math.min(rect.width, rect.height) < config.parts.lowDetailPx
   };

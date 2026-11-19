@@ -2195,10 +2195,20 @@ async function runAll({ check, eq, section, SRC }) {
     const longSleeve = partsCut.cutRect({ y0: 200, x0: 100, y1: 900, x1: 220 }, 900, 1200, { maxElongation: 4 });
     const shortCut = partsCut.cutRect({ y0: 200, x0: 100, y1: 900, x1: 220 }, 900, 1200);
     eq('the hand close-up is the whole sleeve from the shoulder seam to its end (never the border alone); /generate keeps its meaning; a whole sleeve may be up to 4x as long as wide',
-      [/HAND: the whole hand of the blouse .* from the shoulder seam down to where the sleeve ends, .* never the border alone/.test(handPrompt), /A sleeve or hand whole, from the shoulder seam to where it ends\./.test(handPrompt),
+      [/HAND: the whole hand of the blouse .* from the shoulder seam down to where the sleeve ends, .* never the border alone/.test(handPrompt), /A sleeve or hand whole, from the shoulder seam to where it ends, and tight to the sleeve itself - not the bodice/.test(handPrompt),
         /cuff, sleeve hem or armhole finishing/.test(S('garmentGuide').describeArea('BLOUSE', 'HAND')), partsDescribe.WHOLE_PARTS.has('HAND'),
         longSleeve.height / longSleeve.width > 2.5, shortCut.height / shortCut.width <= 2],
       [true, true, true, true, true, true]);
+
+    // "Crop only the sleeve" (owner, 19 Nov 2026): cut tight to it, padded grey to a shape the model can make.
+    const tall = Buffer.from(await png(900, 1200, '#334455'), 'base64').toString('base64');
+    const sleeveCut = await partsCut.cutPart({ base64: tall }, { y0: 150, x0: 100, y1: 850, x1: 230 }, { whole: true });
+    const plainCut = await partsCut.cutPart({ base64: tall }, { y0: 150, x0: 100, y1: 850, x1: 230 });
+    const padText = enh.enhanceParts(pJob, { areaId: 'HAND', name: 'Hand Design', note: null }, sleeveCut)[0].text;
+    eq('a sleeve is cut tight (its own width, not 30% of the photo), padded to 9:16 with grey bands the AI is told to fill with plain background; other parts keep the wider cut',
+      [sleeveCut.rect.width < plainCut.rect.width, sleeveCut.padded, sleeveCut.aspectRatio, Math.abs(sleeveCut.image.width / sleeveCut.image.height - 9 / 16) < 0.01,
+        /THE GREY BANDS: .* Never extend the sleeve, the arm, the body or the blouse into them/.test(padText), plainCut.padded, /THE GREY BANDS/.test(small)],
+      [true, true, '9:16', true, true, false, false]);
 
     const io = S('controller').imageOnly;
     eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',
