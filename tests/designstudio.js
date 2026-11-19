@@ -2046,7 +2046,7 @@ async function runAll({ check, eq, section, SRC }) {
     partsLocate._setFetch(locateFake(blouseFound));
     qa._setFetch(partsCheck());
     let pCalls = script([() => answer([imagePart(FINAL)])]);
-    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-1', garment: 'BLOUSE', photo: IMG, parts: ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'] }, { headers: { 'x-gateway-client-id': 'parts-acct' } })));
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-1', garment: 'BLOUSE', photo: IMG, parts: ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'], generateBack: false }, { headers: { 'x-gateway-client-id': 'parts-acct' } })));
     let partEvents = events.filter((e) => e.type === 'part');
     const pLocated = events.find((e) => e.type === 'located');
     const pDone = events[events.length - 1];
@@ -2055,7 +2055,7 @@ async function runAll({ check, eq, section, SRC }) {
         partEvents.filter((p) => !p.found).map((p) => [p.area, p.reason, /Send a (photo that shows it|closer photo of it)\./.test(p.message)]),
         partEvents.filter((p) => p.found).map((p) => p.area).sort(), pDone.type, pDone.summary],
       [['start', 'located'], [['FRONT', true, null], ['BACK', false, 'NOT_VISIBLE'], ['NECK', true, null], ['SLEEVE', true, null], ['HAND', false, 'TOO_SMALL']],
-        [['BACK', 'NOT_VISIBLE', true], ['HAND', 'TOO_SMALL', true]], ['FRONT', 'NECK', 'SLEEVE'], 'done', { made: 3, enhanced: 3, notFound: 2, fallback: 0 }]);
+        [['BACK', 'NOT_VISIBLE', true], ['HAND', 'TOO_SMALL', true]], ['FRONT', 'NECK', 'SLEEVE'], 'done', { made: 3, enhanced: 3, notFound: 2, fallback: 0, madeFromFront: 0 }]);
     eq('one locate call for the photo (JSON, all five parts named), plus one tight look at the sleeve; one 2K image call per found part with only its cut; every close-up checked and passed',
       [locateCalls.length, locateCalls[0].generationConfig.responseMimeType, ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'].every((id) => locateCalls[0].contents[0].parts[1].text.includes(`- ${id}:`)),
         pCalls.length, pCalls.every((c) => c.body.generationConfig.imageConfig.imageSize === '2K'), pCalls.every((c) => imagesIn(c) === 1),
@@ -2098,7 +2098,7 @@ async function runAll({ check, eq, section, SRC }) {
     ({ events } = await readEvents(await post('/parts', { clientId: 'parts-4', garment: 'BLOUSE', photo: IMG, parts: ['NECK', 'FRONT'], enhance: false })));
     eq('enhance: false gives the cuts alone - no image model, no check',
       [pCalls.length, events.filter((e) => e.type === 'part').map((p) => [p.enhanced, !!p.quality]), events[events.length - 1].summary],
-      [0, [[false, false], [false, false]], { made: 2, enhanced: 0, notFound: 0, fallback: 0 }]);
+      [0, [[false, false], [false, false]], { made: 2, enhanced: 0, notFound: 0, fallback: 0, madeFromFront: 0 }]);
 
     let locateTries = 0;
     partsLocate._setFetch(async () => { locateTries++; return new Response('down', { status: 503 }); });
@@ -2149,7 +2149,7 @@ async function runAll({ check, eq, section, SRC }) {
     eq('two parts in the same place are made once and sent under both names (sameAs); a different place is its own close-up',
       [pCalls.length, partEvents.map((p) => [p.area, p.sameAs || null]).sort(), partEvents.find((p) => p.area === 'ZARI_WORK').image === partEvents.find((p) => p.area === 'BORDER').image,
         events[events.length - 1].summary],
-      [2, [['BODY', null], ['BORDER', null], ['ZARI_WORK', 'BORDER']], true, { made: 3, enhanced: 3, notFound: 0, fallback: 0 }]);
+      [2, [['BODY', null], ['BORDER', null], ['ZARI_WORK', 'BORDER']], true, { made: 3, enhanced: 3, notFound: 0, fallback: 0, madeFromFront: 0 }]);
     const pallu = partsCut.cutRect({ y0: 100, x0: 500, y1: 950, x1: 760 }, 900, 1200);
     eq('a long strip (a pallu from shoulder to knee) is cut as a section from its middle, never more than twice as long as wide',
       [pallu.height / pallu.width <= 2, Math.round(pallu.top + pallu.height / 2) === Math.round(((100 + 950) / 2 / 1000) * 1200)], [true, true]);
@@ -2222,6 +2222,31 @@ async function runAll({ check, eq, section, SRC }) {
     eq('the second look only narrows the sides (the bodice beside the sleeve goes); the sleeve keeps its full length from the first look, so it can never shrink to the cuff; a box that misses the sleeve is ignored',
       [refined.y0, refined.y1 >= 800, refined.x0 > 100, refined.x1 < 500, missed],
       [200, true, true, true, firstBox]);
+
+    // No back photo: the back is made by the AI from the front, and the RESULT says so - never the picture (owner, 19 Nov 2026).
+    partsLocate._setFetch(locateFake([{ part: 'BACK', visible: 'no', box_2d: [], note: 'front only' }, { part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }]));
+    qa._setFetch(partsCheck());
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    const logsBack = logs.length;
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-back', garment: 'BLOUSE', photo: IMG, parts: ['BACK', 'NECK'] })));
+    const backEv = events.find((e) => e.type === 'part' && e.area === 'BACK');
+    const backCall = pCalls.find((c) => /Make a photograph of the BACK of this same blouse/.test(textOf(c)));
+    eq('no back photo: the back is made from the front - marked generated with its message in the result, located says so, a 3:4 photo asking for a plain back and no text in the picture; summary counts it',
+      [events.find((e) => e.type === 'located').parts.find((p) => p.area === 'BACK').willMakeFromFront, backEv.found, backEv.generated, backEv.from, /^Made by AI from the front: the back was not in your photo/.test(backEv.message),
+        !!backCall, backCall && backCall.body.generationConfig.imageConfig.aspectRatio, backCall && /plain and classic/.test(textOf(backCall)), backCall && /No text, label, watermark or frame anywhere in the picture/.test(textOf(backCall)),
+        events[events.length - 1].summary, logs.slice(logsBack).some((l) => l.startsWith('[DesignStudio] parts BACK · MADE BY AI FROM THE FRONT (no back photo) in '))],
+      [true, true, true, 'front', true, true, '3:4', true, true, { made: 2, enhanced: 2, notFound: 0, fallback: 0, madeFromFront: 1 }, true]);
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-back-2', garment: 'BLOUSE', photo: IMG, parts: ['BACK', 'NECK'], generateBack: false })));
+    const offBack = events.find((e) => e.type === 'part' && e.area === 'BACK');
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-back-3', garment: 'BLOUSE', photos: [{ image: IMG, view: 'back' }], parts: ['BACK', 'NECK'] })));
+    const backOnly = events.find((e) => e.type === 'part' && e.area === 'BACK');
+    eq('...but not with generateBack: false, and never from a photo that is itself the back: then it is NOT_VISIBLE as before',
+      [[offBack.found, offBack.reason, !!offBack.generated], [backOnly.found, backOnly.reason]], [[false, 'NOT_VISIBLE', false], [false, 'NOT_VISIBLE']]);
+    eq('the image-only stream keeps generated, from and the message, so the app can show "made by AI"',
+      S('controller').imageOnly({ type: 'part', jobId: 'j', area: 'BACK', name: 'Back Design', found: true, enhanced: true, generated: true, from: 'front', message: 'm', lowDetail: false, quality: { passed: true }, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' }),
+      { type: 'part', jobId: 'j', area: 'BACK', name: 'Back Design', found: true, enhanced: true, lowDetail: false, generated: true, from: 'front', message: 'm', checkPassed: true, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' });
 
     const io = S('controller').imageOnly;
     eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',

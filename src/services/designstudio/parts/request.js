@@ -31,7 +31,9 @@ const schema = z.object({
   photos: z.array(photoItem).min(1, 'at least one photo is required').max(config.parts.maxPhotos, `at most ${config.parts.maxPhotos} photos`),
   parts: z.array(partItem).min(1, 'name at least one part, or leave parts out for all of them').max(config.parts.maxParts, `at most ${config.parts.maxParts} parts`).optional(),
   // false: the part as cut from the photo, without the image model (fast, nothing redrawn).
-  enhance: z.boolean().optional()
+  enhance: z.boolean().optional(),
+  // Default true: a BACK no photo shows is made by the AI from the front, and marked so in the result.
+  generateBack: z.boolean().optional()
 }).strict();
 
 const pick = (obj, from, to) => {
@@ -47,6 +49,7 @@ function canonicalise(raw) {
   for (const k of ['product_name']) pick(body, k, 'productName');
   for (const k of ['images', 'photo_urls', 'photoUrls']) pick(body, k, 'photos');
   for (const k of ['areas', 'part_names']) pick(body, k, 'parts');
+  for (const k of ['generate_back', 'makeBack', 'make_back']) pick(body, k, 'generateBack');
   // One photo under a single-photo name.
   for (const k of ['photo', 'image', 'imageUrl', 'image_url', 'photoUrl', 'photo_url']) {
     if (body[k] !== undefined) {
@@ -141,6 +144,8 @@ function resolvePartsRequest(rawBody) {
     photos,
     parts,
     enhance: input.enhance !== false,
+    // Making a back is AI generation; the plain-cut mode (enhance: false) never does it.
+    generateBack: input.generateBack !== false && input.enhance !== false,
     inputWarnings: warnings,
     // What the shared image loader and capacity code expect of a job.
     designs: [],

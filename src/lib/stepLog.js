@@ -93,6 +93,7 @@ function outcome(f) {
     case 'too_small': return [`too small in the photo${has(f.px) ? ` (${f.px}px)` : ''}`, ['px']];
     case 'plain_cut': return ['plain cut sent (no AI asked)', []];
     case 'plain_cut_ai_failed': return ['AI failed - plain cut from the photo sent', []];
+    case 'made_from_front': return [`MADE BY AI FROM THE FRONT (no back photo)${s !== null ? ` in ${s}s` : ''}`, ['seconds']];
     case 'started': return ['started', []];
     case 'complete': return [`complete${s !== null ? ` in ${s}s` : ''}`, ['seconds']];
     case 'cancelled': return [`cancelled${s !== null ? ` after ${s}s` : ''}`, ['seconds']];

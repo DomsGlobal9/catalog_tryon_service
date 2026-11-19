@@ -432,12 +432,14 @@ function imageOnly(event) {
     // POST /parts (19 Nov 2026): where each part was found, and each part as it is ready - the app
     // shows every close-up with Keep / Redo / Drop, so it needs whether it was found, why not, and
     // whether it is the sharp close-up or the plain cut.
-    case 'located': return { type: 'located', jobId: event.jobId, parts: event.parts.map(({ area, name, found, reason }) => ({ area, name, found, ...(reason ? { reason } : {}) })) };
+    case 'located': return { type: 'located', jobId: event.jobId, parts: event.parts.map(({ area, name, found, reason, willMakeFromFront }) => ({ area, name, found, ...(reason ? { reason } : {}), ...(willMakeFromFront ? { willMakeFromFront } : {}) })) };
     case 'part': return event.found
       ? { type: 'part', jobId: event.jobId, area: event.area, name: event.name, found: true, enhanced: event.enhanced, lowDetail: event.lowDetail, ...(event.sameAs ? { sameAs: event.sameAs } : {}),
+        // Made by the AI from the front, not from a photo of this part: said here, never on the picture.
+        ...(event.generated ? { generated: true, from: event.from, message: event.message } : {}),
         ...(event.quality ? { checkPassed: event.quality.passed } : {}), ...(event.error ? { error: event.error } : {}),
         mimeType: event.mimeType, width: event.width, height: event.height, image: event.image }
-      : { type: 'part', jobId: event.jobId, area: event.area, name: event.name, found: false, reason: event.reason, message: event.message };
+      : { type: 'part', jobId: event.jobId, area: event.area, name: event.name, found: false, reason: event.reason, message: event.message, ...(event.error ? { error: event.error } : {}) };
     case 'done': return { type: 'done', jobId: event.jobId, status: event.status, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}),
       ...(event.summary ? { summary: event.summary } : { views: event.views }) };
     // details carries what the docs promise (GENERATION_BLOCKED's reason, which

@@ -28,6 +28,7 @@ const { locateParts, refineWholeBox } = require('./locate');
 const { cutPart } = require('./cut');
 const { enhancePart } = require('./enhance');
 const { WHOLE_PARTS } = require('./describe');
+const { makeBackFromFront, canMakeBack, MESSAGE: BACK_MESSAGE } = require('./back');
 const { stepLog, secondsSince, checkWord, setContext, withContext } = require('../../../lib/stepLog');
 
 const MESSAGES = {
@@ -120,7 +121,7 @@ async function parts(req, res, next) {
 
   let outcome = 'ERROR';
   let attempts = 0;
-  const summary = { made: 0, enhanced: 0, notFound: 0, fallback: 0 };
+  const summary = { made: 0, enhanced: 0, notFound: 0, fallback: 0, madeFromFront: 0 };
   try {
     const lowRes = job.photos.filter((p) => p.image.lowResolution).map((p) => p.field);
     send({
@@ -138,18 +139,24 @@ async function parts(req, res, next) {
       console.warn(`[DesignStudio] requestId=${requestId} parts not located: ${located.problems.join('; ')}`);
       throw new StudioError('The photo could not be read just now. Please try again in a moment.', { status: 424, code: 'PARTS_NOT_LOCATED', retryable: true });
     }
+    // The back, when no photo shows it, is made by the AI from the front (owner, 19 Nov 2026), and the
+    // result says so. Never for a garment photographed only from the back.
+    const frontPhoto = job.photos.find((p) => p.view !== 'back');
+    const madeFromFront = new Set(job.generateBack && frontPhoto
+      ? located.found.filter((f) => f.status === 'not_visible' && canMakeBack(f.areaId)).map((f) => f.areaId) : []);
     send({
       type: 'located',
       jobId,
       parts: located.found.map((f) => ({
         area: f.areaId, name: f.name, found: f.status === 'found',
         ...(f.status === 'found' ? { photo: f.photo.index, view: f.photo.view, visible: f.visible } : { reason: f.status.toUpperCase() }),
+        ...(madeFromFront.has(f.areaId) ? { willMakeFromFront: true } : {}),
         note: f.note || null
       }))
     });
 
     // The parts no photo shows: answered at once, nothing is made for them.
-    for (const f of located.found.filter((x) => x.status !== 'found')) {
+    for (const f of located.found.filter((x) => x.status !== 'found' && !madeFromFront.has(x.areaId))) {
       summary.notFound += 1;
       send({ type: 'part', jobId, area: f.areaId, name: f.name, found: false, reason: f.status.toUpperCase(), message: MESSAGES[f.status](f, job) });
       stepLog('DesignStudio', { requestId, jobId, endpoint: 'parts', garment: job.garmentId, item: f.areaId, result: f.status === 'too_small' ? 'too_small' : 'not_in_photo', px: f.px });
@@ -160,7 +167,33 @@ async function parts(req, res, next) {
     // under each name, marked sameAs.
     const generationStarted = Date.now();
     const groups = groupSameSpot(located.found.filter((f) => f.status === 'found'));
-    await pool(groups, config.parts.concurrency, ({ lead, followers }) => withContext({ item: lead.areaId }, async () => {
+    const backs = located.found.filter((f) => madeFromFront.has(f.areaId));
+    const makeBack = (f) => withContext({ item: f.areaId }, async () => {
+      if (abort.signal.aborted) return;
+      const started = Date.now();
+      send({ type: 'status', stage: 'making', area: f.areaId, message: 'Making the back from the front.' });
+      try {
+        const made = await makeBackFromFront(job, frontPhoto, { signal: abort.signal });
+        attempts += made.attempts;
+        summary.made += 1;
+        summary.enhanced += 1;
+        summary.madeFromFront += 1;
+        send({ type: 'part', jobId, area: f.areaId, name: f.name, found: true, enhanced: true, generated: true, from: 'front', message: BACK_MESSAGE,
+          source: { photo: frontPhoto.index }, lowDetail: false, quality: made.quality,
+          mimeType: made.image.mimeType, width: made.image.width, height: made.image.height, image: dataUri(made.image) });
+        stepLog('DesignStudio', { requestId, jobId, endpoint: 'parts', garment: job.garmentId, item: f.areaId, result: 'made_from_front',
+          seconds: secondsSince(started), attempts: made.attempts, check: checkWord(made.quality), redone: made.quality.regenerated ? 'yes' : null });
+      } catch (err) {
+        if ((err instanceof StudioError && err.code === 'CANCELLED') || abort.signal.aborted) throw err;
+        summary.notFound += 1;
+        send({ type: 'part', jobId, area: f.areaId, name: f.name, found: false, reason: 'NOT_VISIBLE', message: MESSAGES.not_visible(f, job),
+          error: { code: err.code || 'GENERATION_FAILED', retryable: true, message: 'The back could not be made from the front just now. Redo this part, or send a photo of the back.' } });
+        stepLog('DesignStudio', { requestId, jobId, endpoint: 'parts', garment: job.garmentId, item: f.areaId, result: 'failed', seconds: secondsSince(started), code: err.code });
+      }
+    });
+    const tasks = [...groups.map((g) => ({ group: g })), ...backs.map((f) => ({ back: f }))];
+    await pool(tasks, config.parts.concurrency, (task) => (task.back ? makeBack(task.back) : withContext({ item: task.group.lead.areaId }, async () => {
+      const { lead, followers } = task.group;
       if (abort.signal.aborted) return;
       const partStarted = Date.now();
       const part = job.parts.find((p) => p.areaId === lead.areaId);
@@ -202,7 +235,7 @@ async function parts(req, res, next) {
           error: { code: err.code || 'ENHANCE_FAILED', retryable: true, message: 'The sharp close-up could not be made just now; this is the part as cut from your photo. Redo this part to try again.' }
         });
       }
-    }));
+    })));
     if (abort.signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
 
     send({

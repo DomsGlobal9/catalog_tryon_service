@@ -901,6 +901,7 @@ show each close-up with **Keep**, **Redo** and **Drop**; nothing is stored here.
 | `photos` | 1-3 of: base64 or Cloudinary link, or `{ image, view }` | **Required.** Photos of the same garment. `view` is `front`, `back`, `side` or `detail` (optional, helps find the back). Also accepted: `photo` / `image` / `imageUrl` for one photo, `images` for several, `backPhoto` for the back. **Send the original photo, not a thumbnail:** it is kept up to 4096 px and the close-ups are cut from it, so a phone photo gives far sharper close-ups than a 1000 px copy. |
 | `parts` | 1-8 of: area id, or `{ area, note }` | The parts to make, as the design areas in `/options` (`"neck"`, `"Neck Design"` and `NECK` all work). Left out: every part of the garment (the first 8). `note` tells the AI what to look at ("the gold cuff, not the bangle"). |
 | `enhance` | boolean | Default `true`: a sharp close-up made by the AI from the cut. `false`: the part as cut from your photo (a few seconds, nothing redrawn). |
+| `generateBack` | boolean | Default `true`: when you ask for `BACK` and no photo shows the back, the AI makes the back from the front (see below). `false`: the back comes back `NOT_VISIBLE` instead. Never with `enhance: false`. |
 | `productName` | string | A style hint only. |
 
 **Redo** one part: send the same request with `parts: ["NECK"]`.
@@ -909,10 +910,15 @@ show each close-up with **Keep**, **Redo** and **Drop**; nothing is stored here.
 
 1. **Found** (Gemini Flash, a few seconds per photo, all photos at once): where each part is, and how
    clearly it shows. Each part is taken from the photo that shows it best.
-2. **Never made up.** A part that is not in any photo (the back of a blouse photographed from the front)
-   comes back `found: false` with `reason: "NOT_VISIBLE"`; a part too small to show its design,
-   `"TOO_SMALL"`. Each has a `message` to show: *"The back design is not in this photo. Send a photo that
-   shows it."* A tailor stitches from these pictures, so nothing is drawn that the photo does not show.
+2. **Not in the photo.** A part that is not in any photo comes back `found: false` with
+   `reason: "NOT_VISIBLE"`; a part too small to show its design, `"TOO_SMALL"`. Each has a `message` to
+   show: *"The neck design is not in this photo. Send a photo that shows it."*
+   **The back is the one exception:** with no back photo, the AI makes the back from the front - the same
+   fabric, print, colours, sleeves and trims, with a plain classic back (no embroidery, keyhole, tie or
+   latkans the front does not show). It comes back `found: true` with **`generated: true`**, `from: "front"`
+   and a `message` to show beside it: *"Made by AI from the front: the back was not in your photo, so its
+   design is a guess. Check it before keeping, or send a photo of the back."* The picture itself carries
+   no mark. Send a back photo (`{ "image": ..., "view": "back" }`) and the real back is cut from it instead.
 3. **Cut** from the full-size photo, with room around the part (a cuff keeps its sleeve, a neckline its
    shoulders).
 4. **Made sharp** (the image model, 2K): the same part, the same motifs, colours and work, as if
@@ -927,13 +933,14 @@ show each close-up with **Keep**, **Redo** and **Drop**; nothing is stored here.
 ```
 data: {"type":"start","jobId":"9a2e..."}
 data: {"type":"located","jobId":"9a2e...","parts":[{"area":"FRONT","name":"Front Design","found":true},
-       {"area":"BACK","name":"Back Design","found":false,"reason":"NOT_VISIBLE"}, ...]}
-data: {"type":"part","jobId":"9a2e...","area":"BACK","name":"Back Design","found":false,"reason":"NOT_VISIBLE",
-       "message":"The back design is not in this photo. Send a photo that shows it."}
+       {"area":"BACK","name":"Back Design","found":false,"reason":"NOT_VISIBLE","willMakeFromFront":true}, ...]}
+data: {"type":"part","jobId":"9a2e...","area":"BACK","name":"Back Design","found":true,"enhanced":true,"generated":true,"from":"front",
+       "message":"Made by AI from the front: the back was not in your photo, so its design is a guess. ...",
+       "checkPassed":true,"mimeType":"image/jpeg","width":1792,"height":2400,"image":"data:image/jpeg;base64,..."}
 data: {"type":"part","jobId":"9a2e...","area":"NECK","name":"Neck Design","found":true,"enhanced":true,"lowDetail":false,
        "checkPassed":true,"mimeType":"image/jpeg","width":2048,"height":2048,"image":"data:image/jpeg;base64,..."}
 ...
-data: {"type":"done","jobId":"9a2e...","status":"ok","summary":{"made":4,"enhanced":4,"notFound":1,"fallback":0}}
+data: {"type":"done","jobId":"9a2e...","status":"ok","summary":{"made":5,"enhanced":5,"notFound":0,"fallback":0,"madeFromFront":1}}
 ```
 
 Parts are made side by side, so `part` events arrive **in any order**: match them by `area`.
@@ -944,6 +951,7 @@ Parts are made side by side, so `part` events arrive **in any order**: match the
 | `enhanced` | `true`: the sharp close-up. `false`: the part as cut from your photo - asked for with `enhance: false`, or the AI could not make it just now (then `error` is set, `retryable: true`: Redo that part). |
 | `lowDetail` | The part was small in the photo, so the close-up had little to work from and fine work may be filled in. Look twice before keeping it, or send a closer photo. |
 | `checkPassed` | The check against the cut: `true` passed, `false` a difference remained, `null` the check could not run. |
+| `generated` | `true` (with `from: "front"` and a `message`): this part is not from any photo - the AI made it from the front, because no back photo was sent. Show the message beside it. |
 | `sameAs` | This part was found in the same place as another part of the same photo (a saree's border and its zari work), so the same close-up is sent under both names. Made - and paid for - once. |
 
 `GET /result/{jobId}` returns `located`, every `part` and `done`. Errors in the stream: `PARTS_NOT_LOCATED`
