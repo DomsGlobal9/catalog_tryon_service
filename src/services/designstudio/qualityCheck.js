@@ -20,6 +20,7 @@
 //
 const { config } = require('./config');
 const { redact } = require('./errors');
+const { aiLog, secondsSince } = require('../../lib/stepLog');
 const { sameColourFamily } = require('./colours');
 
 let fetchImpl = (...args) => fetch(...args);
@@ -301,6 +302,21 @@ const pairChecklist = (review) => viewChecklist({ ...review, view: 'back' });
 
 /** One call to the inspector model with a JSON answer. Returns { parsed } or { problem }. Throws only on cancel. */
 async function askInspector(parts, schema, signal) {
+  const started = Date.now();
+  // A check is never retried and never fatal: when it cannot run, the photo is delivered unchecked.
+  const skipped = (reason) => aiLog({ call: 'check', model: config.pair.model, result: 'skipped', reason, seconds: secondsSince(started), why: 'the picture is delivered without this check' });
+  try {
+    const out = await askInspectorOnce(parts, schema, signal);
+    if (out.problem) skipped(out.problem);
+    else if (out.parsed === null) skipped('answer was not usable JSON');
+    return out;
+  } catch (err) {
+    if (!(signal && signal.aborted)) skipped(err && err.name === 'TimeoutError' ? `no answer within ${Math.round(config.pair.timeoutMs / 1000)}s` : redact(err && err.message));
+    throw err;
+  }
+}
+
+async function askInspectorOnce(parts, schema, signal) {
   const timeout = AbortSignal.timeout(config.pair.timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.pair.model)}:generateContent`, {

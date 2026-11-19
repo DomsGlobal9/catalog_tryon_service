@@ -1,4 +1,5 @@
 const sharp = require('sharp');
+const { aiLog } = require('../lib/stepLog');
 const { imageInputToBase64 } = require('./menAiService');
 
 const ALL_SIZES = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
@@ -74,6 +75,8 @@ async function requestSizeRecommendation(imageBase64, mimeType) {
     try { detail = (await response.text()).replace(/\s+/g, ' ').slice(0, 200); } catch { /* ignore */ }
     const err = new Error(`Gemini size recommendation failed: HTTP ${response.status}${detail ? ' - ' + detail : ''}`);
     err.upstreamStatus = response.status;
+    // One call, not retried: the caller can ask again.
+    aiLog({ call: 'size-advice', attempt: 1, of: 1, result: 'failed', reason: `HTTP ${response.status} ${detail.slice(0, 100)}` });
     throw err;
   }
   return response.json();

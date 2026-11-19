@@ -32,6 +32,7 @@ function pickEnvironment(colour) {
 // time and size capped, cancellable.
 const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
 const { providerLimitError } = require('../lib/publicError');
+const { aiLog, withContext, secondsSince } = require('../lib/stepLog');
 
 // =============================================================================
 // BASE MODEL CACHE
@@ -158,6 +159,9 @@ async function callGeminiImageGen(partsArray, abortSignal) {
   let respJson;
   let retries = 3;
   let delay = 2000;
+  const TRIES = retries;
+  const tryNo = () => TRIES - retries + 1;
+  const callStarted = Date.now();
 
   while (retries > 0) {
     // Abort on EITHER the client cancelling or our own timeout.
@@ -178,8 +182,13 @@ async function callGeminiImageGen(partsArray, abortSignal) {
       if (resp.status === 503 || resp.status === 429) {
         const errText = await resp.text();
         const limit = providerLimitError(resp.status, errText);
-        if (limit) throw limit;
-        console.warn(`[Gemini API] HTTP ${resp.status} (High Demand). Retries left: ${retries - 1}.`);
+        if (limit) {
+          aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `spending cap or quota (HTTP ${resp.status})`, why: 'never clears on retry' });
+          throw limit;
+        }
+        const last = retries <= 1;
+        aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: last ? 'gave_up' : 'retrying', reason: `busy (HTTP ${resp.status})`, waitSeconds: last ? null : delay / 1000 });
+        if (last) { const busy = new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`); busy.logged = true; retries--; throw busy; }
         retries--;
         if (retries === 0) throw new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`);
         await new Promise(res => setTimeout(res, delay));
@@ -189,7 +198,10 @@ async function callGeminiImageGen(partsArray, abortSignal) {
 
       if (!resp.ok) {
         const errText = await resp.text();
-        throw new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`);
+        aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `HTTP ${resp.status} ${errText.slice(0, 100)}`, why: 'a refused request is not retried' });
+        const refused = new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`);
+        refused.logged = true;
+        throw refused;
       }
 
       // CRITICAL: read the body INSIDE the retry block.
@@ -203,6 +215,7 @@ async function callGeminiImageGen(partsArray, abortSignal) {
       respJson = await resp.json();
 
       // Success
+      if (tryNo() > 1) aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'ok_after_retry', seconds: secondsSince(callStarted) });
       break;
 
     } catch (err) {
@@ -213,8 +226,11 @@ async function callGeminiImageGen(partsArray, abortSignal) {
       if (message.includes('AbortError')) throw err;
       // retries <= 1: the last 503/429 has already counted itself down to 0; its real
       // error used to be swallowed here and reported as "no response after retries".
-      if (retries <= 1 || message.includes('HTTP 400') || (err && err.code === 'PROVIDER_LIMIT_REACHED')) throw err;
-      console.warn(`[Gemini API] Request Failed: ${message}. Retries left: ${retries - 1}`);
+      if (retries <= 1 || message.includes('HTTP 400') || (err && err.code === 'PROVIDER_LIMIT_REACHED')) {
+        if (!(err && err.logged) && !(err && err.code === 'PROVIDER_LIMIT_REACHED')) aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: retries <= 1 ? 'gave_up' : 'failed', reason: message.slice(0, 140) });
+        throw err;
+      }
+      aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'retrying', reason: message.slice(0, 140), waitSeconds: delay / 1000 });
       retries--;
       await new Promise(res => setTimeout(res, delay));
       delay *= 2;
@@ -407,7 +423,7 @@ const buildPayloadParts = (
   null,
   category === 'LEHANGA' && !!processedDupattaStyle
 );
-    let generatedFront = await callGeminiImageGen(frontParts, abortSignal);
+    let generatedFront = await withContext({ item: 'front' }, () => callGeminiImageGen(frontParts, abortSignal));
     console.log('✅ Front View generated successfully.');
 
     if (colour && COLOUR_VARIANT_MODE === 'pass') {
@@ -415,11 +431,11 @@ const buildPayloadParts = (
       console.log(`Recolouring the front view to ${colour.name}...`);
       if (onProgress) onProgress({ type: 'status', message: `Recolouring the front view to ${colour.name}...` });
       const mime = (generatedFront.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
-      generatedFront = await callGeminiImageGen([
+      generatedFront = await withContext({ item: 'front-recolour' }, () => callGeminiImageGen([
         { text: getRecolourPassPrompt(colour, category) },
         { text: 'PHOTOGRAPH — the catalogue photograph to recolour (keep everything but the base fabric colour exactly as it is):' },
         { inline_data: { mime_type: mime, data: cleanBase64(generatedFront) } }
-      ], abortSignal);
+      ], abortSignal));
       console.log('✅ Front View recoloured successfully.');
     }
 
@@ -446,10 +462,10 @@ const buildPayloadParts = (
     if (abortSignal?.aborted) throw new Error('AbortError: Generation cancelled by client');
 
     const runView = async (viewKey, viewName, baseImage) => {
-      const image = await callGeminiImageGen(
+      const image = await withContext({ item: viewKey }, () => callGeminiImageGen(
         buildPayloadParts(getDynamicPrompt(viewName, category, inputSlots, randomEnv), baseImage, generatedFront),
         abortSignal
-      );
+      ));
       console.log(`✅ ${viewName} View generated successfully.`);
       // Fired the moment each view lands, so the client still streams results
       // as they arrive rather than waiting for the slowest of them.

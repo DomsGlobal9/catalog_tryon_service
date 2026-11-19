@@ -8,6 +8,7 @@
 //
 const { ProviderError } = require('./errors');
 const { redact } = require('./redact');
+const { providerLog } = require('./log');
 
 /** Statuses worth one more try: the provider is overloaded, not refusing us. */
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
@@ -107,16 +108,22 @@ async function postJson(url, {
   headers = {}, body, timeoutMs = 8000, providerName = 'provider',
   retries = 0, retryBaseMs = 500, sleep = defaultSleep
 } = {}) {
+  const of = retries + 1;
   for (let tryNo = 0; ; tryNo++) {
     try {
-      return await attempt(url, { headers, body, timeoutMs, providerName });
+      const json = await attempt(url, { headers, body, timeoutMs, providerName });
+      if (tryNo > 0) providerLog({ call: 'search', provider: providerName, attempt: tryNo + 1, of, result: 'ok_after_retry' });
+      return json;
     } catch (err) {
       if (!err.retryable || tryNo >= retries) {
+        providerLog({ call: 'search', provider: providerName, attempt: tryNo + 1, of, result: err.retryable ? 'gave_up' : 'failed', reason: err.message });
         if (tryNo > 0) err.message = `${err.message} (after ${tryNo + 1} attempts)`;
         throw err;
       }
       const backoff = retryBaseMs * 2 ** tryNo + Math.floor(Math.random() * 250);
-      await sleep(err.retryAfterMs != null ? Math.max(err.retryAfterMs, backoff) : backoff);
+      const waitMs = err.retryAfterMs != null ? Math.max(err.retryAfterMs, backoff) : backoff;
+      providerLog({ call: 'search', provider: providerName, attempt: tryNo + 1, of, result: 'retrying', reason: err.message, waitSeconds: Math.round(waitMs / 100) / 10 });
+      await sleep(waitMs);
     }
   }
 }

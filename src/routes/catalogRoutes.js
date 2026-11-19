@@ -20,7 +20,7 @@ const { admitGeneration, cancelGeneration } = require('../middleware/generationG
 const { parseColourVariant, colourSummary } = require('../services/colourVariant');
 const { publicMessage } = require('../lib/publicError');
 const billing = require('../modules/billing/billing.service');
-const { stepLog, secondsSince } = require('../lib/stepLog');
+const { stepLog, secondsSince, setContext } = require('../lib/stepLog');
 
 /** A job-status write must never take the stream down with it. */
 async function recordJob(jobId, data) {
@@ -185,6 +185,7 @@ router.post('/generate-catalog/women', async (req, res) => {
       }
     });
     jobId = job.id;
+    setContext({ jobId, endpoint: 'women' });
     stepLog('Catalog', { jobId, endpoint: 'women', account: req.account, garment: safeCategory, model: modelId, colour: variant ? variant.colorName : null, result: 'started' });
     let lastViewAt = Date.now();
 

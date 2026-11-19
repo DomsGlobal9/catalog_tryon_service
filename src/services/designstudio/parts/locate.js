@@ -13,6 +13,7 @@
 
 const sharp = require('sharp');
 const { config } = require('../config');
+const { aiLog } = require('../../../lib/stepLog');
 const { describeArea } = require('../garmentGuide');
 
 let fetchImpl = (...args) => fetch(...args);
@@ -85,7 +86,11 @@ async function locateInPhoto(job, photo, { signal } = {}) {
         body,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout
       });
-      if (!response.ok) { problem = `HTTP ${response.status}`; continue; }
+      if (!response.ok) {
+        problem = `HTTP ${response.status}`;
+        aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
+        continue;
+      }
       const json = await response.json();
       const text = ((((json.candidates || [])[0] || {}).content || {}).parts || []).filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
       const parsed = JSON.parse(text.replace(/```(?:json)?/gi, '').trim());
@@ -96,10 +101,12 @@ async function locateInPhoto(job, photo, { signal } = {}) {
         const box = a.visible === 'no' ? null : readBox(a.box_2d);
         answers.set(id, { visible: box ? a.visible : 'no', box, note: typeof a.note === 'string' ? a.note.slice(0, 300) : '' });
       }
+      if (attempt > 1) aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: 'ok_after_retry' });
       return { answers };
     } catch (err) {
       if (signal && signal.aborted) throw err;
       problem = err && err.name === 'TimeoutError' ? 'timed out' : 'unreadable answer';
+      aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
     }
   }
   return { problem };

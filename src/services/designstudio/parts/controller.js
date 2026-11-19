@@ -27,7 +27,7 @@ const { resolvePartsRequest } = require('./request');
 const { locateParts } = require('./locate');
 const { cutPart } = require('./cut');
 const { enhancePart } = require('./enhance');
-const { stepLog, secondsSince, checkWord } = require('../../../lib/stepLog');
+const { stepLog, secondsSince, checkWord, setContext, withContext } = require('../../../lib/stepLog');
 
 const MESSAGES = {
   not_visible: (p, job) => `The ${p.name.toLowerCase()} is not in ${job.photos.length > 1 ? 'these photos' : 'this photo'}. Send a photo that shows it.`,
@@ -70,6 +70,7 @@ function groupSameSpot(found) {
 
 async function parts(req, res, next) {
   const requestId = crypto.randomUUID();
+  setContext({ requestId, endpoint: 'parts' });
   const startedAt = Date.now();
   const abort = new AbortController();
   let finished = false;
@@ -92,6 +93,7 @@ async function parts(req, res, next) {
     return next(err);
   }
 
+  setContext({ jobId: admitted.job.id, item: 'find-parts' });
   admitted.job.signal.addEventListener('abort', () => abort.abort());
   if (admitted.job.signal.aborted) abort.abort();
 
@@ -157,7 +159,7 @@ async function parts(req, res, next) {
     // under each name, marked sameAs.
     const generationStarted = Date.now();
     const groups = groupSameSpot(located.found.filter((f) => f.status === 'found'));
-    await pool(groups, config.parts.concurrency, async ({ lead, followers }) => {
+    await pool(groups, config.parts.concurrency, ({ lead, followers }) => withContext({ item: lead.areaId }, async () => {
       if (abort.signal.aborted) return;
       const partStarted = Date.now();
       const part = job.parts.find((p) => p.areaId === lead.areaId);
@@ -196,7 +198,7 @@ async function parts(req, res, next) {
           error: { code: err.code || 'ENHANCE_FAILED', retryable: true, message: 'The sharp close-up could not be made just now; this is the part as cut from your photo. Redo this part to try again.' }
         });
       }
-    });
+    }));
     if (abort.signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
 
     send({

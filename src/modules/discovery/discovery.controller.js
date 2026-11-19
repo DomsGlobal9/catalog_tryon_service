@@ -18,7 +18,7 @@ const cache = require('./services/searchCache');
 const rateLimit = require('./middleware/rateLimit');
 const { ORIENTATIONS, SHOT_TYPES, RECENCIES } = require('./middleware/validate');
 const { NotConfiguredError } = require('./lib/errors');
-const { stepLog, secondsSince } = require('../../lib/stepLog');
+const { line, secondsSince, setContext } = require('./lib/log');
 
 /**
  * Build the per-source plans and charge the caller for the provider calls they
@@ -44,13 +44,13 @@ function budgetBucket(req, clientId) {
 /** clientId as one log line: a caller could put line breaks in it to forge log entries. */
 const forLog = (value) => String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ');
 
-// One line per search, in the same shape as every other endpoint (lib/stepLog.js).
+// One line per search, in the same shape as the service's other lines (lib/log.js).
 function logLine(searchId, clientId, resolved, sources, startedAt, extra = {}) {
   const perSource = sources
     .map((s) => (s.status === 'ok' ? `${s.source}:${s.returned}${s.cached ? '(cache)' : ''}` : `${s.source}:ERR`))
     .join(',');
   const ok = sources.filter((s) => s.status === 'ok');
-  stepLog('Discovery', {
+  line('Discovery', {
     searchId, endpoint: extra.endpoint || 'search', client: forLog(clientId),
     garment: resolved.category || '-', item: resolved.designType || '-', from: resolved.interpreted.source,
     result: ok.length ? 'found' : 'failed', results: ok.reduce((n, s) => n + (s.returned || 0), 0), sources: perSource,
@@ -68,6 +68,7 @@ async function search(req, res, next) {
   // Correlation id only — there is no persistence layer, so this is for tracing
   // a request through the logs, NOT something the caller can fetch later.
   const searchId = crypto.randomUUID();
+  setContext({ searchId, endpoint: 'search' });
   const startedAt = Date.now();
   const clientId = (req.validated && req.validated.clientId) || 'unknown';
 
@@ -139,6 +140,7 @@ async function search(req, res, next) {
  */
 async function searchStream(req, res, next) {
   const searchId = crypto.randomUUID();
+  setContext({ searchId, endpoint: 'search-stream' });
   const startedAt = Date.now();
   const clientId = (req.validated && req.validated.clientId) || 'unknown';
 

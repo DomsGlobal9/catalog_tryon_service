@@ -28,7 +28,7 @@ const { generateImage } = require('./geminiImage');
 const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { framePerson, makeDresser } = require('./drapeOnPerson');
-const { stepLog, secondsSince, checkWord } = require('../../lib/stepLog');
+const { stepLog, secondsSince, checkWord, setContext, withContext } = require('../../lib/stepLog');
 const resultStore = require('./resultStore');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -36,6 +36,7 @@ const PIPELINE = 'designstudio';
 
 async function generate(req, res, next) {
   const requestId = crypto.randomUUID();
+  setContext({ requestId, endpoint: 'generate' });
   const startedAt = Date.now();
   const abort = new AbortController();
   let finished = false;
@@ -65,6 +66,7 @@ async function generate(req, res, next) {
 
   // The job can now be cancelled from anywhere (cancel endpoint, another server,
   // a newer job from the same client).
+  setContext({ jobId: admitted.job.id, item: 'designs' });
   admitted.job.signal.addEventListener('abort', () => abort.abort());
   // A cancel that landed while the job was being listed has already fired; a
   // listener added now would never hear it, and the job would run unstoppable.
@@ -326,6 +328,7 @@ async function generate(req, res, next) {
     let early = null; // { from: front image, plan, draft: Promise, stop: AbortController }
     try {
     for (const view of views) {
+      setContext({ item: isSketch ? 'sheet' : view || 'front' });
       const viewStarted = Date.now();
       const attemptsBefore = attempts;
       let plan;
@@ -346,7 +349,7 @@ async function generate(req, res, next) {
       if (view === 'front' && views.includes('back') && !isSketch) {
         const stop = new AbortController();
         const backPlan = planView('back', result.image);
-        early = { from: result.image, plan: backPlan, stop, draft: firstDraft('back', backPlan.viewPrompt, stop.signal).catch((error) => ({ error })) };
+        early = { from: result.image, plan: backPlan, stop, draft: withContext({ item: 'back' }, () => firstDraft('back', backPlan.viewPrompt, stop.signal)).catch((error) => ({ error })) };
       }
       const { viewJob, viewDescriptions, viewPrompt } = plan;
       let quality;

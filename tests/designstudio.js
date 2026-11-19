@@ -1532,6 +1532,7 @@ async function runAll({ check, eq, section, SRC }) {
   qa._setFetch(qaAnswer());
   const app = express();
   app.use(identify);
+  app.use(require(path.join(SRC, 'lib/stepLog')).contextMiddleware);
   app.use('/ds', routes);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/ds`;
@@ -2159,6 +2160,34 @@ async function runAll({ check, eq, section, SRC }) {
       [res.status, json.error.details[0].code, /FRONT, BACK, NECK/.test(json.error.message)], [400, 'UNKNOWN_DESIGN_AREA', true]);
     res = await post('/parts', { clientId: 'parts-9', garment: 'BLOUSE', photos: [IMG, IMG, IMG, IMG] });
     eq('more than 3 photos is a 400', (await res.json()).error.code, 'VALIDATION_ERROR');
+
+    // Every AI failure and retry is logged with the request, the job and the part it belongs to (19 Nov 2026).
+    partsLocate._setFetch(locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }]));
+    qa._setFetch(async () => new Response('inspector down', { status: 500 }));
+    pCalls = script([() => new Response(JSON.stringify({ error: { code: 503, message: 'The model is overloaded.' } }), { status: 503 }), () => answer([imagePart(FINAL)])]);
+    const logsBefore = logs.length;
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-retry', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
+    const aiLines = logs.slice(logsBefore).filter((l) => l.startsWith('[AI] '));
+    const pJobId = events[0].jobId;
+    eq('an image model 503 is logged as retrying (attempt, reason, wait), the next attempt as ok_after_retry, and a check that cannot run as skipped - each with the requestId, jobId, endpoint and part',
+      [aiLines.some((l) => new RegExp(`^\\[AI\\] requestId=\\S+ jobId=${pJobId} endpoint=parts item=NECK call=image model=\\S+ attempt=1 result=retrying reason="busy: image model busy \\(HTTP 503\\)`).test(l) && / waitSeconds=[\d.]+/.test(l)),
+        aiLines.some((l) => new RegExp(`jobId=${pJobId} endpoint=parts item=NECK call=image .*attempt=2 result=ok_after_retry`).test(l)),
+        aiLines.some((l) => new RegExp(`jobId=${pJobId} endpoint=parts item=NECK call=check .*result=skipped reason="HTTP 500`).test(l)),
+        events[events.length - 1].type],
+      [true, true, true, 'done']);
+    let findTries = 0;
+    partsLocate._setFetch(async (...a) => (++findTries === 1 ? new Response('busy', { status: 503 }) : locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }])(...a)));
+    qa._setFetch(partsCheck());
+    pCalls = script([() => new Response(JSON.stringify({ error: { code: 400, message: 'bad' } }), { status: 400 })]);
+    const logsBefore2 = logs.length;
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-retry-2', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
+    const aiLines2 = logs.slice(logsBefore2).filter((l) => l.startsWith('[AI] '));
+    eq('the part finder failing once is retrying then ok_after_retry; an image the model refuses is failed (not retried), with its code',
+      [aiLines2.some((l) => / endpoint=parts item=find-parts call=find-parts .*photo=0 attempt=1 of=2 result=retrying reason="HTTP 503"/.test(l)),
+        aiLines2.some((l) => / item=find-parts call=find-parts .*attempt=2 of=2 result=ok_after_retry/.test(l)),
+        aiLines2.some((l) => / item=NECK call=image .*attempt=1 result=failed code=GENERATION_REJECTED/.test(l))],
+      [true, true, true]);
+    qa._setFetch(qaAnswer());
 
     const io = S('controller').imageOnly;
     eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',

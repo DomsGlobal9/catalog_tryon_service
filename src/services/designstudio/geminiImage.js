@@ -16,6 +16,7 @@
 const sharp = require('sharp');
 const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
+const { aiLog, secondsSince } = require('../../lib/stepLog');
 
 let fetchImpl = (...args) => fetch(...args);
 let sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -189,23 +190,34 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio 
     attempts += 1;
     if (onAttempt) onAttempt({ attempt: attempts, reason: lastFailure ? lastFailure.kind : null });
 
+    const attemptStarted = Date.now();
     try {
       const result = await attempt(body, signal, Math.min(config.gemini.attemptTimeoutMs, remaining));
       const image = await finishImage(result.image);
+      if (attempts > 1) aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'ok_after_retry', seconds: secondsSince(attemptStarted) });
       return { image, attempts, usage: result.usage, modelText: result.text, finishReason: result.finishReason };
     } catch (err) {
-      if (!(err instanceof RetryableFailure)) throw err;
+      if (!(err instanceof RetryableFailure)) {
+        // Not retried: a refusal, a rejected request, a spending cap. Said once, clearly.
+        if (!(err instanceof StudioError && err.code === 'CANCELLED')) {
+          aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'failed', code: err.code, reason: err.message, seconds: secondsSince(attemptStarted) });
+        }
+        throw err;
+      }
       lastFailure = err;
-      console.warn(`[DesignStudio] attempt ${attempts} failed: ${err.message}`);
 
       const canRetry = err.kind === 'no_image' ? noImageRetries++ < config.gemini.noImageRetries
         : err.kind === 'timeout' ? timeoutRetries++ < config.gemini.timeoutRetries
         : err.kind === 'busy' && busyRetries++ < config.gemini.retries;
-      if (!canRetry) break;
-
       const attemptsSoFar = busyRetries + noImageRetries + timeoutRetries;
       const wait = Math.max(err.retryAfterMs, config.gemini.retryBaseMs * 2 ** Math.max(0, attemptsSoFar - 1)) + Math.floor(Math.random() * 500);
-      if (Date.now() + wait + 1000 >= deadline) break;
+      const outOfTime = Date.now() + wait + 1000 >= deadline;
+      aiLog({
+        call: 'image', model: config.gemini.model, attempt: attempts, result: canRetry && !outOfTime ? 'retrying' : 'gave_up',
+        reason: `${err.kind}: ${err.message}`, seconds: secondsSince(attemptStarted),
+        waitSeconds: canRetry && !outOfTime ? Math.round(wait / 100) / 10 : null, why: canRetry && outOfTime ? 'no time left for another try' : null
+      });
+      if (!canRetry || outOfTime) break;
       await sleep(wait);
       if (signal && signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
     }

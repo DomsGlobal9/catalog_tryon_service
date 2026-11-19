@@ -12,6 +12,7 @@ const billingRoutes = require('./modules/billing/billing.routes');
 const { logBootStatus: logDiscoveryStatus } = require('./modules/discovery/discovery.config');
 const { requireServiceKey } = require('./middleware/auth');
 const { identify } = require('./middleware/identity');
+const { contextMiddleware } = require('./lib/stepLog');
 const shared = require('./lib/shared');
 const { publicMessage, publicStatus } = require('./lib/publicError');
 const { useSharedState: useDiscoverySharedState } = require('./modules/discovery/sharedState');
@@ -49,6 +50,9 @@ app.use('/api/', requireServiceKey);
 // Only after the key check: the gateway customer id is trusted because only the
 // gateway holds the key.
 app.use('/api/', identify);
+// Every request gets its own log context (requestId, jobId, item), so an AI retry deep inside a
+// pipeline logs which request, view or part it belongs to (lib/stepLog.js).
+app.use('/api/', contextMiddleware);
 
 // Service-to-service routes for the Gateway (billing usage). Same service key;
 // the router itself refuses anything the Gateway proxied for a third party.

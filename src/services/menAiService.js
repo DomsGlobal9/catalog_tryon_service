@@ -46,6 +46,7 @@ function cachedBaseModel(url, produce) {
 // Caller links: public addresses only, time and size capped (lib/fetchImage).
 const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
 const { providerLimitError } = require('../lib/publicError');
+const { aiLog, secondsSince } = require('../lib/stepLog');
 
 
 // ============================================================
@@ -305,6 +306,10 @@ async function callGeminiImageGen(
 
   let delay = 2000;
 
+  const TRIES = retries;
+  const tryNo = () => TRIES - retries + 1;
+  const callStarted = Date.now();
+
 
   while (retries > 0) {
 
@@ -355,13 +360,13 @@ async function callGeminiImageGen(
           await resp.text();
 
         const limit = providerLimitError(resp.status, errText);
-        if (limit) throw limit;
+        if (limit) {
+          aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `spending cap or quota (HTTP ${resp.status})`, why: 'never clears on retry' });
+          throw limit;
+        }
 
-        console.warn(
-          `[Gemini API] HTTP ${resp.status}. Retries left: ${
-            retries - 1
-          }`
-        );
+        aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: retries <= 1 ? 'gave_up' : 'retrying', reason: `busy (HTTP ${resp.status})`, waitSeconds: retries <= 1 ? null : delay / 1000 });
+        if (retries <= 1) { const busy = new Error(`Gemini API Error: HTTP ${resp.status} - ${errText}`); busy.logged = true; retries--; throw busy; }
 
         retries--;
 
@@ -398,9 +403,12 @@ async function callGeminiImageGen(
         const errText =
           await resp.text();
 
-        throw new Error(
+        aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `HTTP ${resp.status} ${errText.slice(0, 100)}`, why: 'a refused request is not retried' });
+        const refused = new Error(
           `Gemini API Error: HTTP ${resp.status} - ${errText}`
         );
+        refused.logged = true;
+        throw refused;
 
       }
 
@@ -417,6 +425,7 @@ async function callGeminiImageGen(
       respJson =
         await resp.json();
 
+      if (tryNo() > 1) aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'ok_after_retry', seconds: secondsSince(callStarted) });
       break;
 
 
@@ -444,16 +453,13 @@ async function callGeminiImageGen(
         )
       ) {
 
+        if (!err.logged && err.code !== 'PROVIDER_LIMIT_REACHED') aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: retries <= 1 ? 'gave_up' : 'failed', reason: String(err.message).slice(0, 140) });
         throw err;
 
       }
 
 
-      console.warn(
-        `[Gemini API] Request failed: ${err.message}. Retries left: ${
-          retries - 1
-        }`
-      );
+      aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'retrying', reason: String(err.message).slice(0, 140), waitSeconds: delay / 1000 });
 
 
       retries--;

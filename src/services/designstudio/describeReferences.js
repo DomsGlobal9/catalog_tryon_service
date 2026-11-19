@@ -31,6 +31,7 @@
 const crypto = require('crypto');
 const { config } = require('./config');
 const { redact } = require('./errors');
+const { aiLog, secondsSince } = require('../../lib/stepLog');
 
 let fetchImpl = (...args) => fetch(...args);
 
@@ -148,8 +149,18 @@ function readAnswer(parsed, items) {
   return out;
 }
 
-/** One call to the describe model for these items. Never throws. */
+/** One call to the describe model for these items. Never throws. A failure or short answer is logged. */
 async function ask(items, signal) {
+  const started = Date.now();
+  const out = await askOnce(items, signal);
+  if (out.problem && !out.aborted) {
+    aiLog({ call: 'describe', model: config.describe.model, pictures: items.length, result: out.answered ? 'partial' : 'skipped', reason: out.problem, seconds: secondsSince(started),
+      why: out.answered ? null : 'optional step: the photo is still made, from the pictures alone' });
+  }
+  return out;
+}
+
+async function askOnce(items, signal) {
   const parts = [{ text: INSTRUCTIONS }];
   for (const item of items) {
     parts.push({ text: labelFor(item) });

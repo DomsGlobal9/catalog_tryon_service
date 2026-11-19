@@ -19,6 +19,7 @@
 //
 const sharp = require('sharp');
 const { config } = require('./config');
+const { aiLog } = require('../../lib/stepLog');
 const { GLOBAL_AREAS, describeArea, garmentGuide } = require('./garmentGuide');
 
 let fetchImpl = (...args) => fetch(...args);
@@ -66,13 +67,18 @@ async function locatePart(garmentId, design, { signal } = {}) {
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      aiLog({ call: 'find-part', model: config.crop.model, part: design.areaId, result: 'skipped', reason: `HTTP ${response.status}`, why: 'the design picture is used whole' });
+      return null;
+    }
     const json = await response.json();
     const parts = (((json.candidates || [])[0] || {}).content || {}).parts || [];
     const parsed = JSON.parse(parts.filter((p) => typeof p.text === 'string').map((p) => p.text).join('').replace(/```(?:json)?/gi, '').trim());
     return parsed && parsed.view === 'part in a larger picture' && readBox(parsed.box_2d) ? parsed.box_2d.map(Number) : null;
   } catch (err) {
     if (signal && signal.aborted) throw err;
+    aiLog({ call: 'find-part', model: config.crop.model, part: design.areaId, result: 'skipped',
+      reason: err && err.name === 'TimeoutError' ? `no answer within ${Math.round(config.crop.timeoutMs / 1000)}s` : 'unreadable answer', why: 'the design picture is used whole' });
     return null;
   }
 }

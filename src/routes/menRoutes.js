@@ -76,7 +76,7 @@ const BOTTOM_WEAR_BODY_REFERENCE_URLS = {
 // Running jobs are tracked in middleware/generationGuard.js, shared with the
 // women pipeline and visible to every server.
 const { admitGeneration, cancelGeneration } = require("../middleware/generationGuard");
-const { stepLog, secondsSince } = require("../lib/stepLog");
+const { stepLog, secondsSince, setContext, withContext } = require("../lib/stepLog");
 const { budgetKey } = require("../middleware/identity");
 const shared = require("../lib/shared");
 const { publicMessage } = require("../lib/publicError");
@@ -177,6 +177,7 @@ async function runSSEGeneration(req, res, {
   const startedAt = Date.now();
   const jobId = controller.id || null;
   const endpoint = `men-${String(modeName).toLowerCase().replace(/[^a-z]+/g, '-')}`;
+  setContext({ jobId, endpoint });
   stepLog('Catalog', {
     jobId, endpoint, account: req.account, garment: category, group: categoryGroup, sizes: validatedSizes.join(','),
     sizeType, ownPhoto: userPhoto ? 'yes' : null, tops: isMixAndMatch ? tops.length : null, result: 'started'
@@ -254,7 +255,7 @@ async function runSSEGeneration(req, res, {
       for (let topIndex = 0; topIndex < topsToProcess.length; topIndex++) {
         const currentTop = topsToProcess[topIndex];
         
-        generationJobs.push((async () => {
+        generationJobs.push(withContext({ item: isMixAndMatch ? `size-${currentSize}-top-${topIndex + 1}` : `size-${currentSize}` }, async () => {
           if (controller.signal.aborted) {
             console.log(`Job cancelled for size ${currentSize}`);
             return;
@@ -351,7 +352,7 @@ async function runSSEGeneration(req, res, {
               error: publicMessage(error, `Size ${currentSize} could not be generated. Please try again.`)
             });
           }
-        })());
+        }));
       }
     }
 

@@ -12,7 +12,35 @@
 // Only short values are logged: never an image, a key or a person's photo. A value is cut to
 // MAX_VALUE characters and stripped of line breaks, so a caller cannot forge or flood log lines.
 
+const { AsyncLocalStorage } = require('node:async_hooks');
+
 const MAX_VALUE = 160;
+
+// ── The request a line belongs to ────────────────────────────────────────────
+// Every AI call deep inside a pipeline (an image attempt, a check, a part finder) logs its own
+// failures and retries. It cannot be handed the requestId, jobId and item through every function,
+// so the request carries them: set once at the door (contextMiddleware), filled in by the
+// handler (setContext: requestId, jobId, endpoint), narrowed per item (withContext: the view,
+// part or size being made - work that runs side by side gets its own copy).
+const context = new AsyncLocalStorage();
+
+/** Express middleware: every request gets its own, empty context. */
+function contextMiddleware(req, _res, next) {
+  context.run({ account: req.account || undefined }, next);
+}
+
+/** Add to the current request's context (seen by everything that request does from now on). */
+function setContext(fields) {
+  const store = context.getStore();
+  if (store) Object.assign(store, fields);
+}
+
+/** Run fn with extra context (an item), without changing the context of work running beside it. */
+function withContext(fields, fn) {
+  return context.run({ ...(context.getStore() || {}), ...fields }, fn);
+}
+
+const currentContext = () => context.getStore() || {};
 
 function format(value) {
   const text = String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, MAX_VALUE);
@@ -52,4 +80,19 @@ function checkWord(quality) {
   return `failed(${failed.map(([name, v]) => `${name}:${(v.failures || []).map((f) => f.check || f.id).filter(Boolean).join('+')}`).join(',')})`;
 }
 
-module.exports = { stepLog, secondsSince, checkWord, MAX_VALUE };
+/**
+ * One line for one AI call that did not simply succeed: a failure, a retry, giving up, or
+ * success after a retry. The request's ids and item come from the context.
+ *
+ *   [AI] requestId=… jobId=… endpoint=parts item=NECK call=image model=gemini-3.1-flash-image
+ *        attempt=1 of=3 result=retrying reason="busy (HTTP 503)" waitSeconds=2.4
+ *
+ * result: retrying | gave_up | failed (not retried: a refusal, a bad request) | ok_after_retry
+ *         | skipped (an optional step that failed and was left out, e.g. a check)
+ */
+function aiLog(fields) {
+  const c = currentContext();
+  stepLog('AI', { requestId: c.requestId, jobId: c.jobId, endpoint: c.endpoint, item: c.item, account: c.requestId ? undefined : c.account, ...fields });
+}
+
+module.exports = { stepLog, secondsSince, checkWord, aiLog, contextMiddleware, setContext, withContext, currentContext, MAX_VALUE };

@@ -27,6 +27,7 @@
 const { z } = require('zod');
 const { config } = require('./config');
 const { StudioError, validation, redact } = require('./errors');
+const { aiLog } = require('../../lib/stepLog');
 const { garmentGuide, describeArea, taxonomy } = require('./garmentGuide');
 const { framingLine } = require('./promptBuilder');
 const { askInspector, RESPONSE_SCHEMA } = require('./qualityCheck');
@@ -259,7 +260,11 @@ async function readSketch(job, { signal } = {}) {
         }),
         signal: combined
       });
-      if (!response.ok) { problem = `HTTP ${response.status} ${redact(await response.text().catch(() => '')).slice(0, 120)}`; continue; }
+      if (!response.ok) {
+        problem = `HTTP ${response.status} ${redact(await response.text().catch(() => '')).slice(0, 120)}`;
+        aiLog({ call: 'read-sketch', model: config.describe.model, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
+        continue;
+      }
       const json = await response.json();
       const candidate = (json.candidates || [])[0];
       const answer = ((candidate && candidate.content && candidate.content.parts) || [])
@@ -267,11 +272,16 @@ async function readSketch(job, { signal } = {}) {
       let raw = null;
       try { raw = JSON.parse(answer.replace(/```(?:json)?/gi, '').trim()); } catch { raw = null; }
       const reading = cleanReading(raw);
-      if (reading) return { reading, problem: null };
+      if (reading) {
+        if (attempt > 1) aiLog({ call: 'read-sketch', model: config.describe.model, attempt, of: 2, result: 'ok_after_retry' });
+        return { reading, problem: null };
+      }
       problem = 'answer was not usable JSON';
+      aiLog({ call: 'read-sketch', model: config.describe.model, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
     } catch (err) {
       if (signal && signal.aborted) throw new StudioError('Request cancelled.', { status: 499, code: 'CANCELLED' });
       problem = redact(err && err.message);
+      aiLog({ call: 'read-sketch', model: config.describe.model, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
     }
   }
   return { reading: null, problem };

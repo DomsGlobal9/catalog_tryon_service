@@ -21,10 +21,11 @@ const { resolveSketchRequest, readSketch, mergeLabels, buildSketchPrompt, review
 const resultStore = require('./resultStore');
 const { imageOnly, logOutcome, PIPELINE } = require('./controller');
 const { admitGeneration } = require('../../middleware/generationGuard');
-const { stepLog, secondsSince, checkWord } = require('../../lib/stepLog');
+const { stepLog, secondsSince, checkWord, setContext } = require('../../lib/stepLog');
 
 async function sketch(req, res, next) {
   const requestId = crypto.randomUUID();
+  setContext({ requestId, endpoint: 'sketch' });
   const startedAt = Date.now();
   const abort = new AbortController();
   let finished = false;
@@ -48,6 +49,7 @@ async function sketch(req, res, next) {
     return next(err);
   }
 
+  setContext({ jobId: admitted.job.id, item: 'read-sketch' });
   admitted.job.signal.addEventListener('abort', () => abort.abort());
   if (admitted.job.signal.aborted) abort.abort();
 
@@ -167,6 +169,7 @@ async function sketch(req, res, next) {
     const results = [];
     let frontGarment = null;
     for (const view of views) {
+      setContext({ item: view });
       const viewStarted = Date.now();
       const attemptsBefore = attempts;
       const prompt = buildSketchPrompt(job, { reading, parts, view, frontPhoto: view === 'back' && frontGarment ? frontGarment.image : null, presentation: garmentPresentation });
