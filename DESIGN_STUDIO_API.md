@@ -10,6 +10,7 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 | | |
 | :--- | :--- |
 | **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/studio` (Design Studio's own gateway name, since 19 November 2026). The old `.../gateway/cat` keeps working. |
+| **Example** | `POST https://api-super-admin.onrender.com/api/gateway/studio/api/v1/designstudio/generate` |
 | **Headers** | `x-api-key: <your key>` and `Content-Type: application/json` |
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Sketch to photo** | `POST /api/v1/designstudio/sketch` — a hand-drawn sketch with labelled colours, made into a photograph (since 28 October 2026) |

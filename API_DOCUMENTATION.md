@@ -19,11 +19,23 @@ affect the other.
 
 ## 🚀 Base URL
 
-**Production (via gateway):** `https://api-super-admin.onrender.com/api/gateway/cat`
+**Production (via gateway): one name per product** (since 19 November 2026)
+
+| Product | Base URL | Paths |
+| :--- | :--- | :--- |
+| Catalog photos (women, men, colour variants) | `https://api-super-admin.onrender.com/api/gateway/cat` | `/api/v1/draping/...` |
+| Design Studio (generate, sketch, parts) | `https://api-super-admin.onrender.com/api/gateway/studio` | `/api/v1/designstudio/...` |
+| Design Discovery (search) | `https://api-super-admin.onrender.com/api/gateway/discovery` | `/api/v1/discovery/...` |
+
 **Direct / local:** `http://localhost:4005`
 
-The gateway strips the `cat` segment and forwards the rest of the path unchanged, so
-`/api/gateway/cat/api/v1/discovery/search` reaches the service as `/api/v1/discovery/search`.
+Same API key, same paths after the name - only the name in the middle changes. Each name has its own
+limits and its own automatic shut-off at the gateway, so a problem in one product never stops the
+others. **The old `.../gateway/cat/api/v1/designstudio/...` and `.../gateway/cat/api/v1/discovery/...`
+keep working**, so you can switch at your own pace.
+
+The gateway strips the name and forwards the rest of the path unchanged, so
+`/api/gateway/discovery/api/v1/discovery/search` reaches the service as `/api/v1/discovery/search`.
 
 ### Gateway limits that apply to every call
 

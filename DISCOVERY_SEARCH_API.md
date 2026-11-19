@@ -21,7 +21,8 @@ differ only in how the answer is delivered.
 
 | | |
 | :--- | :--- |
-| **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/cat` |
+| **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/discovery` (Discovery's own gateway name, since 19 November 2026). The old `.../gateway/cat` keeps working. |
+| **Example** | `POST https://api-super-admin.onrender.com/api/gateway/discovery/api/v1/discovery/search` |
 | **Headers** | `x-api-key: <your key>` and `Content-Type: application/json` |
 | **Max body** | 32 KB |
 | **Gateway timeout** | 90 s — every search finishes far inside it |
