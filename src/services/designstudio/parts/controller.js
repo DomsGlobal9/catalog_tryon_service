@@ -27,6 +27,7 @@ const { resolvePartsRequest } = require('./request');
 const { locateParts } = require('./locate');
 const { cutPart } = require('./cut');
 const { enhancePart } = require('./enhance');
+const { WHOLE_PARTS } = require('./describe');
 const { stepLog, secondsSince, checkWord, setContext, withContext } = require('../../../lib/stepLog');
 
 const MESSAGES = {
@@ -163,7 +164,7 @@ async function parts(req, res, next) {
       if (abort.signal.aborted) return;
       const partStarted = Date.now();
       const part = job.parts.find((p) => p.areaId === lead.areaId);
-      const cut = await cutPart(lead.photo.image, lead.box);
+      const cut = await cutPart(lead.photo.image, lead.box, { whole: WHOLE_PARTS.has(lead.areaId) });
       const source = { photo: lead.photo.index, box: [lead.box.y0, lead.box.x0, lead.box.y1, lead.box.x1], cut: { width: cut.rect.width, height: cut.rect.height } };
       const deliver = (fields, partAttempts = 0) => {
         for (const [i, f] of [lead, ...followers].entries()) {

@@ -14,7 +14,7 @@
 const sharp = require('sharp');
 const { config } = require('../config');
 const { aiLog } = require('../../../lib/stepLog');
-const { describeArea } = require('../garmentGuide');
+const { partWhere } = require('./describe');
 
 let fetchImpl = (...args) => fetch(...args);
 
@@ -40,13 +40,13 @@ const SCHEMA = {
 };
 
 function promptFor(job, photo) {
-  const list = job.parts.map((p) => `- ${p.areaId}: ${describeArea(job.garmentId, p.areaId).split(/\.\s/)[0]}${p.note ? ` (${p.note})` : ''}`).join('\n');
+  const list = job.parts.map((p) => `- ${p.areaId}: ${partWhere(job.garmentId, p.areaId)}${p.note ? ` (${p.note})` : ''}`).join('\n');
   return [
     `This is a photo of a ${job.product}${photo.view ? `, showing its ${photo.view}` : ''}. For each part below, find it in the photo.`,
     list,
     'part: the id exactly as written above.',
     'visible: "clearly" when the part is in the photo and its design can be seen; "partly" when only some of it shows or it is hidden by hands, hair, jewellery or folds; "no" when it is not in the photo at all (for example the back of a garment photographed from the front). Never guess a part that is not there.',
-    'box_2d: for a visible part, a CLOSE-UP frame as [ymin, xmin, ymax, xmax], each 0-1000 relative to the photo: the smallest area that shows the design of that part clearly, as a tailor would photograph it up close. A small part (neckline, cuff, waistband) whole, with a little of what is around it. A long or large part (border, pallu, body, skirt, hemline, zari or embroidery work) only a section of it: where its design is clearest and least hidden by folds, hands or jewellery, showing one or two repeats of the pattern - never the whole garment. Keep faces out of the box wherever the part allows. For "no": an empty list.',
+    'box_2d: for a visible part, a CLOSE-UP frame as [ymin, xmin, ymax, xmax], each 0-1000 relative to the photo: the smallest area that shows the design of that part clearly, as a tailor would photograph it up close. A small part (neckline, cuff, waistband) whole, with a little of what is around it. A sleeve or hand whole, from the shoulder seam to where it ends. A long or large part (border, pallu, body, skirt, hemline, zari or embroidery work) only a section of it: where its design is clearest and least hidden by folds, hands or jewellery, showing one or two repeats of the pattern - never the whole garment. Keep faces out of the box wherever the part allows. For "no": an empty list.',
     'note: a few words on what the part looks like, or why it is not visible.'
   ].join('\n');
 }

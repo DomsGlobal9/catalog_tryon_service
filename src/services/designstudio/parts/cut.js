@@ -18,12 +18,14 @@ const nearestRatio = (r) => RATIOS.reduce((b, x) => (Math.abs(Math.log(x[1] / r)
 // What is sent to the image model: enough to read the work, never a giant request.
 const MAX_CUT_EDGE = 2048;
 const MAX_ELONGATION = 2;
+// A sleeve or hand is shown whole, shoulder to end: a full-length sleeve is about four times as long as wide.
+const WHOLE_ELONGATION = 4;
 
 /**
  * The pixel rectangle to keep.
  * @param {{y0,x0,y1,x1}} box  0-1000
  */
-function cutRect(box, width, height, { margin = config.parts.margin, minShare = config.parts.minShare } = {}) {
+function cutRect(box, width, height, { margin = config.parts.margin, minShare = config.parts.minShare, maxElongation = MAX_ELONGATION } = {}) {
   const bw = ((box.x1 - box.x0) / 1000) * width;
   const bh = ((box.y1 - box.y0) / 1000) * height;
   const minSide = Math.min(width, height) * minShare;
@@ -45,8 +47,8 @@ function cutRect(box, width, height, { margin = config.parts.margin, minShare = 
   };
   const w = right - left;
   const h = bottom - top;
-  if (h > w * MAX_ELONGATION) [top, bottom] = trim(((box.y0 + box.y1) / 2000) * height, w * MAX_ELONGATION, height);
-  if (w > h * MAX_ELONGATION) [left, right] = trim(((box.x0 + box.x1) / 2000) * width, h * MAX_ELONGATION, width);
+  if (h > w * maxElongation) [top, bottom] = trim(((box.y0 + box.y1) / 2000) * height, w * maxElongation, height);
+  if (w > h * maxElongation) [left, right] = trim(((box.x0 + box.x1) / 2000) * width, h * maxElongation, width);
   return { left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
 }
 
@@ -54,10 +56,10 @@ function cutRect(box, width, height, { margin = config.parts.margin, minShare = 
  * @param {{ base64: string }} image  the photo as kept
  * @returns {Promise<{ image: {mimeType, base64, width, height, bytes}, rect: Object, aspectRatio: string, lowDetail: boolean }>}
  */
-async function cutPart(image, box) {
+async function cutPart(image, box, { whole = false } = {}) {
   const input = Buffer.from(image.base64, 'base64');
   const meta = await sharp(input).metadata();
-  const rect = cutRect(box, meta.width, meta.height);
+  const rect = cutRect(box, meta.width, meta.height, { maxElongation: whole ? WHOLE_ELONGATION : MAX_ELONGATION });
   let pipeline = sharp(input).extract(rect);
   if (Math.max(rect.width, rect.height) > MAX_CUT_EDGE) pipeline = pipeline.resize({ width: MAX_CUT_EDGE, height: MAX_CUT_EDGE, fit: 'inside' });
   const { data, info } = await pipeline.jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer({ resolveWithObject: true });

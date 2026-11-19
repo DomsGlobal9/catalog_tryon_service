@@ -2189,6 +2189,17 @@ async function runAll({ check, eq, section, SRC }) {
       [true, true, true]);
     qa._setFetch(qaAnswer());
 
+    // "Hand design" is the whole hand, not its border (owner, 19 Nov 2026) - for close-ups only.
+    const partsDescribe = S('parts/describe');
+    const handPrompt = partsLocate.promptFor({ garmentId: 'BLOUSE', product: 'blouse', parts: [{ areaId: 'HAND', name: 'Hand Design', note: null }] }, { view: null });
+    const longSleeve = partsCut.cutRect({ y0: 200, x0: 100, y1: 900, x1: 220 }, 900, 1200, { maxElongation: 4 });
+    const shortCut = partsCut.cutRect({ y0: 200, x0: 100, y1: 900, x1: 220 }, 900, 1200);
+    eq('the hand close-up is the whole sleeve from the shoulder seam to its end (never the border alone); /generate keeps its meaning; a whole sleeve may be up to 4x as long as wide',
+      [/HAND: the whole hand of the blouse .* from the shoulder seam down to where the sleeve ends, .* never the border alone/.test(handPrompt), /A sleeve or hand whole, from the shoulder seam to where it ends\./.test(handPrompt),
+        /cuff, sleeve hem or armhole finishing/.test(S('garmentGuide').describeArea('BLOUSE', 'HAND')), partsDescribe.WHOLE_PARTS.has('HAND'),
+        longSleeve.height / longSleeve.width > 2.5, shortCut.height / shortCut.width <= 2],
+      [true, true, true, true, true, true]);
+
     const io = S('controller').imageOnly;
     eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',
       [io({ type: 'part', jobId: 'j', area: 'NECK', name: 'Neck Design', found: true, enhanced: true, lowDetail: false, quality: { passed: true, failures: [] }, source: { photo: 0 }, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' }),

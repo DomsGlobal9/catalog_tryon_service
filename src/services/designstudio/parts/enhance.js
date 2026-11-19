@@ -13,11 +13,11 @@ const { config } = require('../config');
 const { StudioError } = require('../errors');
 const { generateImage } = require('../geminiImage');
 const { askInspector } = require('../qualityCheck');
-const { describeArea } = require('../garmentGuide');
+const { partWhere } = require('./describe');
 
 function enhanceParts(job, part, cut) {
   const name = part.name.toLowerCase();
-  const where = describeArea(job.garmentId, part.areaId).split(/\.\s/)[0];
+  const where = partWhere(job.garmentId, part.areaId);
   const text = [
     `This picture is a piece cut from a photo of a ${job.product}${job.productName ? ` ("${job.productName}")` : ''}: its ${name} (${where}). Make it into a sharp, high-resolution close-up photograph of exactly this - as if a professional photographer had taken a macro shot of the same ${name} with a better camera, from the same angle.`,
     ...(part.note ? [`The boutique's note on this part: ${part.note}`] : []),
