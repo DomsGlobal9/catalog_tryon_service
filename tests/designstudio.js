@@ -2211,6 +2211,18 @@ async function runAll({ check, eq, section, SRC }) {
         /THE GREY BANDS: .* Never extend the sleeve, the arm, the body or the blouse into them/.test(padText), plainCut.padded, /THE GREY BANDS/.test(small)],
       [true, true, '9:16', true, true, false, false]);
 
+    // The tight second look at a sleeve (19 Nov 2026, production): it boxed only the cuff, and the hand was the border again.
+    partsLocate._setFetch(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ box_2d: [700, 300, 1000, 700] }) }] } }] }), { status: 200 }));
+    const firstBox = { y0: 200, x0: 100, y1: 800, x1: 500 };
+    const refined = await partsLocate.refineWholeBox({ product: 'blouse', garmentId: 'BLOUSE' }, { areaId: 'HAND', name: 'Hand Design' },
+      { index: 0, image: { base64: IMG, sent: { width: 900, height: 1200 } } }, firstBox);
+    partsLocate._setFetch(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ box_2d: [0, 0, 1000, 40] }) }] } }] }), { status: 200 }));
+    const missed = await partsLocate.refineWholeBox({ product: 'blouse', garmentId: 'BLOUSE' }, { areaId: 'HAND', name: 'Hand Design' },
+      { index: 0, image: { base64: IMG, sent: { width: 900, height: 1200 } } }, firstBox);
+    eq('the second look only narrows the sides (the bodice beside the sleeve goes); the sleeve keeps its full length from the first look, so it can never shrink to the cuff; a box that misses the sleeve is ignored',
+      [refined.y0, refined.y1 >= 800, refined.x0 > 100, refined.x1 < 500, missed],
+      [200, true, true, true, firstBox]);
+
     const io = S('controller').imageOnly;
     eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',
       [io({ type: 'part', jobId: 'j', area: 'NECK', name: 'Neck Design', found: true, enhanced: true, lowDetail: false, quality: { passed: true, failures: [] }, source: { photo: 0 }, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' }),

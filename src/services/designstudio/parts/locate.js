@@ -179,7 +179,7 @@ async function refineWholeBox(job, part, photo, box, { signal } = {}) {
       .jpeg({ quality: 90 }).toBuffer();
     const text = [
       `This picture is cut from a photo of a ${job.product}. Find its ${part.name.toLowerCase()}: ${partWhere(job.garmentId, part.areaId)}.`,
-      'box_2d: [ymin, xmin, ymax, xmax], each 0-1000 relative to THIS picture, drawn TIGHT around the sleeve itself - from the shoulder seam to where the sleeve ends, its border or cuff included. The bodice, the body, the arm below the sleeve and anything beside it stay outside the box.'
+      'box_2d: [ymin, xmin, ymax, xmax], each 0-1000 relative to THIS picture, around the WHOLE sleeve - from the shoulder seam at the top all the way down to where the sleeve ends, the plain or printed fabric of the sleeve AND its border or cuff. Never only the border or cuff. Tight at the sides: the bodice, the body and anything beside the sleeve stay outside the box.'
     ].join('\n');
     const timeout = AbortSignal.timeout(config.parts.locateTimeoutMs);
     const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.parts.locateModel)}:generateContent`, {
@@ -206,7 +206,17 @@ async function refineWholeBox(job, part, photo, box, { signal } = {}) {
     // Back to the whole photo.
     const sx = (area.x1 - area.x0) / 1000;
     const sy = (area.y1 - area.y0) / 1000;
-    return { x0: area.x0 + inner.x0 * sx, x1: area.x0 + inner.x1 * sx, y0: area.y0 + inner.y0 * sy, y1: area.y0 + inner.y1 * sy };
+    const tight = { x0: area.x0 + inner.x0 * sx, x1: area.x0 + inner.x1 * sx, y0: area.y0 + inner.y0 * sy, y1: area.y0 + inner.y1 * sy };
+    // Only the sides are taken from this look. Measured 19 Nov in production: asked again, the finder
+    // boxed only the gold cuff - the most decorated piece - and the "hand" was the border again. The
+    // length, shoulder to end, always stays the first look's (or longer, if this one saw more).
+    const sides = { x0: Math.max(0, tight.x0 - (tight.x1 - tight.x0) * 0.06), x1: Math.min(1000, tight.x1 + (tight.x1 - tight.x0) * 0.06) };
+    const overlaps = sides.x0 < box.x1 && sides.x1 > box.x0;
+    if (!overlaps) {
+      aiLog({ call: 'tight-sleeve', model: config.parts.locateModel, result: 'skipped', reason: 'its box missed the sleeve', why: 'the first, wider box is used' });
+      return box;
+    }
+    return { x0: Math.max(sides.x0, 0), x1: sides.x1, y0: Math.min(box.y0, tight.y0), y1: Math.max(box.y1, tight.y1) };
   } catch (err) {
     if (signal && signal.aborted) throw err;
     aiLog({ call: 'tight-sleeve', model: config.parts.locateModel, result: 'skipped',
