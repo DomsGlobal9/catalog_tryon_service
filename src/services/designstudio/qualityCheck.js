@@ -305,16 +305,36 @@ async function askInspector(parts, schema, signal) {
   const started = Date.now();
   // A check is never retried and never fatal: when it cannot run, the photo is delivered unchecked.
   const skipped = (reason) => aiLog({ call: 'check', model: config.pair.model, result: 'skipped', reason, seconds: secondsSince(started), why: 'the picture is delivered without this check' });
+  // Measured 19 Nov in production: during a Gemini overload two of five checks came back empty.
+  // A busy answer or no answer is asked once more after a short wait; anything else is not.
+  const busy = (problem) => /^HTTP (429|5\d\d)\b/.test(problem || '');
+  let out;
   try {
-    const out = await askInspectorOnce(parts, schema, signal);
-    if (out.problem) skipped(out.problem);
-    else if (out.parsed === null) skipped('answer was not usable JSON');
-    return out;
+    out = await askInspectorOnce(parts, schema, signal);
   } catch (err) {
-    if (!(signal && signal.aborted)) skipped(err && err.name === 'TimeoutError' ? `no answer within ${Math.round(config.pair.timeoutMs / 1000)}s` : redact(err && err.message));
-    throw err;
+    if (signal && signal.aborted) throw err;
+    if (!(err && err.name === 'TimeoutError')) { skipped(redact(err && err.message)); throw err; }
+    out = { problem: `no answer within ${Math.round(config.pair.timeoutMs / 1000)}s` };
   }
+  if (out.problem && (busy(out.problem) || /^no answer/.test(out.problem))) {
+    aiLog({ call: 'check', model: config.pair.model, attempt: 1, of: 2, result: 'retrying', reason: out.problem, waitSeconds: CHECK_RETRY_MS / 1000 });
+    await new Promise((resolve) => setTimeout(resolve, CHECK_RETRY_MS));
+    if (signal && signal.aborted) throw signal.reason || new Error('cancelled');
+    try {
+      const again = await askInspectorOnce(parts, schema, signal);
+      if (!again.problem && again.parsed !== null) aiLog({ call: 'check', model: config.pair.model, attempt: 2, of: 2, result: 'ok_after_retry' });
+      out = again;
+    } catch (err) {
+      if (signal && signal.aborted) throw err;
+      skipped(err && err.name === 'TimeoutError' ? `no answer within ${Math.round(config.pair.timeoutMs / 1000)}s, twice` : redact(err && err.message));
+      throw err;
+    }
+  }
+  if (out.problem) skipped(out.problem);
+  else if (out.parsed === null) skipped('answer was not usable JSON');
+  return out;
 }
+const CHECK_RETRY_MS = Number(process.env.DESIGNSTUDIO_CHECK_RETRY_MS || 1500);
 
 async function askInspectorOnce(parts, schema, signal) {
   const timeout = AbortSignal.timeout(config.pair.timeoutMs);

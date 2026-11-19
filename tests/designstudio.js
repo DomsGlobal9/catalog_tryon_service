@@ -24,6 +24,7 @@ async function runAll({ check, eq, section, SRC }) {
   Object.assign(process.env, {
     GEMINI_API_KEY: 'AIzaFAKE_TEST_KEY_never_sent_anywhere_000',
     DESIGNSTUDIO_RETRY_BASE_MS: '5',
+    DESIGNSTUDIO_CHECK_RETRY_MS: '5',
     DESIGNSTUDIO_HEARTBEAT_MS: '60',
     // The endpoint tests below read every event; the image-only default is tested on its own.
     DESIGNSTUDIO_STREAM_DETAIL: 'full',
@@ -2024,6 +2025,7 @@ async function runAll({ check, eq, section, SRC }) {
 
     // POST /parts over HTTP (19 Nov 2026): a close-up of each part from the boutique's own photo.
     const partsLocate = S('parts/locate');
+    partsLocate._setSleep(async () => {});
     const partsCut = S('parts/cut');
     const locateCalls = [];
     const locateFake = (answers) => async (url, opts) => {
@@ -2105,8 +2107,8 @@ async function runAll({ check, eq, section, SRC }) {
     pCalls = script([() => answer([imagePart(FINAL)])]);
     ({ events } = await readEvents(await post('/parts', { clientId: 'parts-5', garment: 'BLOUSE', photo: IMG })));
     const pErr = events.find((e) => e.type === 'error');
-    eq('when no photo can be read, nothing is made: asked twice, then a retryable error',
-      [locateTries, pErr && pErr.code, pErr && pErr.retryable, pCalls.length], [2, 'PARTS_NOT_LOCATED', true, 0]);
+    eq('when no photo can be read, nothing is made: asked three times (with a wait before each retry), then a retryable error',
+      [locateTries, pErr && pErr.code, pErr && pErr.retryable, pCalls.length], [3, 'PARTS_NOT_LOCATED', true, 0]);
 
     // The photo is kept large and cut at full size; the part finder sees a small copy.
     const BIG = await png(3000, 4000, '#224466');
@@ -2184,10 +2186,21 @@ async function runAll({ check, eq, section, SRC }) {
     ({ events } = await readEvents(await post('/parts', { clientId: 'parts-retry-2', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
     const aiLines2 = logs.slice(logsBefore2).filter((l) => l.startsWith('[AI] '));
     eq('the part finder failing once is logged as a retry, then OK on try 2; an image the model refuses is FAILED (not retried), with its code',
-      [aiLines2.some((l) => l.startsWith('[AI] parts find-parts · find-parts try 1/2 failed, retrying · HTTP 503 · photo 0 · job ')),
+      [aiLines2.some((l) => l.startsWith('[AI] parts find-parts · find-parts try 1/3 failed, retrying in 1s · HTTP 503 · photo 0 · job ')),
         aiLines2.some((l) => l.startsWith('[AI] parts find-parts · find-parts OK on try 2 · ')),
         aiLines2.some((l) => l.startsWith('[AI] parts NECK · image FAILED (not retried) · ') && / · error GENERATION_REJECTED · /.test(l))],
       [true, true, true]);
+    // A busy checker is asked once more (19 Nov 2026, production: 2 of 5 checks came back empty in an overload).
+    let checkTries = 0;
+    partsLocate._setFetch(locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }]));
+    qa._setFetch(async (...a) => (++checkTries === 1 ? new Response('overloaded', { status: 503 }) : partsCheck()(...a)));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    const logsCheck = logs.length;
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-check-retry', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
+    eq('a checker that is busy once is asked again after a short wait, and its answer is used (not skipped)',
+      [checkTries, events.find((e) => e.type === 'part').quality.checked, events.find((e) => e.type === 'part').quality.passed,
+        logs.slice(logsCheck).some((l) => l.startsWith('[AI] parts NECK · check try 1/2 failed, retrying in ')), logs.slice(logsCheck).some((l) => l.startsWith('[AI] parts NECK · check OK on try 2'))],
+      [2, true, true, true, true]);
     qa._setFetch(qaAnswer());
 
     // "Hand design" is the whole hand, not its border (owner, 19 Nov 2026) - for close-ups only.

@@ -17,6 +17,14 @@ const { aiLog } = require('../../../lib/stepLog');
 const { partWhere } = require('./describe');
 
 let fetchImpl = (...args) => fetch(...args);
+let sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Wait before a retry; a cancel ends the wait at once. */
+async function pause(ms, signal) {
+  if (signal && signal.aborted) throw signal.reason || new Error('cancelled');
+  await sleepImpl(ms);
+  if (signal && signal.aborted) throw signal.reason || new Error('cancelled');
+}
 
 const SCHEMA = {
   type: 'OBJECT',
@@ -77,7 +85,11 @@ async function locateInPhoto(job, photo, { signal } = {}) {
     }
   });
   let problem = 'no answer';
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Measured 19 Nov in production: two tries back to back both met the same Gemini overload, and the
+  // whole request ended "photo could not be read". Three tries, with a short wait before each retry.
+  const TRIES = 3;
+  for (let attempt = 1; attempt <= TRIES; attempt++) {
+    if (attempt > 1) await pause(1000 * (attempt - 1), signal);
     const timeout = AbortSignal.timeout(config.parts.locateTimeoutMs);
     try {
       const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.parts.locateModel)}:generateContent`, {
@@ -88,7 +100,7 @@ async function locateInPhoto(job, photo, { signal } = {}) {
       });
       if (!response.ok) {
         problem = `HTTP ${response.status}`;
-        aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
+        aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: attempt < TRIES ? 'retrying' : 'gave_up', reason: problem, waitSeconds: attempt < TRIES ? attempt : null });
         continue;
       }
       const json = await response.json();
@@ -101,12 +113,12 @@ async function locateInPhoto(job, photo, { signal } = {}) {
         const box = a.visible === 'no' ? null : readBox(a.box_2d);
         answers.set(id, { visible: box ? a.visible : 'no', box, note: typeof a.note === 'string' ? a.note.slice(0, 300) : '' });
       }
-      if (attempt > 1) aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: 'ok_after_retry' });
+      if (attempt > 1) aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: 'ok_after_retry' });
       return { answers };
     } catch (err) {
       if (signal && signal.aborted) throw err;
       problem = err && err.name === 'TimeoutError' ? 'timed out' : 'unreadable answer';
-      aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: 2, result: attempt < 2 ? 'retrying' : 'gave_up', reason: problem });
+      aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: attempt < TRIES ? 'retrying' : 'gave_up', reason: problem, waitSeconds: attempt < TRIES ? attempt : null });
     }
   }
   return { problem };
@@ -225,4 +237,4 @@ async function refineWholeBox(job, part, photo, box, { signal } = {}) {
   }
 }
 
-module.exports = { locateParts, locateInPhoto, refineWholeBox, readBox, promptFor, SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+module.exports = { locateParts, locateInPhoto, refineWholeBox, readBox, promptFor, SCHEMA, _setFetch: (fn) => { fetchImpl = fn; }, _setSleep: (fn) => { sleepImpl = fn; } };
