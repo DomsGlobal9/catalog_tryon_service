@@ -24,7 +24,7 @@ const resultStore = require('../resultStore');
 const { imageOnly, PIPELINE } = require('../controller');
 const { admitGeneration } = require('../../../middleware/generationGuard');
 const { resolvePartsRequest } = require('./request');
-const { locateParts } = require('./locate');
+const { locateParts, refineWholeBox } = require('./locate');
 const { cutPart } = require('./cut');
 const { enhancePart } = require('./enhance');
 const { WHOLE_PARTS } = require('./describe');
@@ -164,8 +164,11 @@ async function parts(req, res, next) {
       if (abort.signal.aborted) return;
       const partStarted = Date.now();
       const part = job.parts.find((p) => p.areaId === lead.areaId);
-      const cut = await cutPart(lead.photo.image, lead.box, { whole: WHOLE_PARTS.has(lead.areaId) });
-      const source = { photo: lead.photo.index, box: [lead.box.y0, lead.box.x0, lead.box.y1, lead.box.x1], cut: { width: cut.rect.width, height: cut.rect.height } };
+      const whole = WHOLE_PARTS.has(lead.areaId);
+      // A sleeve or hand: looked at again on a cut around it, for a box tight to the sleeve alone.
+      const box = whole ? await refineWholeBox(job, part, lead.photo, lead.box, { signal: abort.signal }) : lead.box;
+      const cut = await cutPart(lead.photo.image, box, { whole });
+      const source = { photo: lead.photo.index, box: [box.y0, box.x0, box.y1, box.x1].map(Math.round), cut: { width: cut.rect.width, height: cut.rect.height } };
       const deliver = (fields, partAttempts = 0) => {
         for (const [i, f] of [lead, ...followers].entries()) {
           summary.made += 1;

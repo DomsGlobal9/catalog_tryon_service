@@ -18,7 +18,7 @@ const cache = require('./services/searchCache');
 const rateLimit = require('./middleware/rateLimit');
 const { ORIENTATIONS, SHOT_TYPES, RECENCIES } = require('./middleware/validate');
 const { NotConfiguredError } = require('./lib/errors');
-const { line, secondsSince, setContext } = require('./lib/log');
+const { searchLine, secondsSince, setContext } = require('./lib/log');
 
 /**
  * Build the per-source plans and charge the caller for the provider calls they
@@ -50,7 +50,7 @@ function logLine(searchId, clientId, resolved, sources, startedAt, extra = {}) {
     .map((s) => (s.status === 'ok' ? `${s.source}:${s.returned}${s.cached ? '(cache)' : ''}` : `${s.source}:ERR`))
     .join(',');
   const ok = sources.filter((s) => s.status === 'ok');
-  line('Discovery', {
+  searchLine({
     searchId, endpoint: extra.endpoint || 'search', client: forLog(clientId),
     garment: resolved.category || '-', item: resolved.designType || '-', from: resolved.interpreted.source,
     result: ok.length ? 'found' : 'failed', results: ok.reduce((n, s) => n + (s.returned || 0), 0), sources: perSource,

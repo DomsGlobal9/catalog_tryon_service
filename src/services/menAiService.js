@@ -298,7 +298,8 @@ async function callGeminiImageGen(
 
 
   // Wall-clock ceiling for one call, so a hung upstream cannot hold a worker open.
-  const CALL_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 120000);
+  // A view answers in about 14 s; a hung call is retried after 60 s, not 120 (19 Nov 2026: speed).
+  const CALL_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 60000);
 
   let respJson;
 

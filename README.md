@@ -31,7 +31,7 @@ SERVICE_API_KEY="se_catalog_internal_key_v1_..."
 PORT=4005
 
 # ── Reliability / capacity (all optional, sensible defaults shown) ───────────
-GEMINI_TIMEOUT_MS=120000          # wall-clock ceiling for one Gemini call
+GEMINI_TIMEOUT_MS=60000           # wall-clock ceiling for one catalog Gemini call (a view takes ~14 s)
 MAX_CONCURRENT_GENERATIONS=3      # per server, both pipelines together; excess gets 429, not a queue
 GENERATION_RATE_LIMIT_PER_HOUR=60 # generations per customer per hour, across all servers; 0 = off
 KEEP_ALIVE_TIMEOUT_MS=65000       # longer than the load balancer's idle timeout, avoids stray 502s
@@ -88,7 +88,8 @@ DESIGNSTUDIO_QA=off                     # off by default to save calls and the s
 DESIGNSTUDIO_QA_MODEL=gemini-2.5-flash
 DESIGNSTUDIO_QA_REGENERATE_UNDER_MS=120000  # only regenerate if the request is younger than this
 DESIGNSTUDIO_QA_MAX_REGENERATIONS=0
-DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=100000  # real runs took 25-60s; one hung past 120s
+DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS=80000   # real runs took 25-60s; one hung past 120s
+DESIGNSTUDIO_PARTS_ATTEMPT_TIMEOUT_MS=45000  # /parts close-ups answer in 15-25s; 2 retries on a hang
 DESIGNSTUDIO_TIMEOUT_RETRIES=1          # a slow attempt is cut off and tried once more
 DESIGNSTUDIO_DEADLINE_MS=220000         # whole generation including retries
 DESIGNSTUDIO_RETRIES=2                  # after busy/unavailable answers

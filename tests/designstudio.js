@@ -2056,11 +2056,11 @@ async function runAll({ check, eq, section, SRC }) {
         partEvents.filter((p) => p.found).map((p) => p.area).sort(), pDone.type, pDone.summary],
       [['start', 'located'], [['FRONT', true, null], ['BACK', false, 'NOT_VISIBLE'], ['NECK', true, null], ['SLEEVE', true, null], ['HAND', false, 'TOO_SMALL']],
         [['BACK', 'NOT_VISIBLE', true], ['HAND', 'TOO_SMALL', true]], ['FRONT', 'NECK', 'SLEEVE'], 'done', { made: 3, enhanced: 3, notFound: 2, fallback: 0 }]);
-    eq('one locate call for the photo (JSON, all five parts named); one 2K image call per found part with only its cut; every close-up checked and passed',
+    eq('one locate call for the photo (JSON, all five parts named), plus one tight look at the sleeve; one 2K image call per found part with only its cut; every close-up checked and passed',
       [locateCalls.length, locateCalls[0].generationConfig.responseMimeType, ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'].every((id) => locateCalls[0].contents[0].parts[1].text.includes(`- ${id}:`)),
         pCalls.length, pCalls.every((c) => c.body.generationConfig.imageConfig.imageSize === '2K'), pCalls.every((c) => imagesIn(c) === 1),
         partEvents.filter((p) => p.found).every((p) => p.enhanced && p.quality.passed && p.image.startsWith('data:image/jpeg;base64,'))],
-      [1, 'application/json', true, 3, true, true, true]);
+      [2, 'application/json', true, 3, true, true, true]);
     const neckEv = partEvents.find((p) => p.area === 'NECK');
     eq('a small part is cut with room around it (30% of the photo\'s short side: 270 px of 900), in the image model\'s nearest shape, and marked lowDetail; the large front is not',
       [neckEv.source.cut, neckEv.lowDetail, partEvents.find((p) => p.area === 'FRONT').lowDetail,
@@ -2169,10 +2169,11 @@ async function runAll({ check, eq, section, SRC }) {
     ({ events } = await readEvents(await post('/parts', { clientId: 'parts-retry', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
     const aiLines = logs.slice(logsBefore).filter((l) => l.startsWith('[AI] '));
     const pJobId = events[0].jobId;
-    eq('an image model 503 is logged as retrying (attempt, reason, wait), the next attempt as ok_after_retry, and a check that cannot run as skipped - each with the requestId, jobId, endpoint and part',
-      [aiLines.some((l) => new RegExp(`^\\[AI\\] requestId=\\S+ jobId=${pJobId} endpoint=parts item=NECK call=image model=\\S+ attempt=1 result=retrying reason="busy: image model busy \\(HTTP 503\\)`).test(l) && / waitSeconds=[\d.]+/.test(l)),
-        aiLines.some((l) => new RegExp(`jobId=${pJobId} endpoint=parts item=NECK call=image .*attempt=2 result=ok_after_retry`).test(l)),
-        aiLines.some((l) => new RegExp(`jobId=${pJobId} endpoint=parts item=NECK call=check .*result=skipped reason="HTTP 500`).test(l)),
+    const jobTag = ` · job ${pJobId.slice(0, 8)}`;
+    eq('an image model 503 is logged as a retry (try, reason, wait), the next try as OK, and a check that cannot run as skipped - each with its part and job',
+      [aiLines.some((l) => l.startsWith('[AI] parts NECK · image try 1 failed, retrying in ') && / · Gemini busy \(HTTP 503\): The model is overloaded · /.test(l) && l.endsWith(jobTag)),
+        aiLines.some((l) => l.startsWith('[AI] parts NECK · image OK on try 2 (') && l.endsWith(jobTag)),
+        aiLines.some((l) => l.startsWith('[AI] parts NECK · check skipped · HTTP 500') && / · the picture is delivered without this check · /.test(l) && l.endsWith(jobTag)),
         events[events.length - 1].type],
       [true, true, true, 'done']);
     let findTries = 0;
@@ -2182,10 +2183,10 @@ async function runAll({ check, eq, section, SRC }) {
     const logsBefore2 = logs.length;
     ({ events } = await readEvents(await post('/parts', { clientId: 'parts-retry-2', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
     const aiLines2 = logs.slice(logsBefore2).filter((l) => l.startsWith('[AI] '));
-    eq('the part finder failing once is retrying then ok_after_retry; an image the model refuses is failed (not retried), with its code',
-      [aiLines2.some((l) => / endpoint=parts item=find-parts call=find-parts .*photo=0 attempt=1 of=2 result=retrying reason="HTTP 503"/.test(l)),
-        aiLines2.some((l) => / item=find-parts call=find-parts .*attempt=2 of=2 result=ok_after_retry/.test(l)),
-        aiLines2.some((l) => / item=NECK call=image .*attempt=1 result=failed code=GENERATION_REJECTED/.test(l))],
+    eq('the part finder failing once is logged as a retry, then OK on try 2; an image the model refuses is FAILED (not retried), with its code',
+      [aiLines2.some((l) => l.startsWith('[AI] parts find-parts · find-parts try 1/2 failed, retrying · HTTP 503 · photo 0 · job ')),
+        aiLines2.some((l) => l.startsWith('[AI] parts find-parts · find-parts OK on try 2 · ')),
+        aiLines2.some((l) => l.startsWith('[AI] parts NECK · image FAILED (not retried) · ') && / · error GENERATION_REJECTED · /.test(l))],
       [true, true, true]);
     qa._setFetch(qaAnswer());
 
@@ -2226,29 +2227,33 @@ async function runAll({ check, eq, section, SRC }) {
     qa._setFetch(qaAnswer());
 
     // One clear log line per thing made (19 Nov 2026): which part / view, how long, check, redone.
-    const partLines = logs.filter((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=parts garment=BLOUSE item=/.test(l));
-    eq('every /parts request logs one line per part: what happened to it, how long it took, the check',
+    const partLines = logs.filter((l) => l.startsWith('[DesignStudio] parts ') && l.includes(' · BLOUSE · '));
+    const outcomeOf = (l) => {
+      const w = l.split(' · ')[1] || '';
+      return w.startsWith('made') ? 'made' : w === 'not in the photo' ? 'not_in_photo' : w.startsWith('too small') ? 'too_small' : w;
+    };
+    eq('every /parts request logs one line per part, in words: what happened to it, how long it took, the check',
       ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'].map((id) => {
-        const l = partLines.find((x) => x.includes(` item=${id} `) && /parts-1|/.test(x));
-        return l && (l.match(/ result=(\S+)/) || [])[1];
+        const l = partLines.find((x) => x.startsWith(`[DesignStudio] parts ${id} · `));
+        return l && outcomeOf(l);
       }),
       ['made', 'not_in_photo', 'made', 'made', 'too_small']);
-    check('...a made part says seconds, attempts and the check result; a shared one says sameAs; a failed AI says plain_cut_ai_failed',
-      partLines.some((l) => / item=NECK result=made seconds=[\d.]+ attempts=\d+ check=passed /.test(l))
-        && logs.some((l) => / endpoint=parts garment=SAREE item=ZARI_WORK result=made .*sameAs=BORDER/.test(l))
-        && partLines.some((l) => / result=plain_cut_ai_failed .*error=/.test(l)));
-    check('/generate logs one line per photograph made, with its seconds, attempts and check',
-      logs.some((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=generate garment=\S+ item=(front|back) result=made seconds=[\d.]+ attempts=\d+ check=\S+/.test(l)));
+    check('...a made part says its seconds, tries and check; a shared one "same picture as"; a failed AI that the plain cut was sent',
+      partLines.some((l) => /^\[DesignStudio\] parts NECK · made in [\d.]+s · \d+ tr(y|ies) · check passed · /.test(l))
+        && logs.some((l) => /^\[DesignStudio\] parts ZARI_WORK · made .* · same picture as BORDER · .*SAREE/.test(l))
+        && partLines.some((l) => / · AI failed - plain cut from the photo sent · .*error GENERATION_REJECTED/.test(l)));
+    check('/generate logs one line per photograph made, with its seconds, tries and check',
+      logs.some((l) => /^\[DesignStudio\] generate (front|back) · made in [\d.]+s · \d+ tr(y|ies) · check /.test(l)));
     check('/sketch logs one line per photograph made',
-      logs.some((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=sketch garment=\S+ item=front result=made /.test(l)));
+      logs.some((l) => /^\[DesignStudio\] sketch front · made in /.test(l)));
     const { stepLog: sl, checkWord: cw, MAX_VALUE } = require(path.join(SRC, 'lib/stepLog'));
     const said = [];
     const keepLog = console.log;
     console.log = (...a) => said.push(a.join(' '));
     sl('Test', { a: 'one two', b: null, c: 'x\ny\r\nz', d: 'A'.repeat(5000), e: '' });
     console.log = keepLog;
-    eq('the shared log line: values with spaces quoted, empty values left out, line breaks removed, long values cut',
-      [said[0].startsWith('[Test] a="one two" c="x y z" d='), !/b=|e=/.test(said[0]), said[0].length < MAX_VALUE + 60, said.length], [true, true, true, 1]);
+    eq('the shared log line: one readable sentence, empty values left out, line breaks removed, long values cut',
+      [said[0].startsWith('[Test] a one two · c x y z · d AAAA'), !/ b | e /.test(said[0].replace(/A{4,}/, '')), said[0].length < MAX_VALUE + 60, said.length], [true, true, true, 1]);
     eq('the check word reads one check or a quality object with several',
       [cw({ checked: true, passed: true, failures: [] }), cw({ checked: true, passed: false, failures: [{ check: 'same_design' }] }), cw({ checked: false, passed: null }),
         cw({ regenerated: true, inspection: { checked: true, passed: false, failures: [{ id: 'colour' }] }, photo: { checked: true, passed: true } }), cw(null)],

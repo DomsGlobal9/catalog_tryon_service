@@ -86,7 +86,8 @@ async function checkCloseUp(cut, closeUp, { signal } = {}) {
 async function enhancePart(job, part, cut, { signal, onAttempt } = {}) {
   const parts = enhanceParts(job, part, cut);
   const make = (extra) => generateImage(extra ? [...parts, { text: extra }] : parts, {
-    signal, onAttempt, imageSize: config.parts.imageSize, aspectRatio: cut.aspectRatio
+    signal, onAttempt, imageSize: config.parts.imageSize, aspectRatio: cut.aspectRatio,
+    attemptTimeoutMs: config.parts.attemptTimeoutMs, timeoutRetries: config.parts.timeoutRetries
   });
   let result = await make();
   let attempts = result.attempts;

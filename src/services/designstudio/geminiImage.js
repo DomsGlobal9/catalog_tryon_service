@@ -171,7 +171,7 @@ async function finishImage(image) {
  * @param {(info: Object) => void} [options.onAttempt]  Called before each attempt.
  * @returns {Promise<{ image: Object, attempts: number, usage: Object|null, modelText: string, finishReason: string }>}
  */
-async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio } = {}) {
+async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio, attemptTimeoutMs = config.gemini.attemptTimeoutMs, timeoutRetries: maxTimeoutRetries = config.gemini.timeoutRetries } = {}) {
   if (!config.gemini.apiKey()) {
     throw new StudioError('The image model is not configured on this deployment.', { status: 424, code: 'MODEL_NOT_CONFIGURED' });
   }
@@ -192,7 +192,7 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio 
 
     const attemptStarted = Date.now();
     try {
-      const result = await attempt(body, signal, Math.min(config.gemini.attemptTimeoutMs, remaining));
+      const result = await attempt(body, signal, Math.min(attemptTimeoutMs, remaining));
       const image = await finishImage(result.image);
       if (attempts > 1) aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'ok_after_retry', seconds: secondsSince(attemptStarted) });
       return { image, attempts, usage: result.usage, modelText: result.text, finishReason: result.finishReason };
@@ -207,7 +207,7 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio 
       lastFailure = err;
 
       const canRetry = err.kind === 'no_image' ? noImageRetries++ < config.gemini.noImageRetries
-        : err.kind === 'timeout' ? timeoutRetries++ < config.gemini.timeoutRetries
+        : err.kind === 'timeout' ? timeoutRetries++ < maxTimeoutRetries
         : err.kind === 'busy' && busyRetries++ < config.gemini.retries;
       const attemptsSoFar = busyRetries + noImageRetries + timeoutRetries;
       const wait = Math.max(err.retryAfterMs, config.gemini.retryBaseMs * 2 ** Math.max(0, attemptsSoFar - 1)) + Math.floor(Math.random() * 500);
@@ -225,7 +225,7 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio 
 
   if (lastFailure && lastFailure.kind === 'timeout') {
     throw new StudioError(
-      `The image model did not answer in time (${attempts} attempt${attempts === 1 ? '' : 's'} of ${Math.round(config.gemini.attemptTimeoutMs / 1000)}s). Please retry shortly.`,
+      `The image model did not answer in time (${attempts} attempt${attempts === 1 ? '' : 's'} of ${Math.round(attemptTimeoutMs / 1000)}s). Please retry shortly.`,
       { status: 424, code: 'MODEL_TIMEOUT', retryable: true }
     );
   }

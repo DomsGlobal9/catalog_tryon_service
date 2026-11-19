@@ -146,4 +146,73 @@ async function locateParts(job, { signal } = {}) {
   return { found, answeredPhotos: answered.length, problems: results.filter((r) => r.problem).map((r) => r.problem) };
 }
 
-module.exports = { locateParts, locateInPhoto, readBox, promptFor, SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };
+const REFINE_SCHEMA = {
+  type: 'OBJECT',
+  properties: { box_2d: { type: 'ARRAY', items: { type: 'INTEGER' } } },
+  required: ['box_2d']
+};
+
+/**
+ * A sleeve or hand, looked at a second time on a cut around it (owner, 19 Nov 2026: "crop only the
+ * sleeve"). On the whole photo the finder's box around a sleeve hanging beside the body took in
+ * the bodice too; on a cut where the sleeve is large it is drawn tight. Never throws unless
+ * cancelled: any failure keeps the first box.
+ * @returns {Promise<{y0,x0,y1,x1}>} the box on the whole photo, 0-1000
+ */
+async function refineWholeBox(job, part, photo, box, { signal } = {}) {
+  const { width: W, height: H } = photo.image.sent;
+  // The first box with room on every side, so a sleeve the first box cut short is still inside.
+  const grow = 0.25;
+  const bw = box.x1 - box.x0;
+  const bh = box.y1 - box.y0;
+  const area = {
+    x0: Math.max(0, box.x0 - bw * grow), x1: Math.min(1000, box.x1 + bw * grow),
+    y0: Math.max(0, box.y0 - bh * grow), y1: Math.min(1000, box.y1 + bh * grow)
+  };
+  const rect = {
+    left: Math.floor((area.x0 / 1000) * W), top: Math.floor((area.y0 / 1000) * H),
+    width: Math.max(1, Math.ceil(((area.x1 - area.x0) / 1000) * W)), height: Math.max(1, Math.ceil(((area.y1 - area.y0) / 1000) * H))
+  };
+  try {
+    const cut = await sharp(Buffer.from(photo.image.base64, 'base64')).extract(rect)
+      .resize({ width: config.parts.locateEdgePx, height: config.parts.locateEdgePx, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 90 }).toBuffer();
+    const text = [
+      `This picture is cut from a photo of a ${job.product}. Find its ${part.name.toLowerCase()}: ${partWhere(job.garmentId, part.areaId)}.`,
+      'box_2d: [ymin, xmin, ymax, xmax], each 0-1000 relative to THIS picture, drawn TIGHT around the sleeve itself - from the shoulder seam to where the sleeve ends, its border or cuff included. The bodice, the body, the arm below the sleeve and anything beside it stay outside the box.'
+    ].join('\n');
+    const timeout = AbortSignal.timeout(config.parts.locateTimeoutMs);
+    const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.parts.locateModel)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey() },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: cut.toString('base64') } }, { text }] }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: REFINE_SCHEMA, maxOutputTokens: 512,
+          ...(/2\.5/.test(config.parts.locateModel) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) }
+      }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+    });
+    if (!response.ok) {
+      aiLog({ call: 'tight-sleeve', model: config.parts.locateModel, result: 'skipped', reason: `HTTP ${response.status}`, why: 'the first, wider box is used' });
+      return box;
+    }
+    const json = await response.json();
+    const answer = ((((json.candidates || [])[0] || {}).content || {}).parts || []).filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
+    const inner = readBox((JSON.parse(answer.replace(/```(?:json)?/gi, '').trim()) || {}).box_2d);
+    if (!inner) {
+      aiLog({ call: 'tight-sleeve', model: config.parts.locateModel, result: 'skipped', reason: 'no usable box', why: 'the first, wider box is used' });
+      return box;
+    }
+    // Back to the whole photo.
+    const sx = (area.x1 - area.x0) / 1000;
+    const sy = (area.y1 - area.y0) / 1000;
+    return { x0: area.x0 + inner.x0 * sx, x1: area.x0 + inner.x1 * sx, y0: area.y0 + inner.y0 * sy, y1: area.y0 + inner.y1 * sy };
+  } catch (err) {
+    if (signal && signal.aborted) throw err;
+    aiLog({ call: 'tight-sleeve', model: config.parts.locateModel, result: 'skipped',
+      reason: err && err.name === 'TimeoutError' ? 'no answer in time' : 'unreadable answer', why: 'the first, wider box is used' });
+    return box;
+  }
+}
+
+module.exports = { locateParts, locateInPhoto, refineWholeBox, readBox, promptFor, SCHEMA, _setFetch: (fn) => { fetchImpl = fn; } };

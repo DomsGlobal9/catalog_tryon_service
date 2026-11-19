@@ -44,7 +44,8 @@ const config = {
     // Measured: real generations took 25-61s, but one attempt hung past 120s.
     // A slow attempt gets cut off and tried once more; the caller is already on an
     // open stream with keep-alives, so a longer total is safe.
-    attemptTimeoutMs: int('DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS', 100000, { min: 1000 }),
+    // Real runs took 25-60 s; a hung one is retried after 80 s, not 100 (19 Nov 2026: speed).
+    attemptTimeoutMs: int('DESIGNSTUDIO_ATTEMPT_TIMEOUT_MS', 80000, { min: 1000 }),
     // Hard ceiling for the whole generation including retries.
     deadlineMs: int('DESIGNSTUDIO_DEADLINE_MS', 220000, { min: 1000 }),
     // Extra tries after an attempt that never answered in time.
@@ -159,7 +160,11 @@ const config = {
     margin: 0.08,
     // A cut shorter than this (px) carries little detail: the close-up is marked lowDetail.
     lowDetailPx: 300,
-    maxRegenerations: int('DESIGNSTUDIO_PARTS_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
+    maxRegenerations: int('DESIGNSTUDIO_PARTS_MAX_REGENERATIONS', 1, { min: 0, max: 2 }),
+    // A close-up answers in 15-25 s. Measured 19 Nov in production: a hung call waited the full 100 s
+    // of /generate before its retry answered in 17 s, so a part took 140 s. Wait less, retry more.
+    attemptTimeoutMs: int('DESIGNSTUDIO_PARTS_ATTEMPT_TIMEOUT_MS', 45000, { min: 1000 }),
+    timeoutRetries: int('DESIGNSTUDIO_PARTS_TIMEOUT_RETRIES', 2, { max: 3 })
   },
 
   limits: {
