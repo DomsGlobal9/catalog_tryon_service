@@ -19,6 +19,8 @@ router.get('/options', controller.options);
 router.post('/generate', controller.generate);
 // A hand-drawn sketch with labelled colours, made into a photograph (since 28 Oct 2026).
 router.post('/sketch', require('./sketchController').sketch);
+// Close-ups of each part of a garment from the boutique's own photos (since 19 Nov 2026).
+router.post('/parts', require('./parts/controller').parts);
 router.post('/cancel', controller.cancel);
 router.get('/result/:jobId', controller.result);
 

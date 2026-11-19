@@ -120,7 +120,7 @@ async function downloadOnce(startUrl, field, signal) {
 }
 
 /** Decode, verify and normalise one image. */
-async function normalise(buffer, field) {
+async function normalise(buffer, field, { maxEdgePx = config.input.maxEdgePx } = {}) {
   let meta;
   try {
     meta = await sharp(buffer, { limitInputPixels: config.input.maxInputPixels }).metadata();
@@ -144,7 +144,7 @@ async function normalise(buffer, field) {
     output = await sharp(buffer, { limitInputPixels: config.input.maxInputPixels, pages: 1 })
       .rotate()
       .flatten({ background: '#ffffff' })
-      .resize({ width: config.input.maxEdgePx, height: config.input.maxEdgePx, fit: 'inside', withoutEnlargement: true })
+      .resize({ width: maxEdgePx, height: maxEdgePx, fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: config.input.jpegQuality, chromaSubsampling: '4:4:4' })
       .toBuffer({ resolveWithObject: true });
   } catch {
@@ -160,12 +160,12 @@ async function normalise(buffer, field) {
   };
 }
 
-async function prepareOne(source, field, signal) {
+async function prepareOne(source, field, signal, options) {
   const buffer = source.kind === 'url'
     ? await download(source.url, field, signal)
     : Buffer.from(source.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
   if (!buffer.length) throw new ImageProblem('INVALID_IMAGE', `${field} is empty.`);
-  const image = await normalise(buffer, field);
+  const image = await normalise(buffer, field, options);
   return { ...image, from: source.kind === 'url' ? 'url' : 'base64' };
 }
 
@@ -184,10 +184,12 @@ async function prepareImages(job, signal) {
     ...(job.model.kind === 'reference' ? [{ target: job.model, field: 'modelImage' }] : []),
     // The matching piece of the outfit (pairWith.image, 16 Nov 2026).
     ...(job.pairWith && job.pairWith.source ? [{ target: job.pairWith, field: 'pairWith.image' }] : []),
-    ...(job.pairWith && job.pairWith.back ? [{ target: job.pairWith.back, field: 'pairWith.backImage' }] : [])
+    ...(job.pairWith && job.pairWith.back ? [{ target: job.pairWith.back, field: 'pairWith.backImage' }] : []),
+    // POST /parts: the garment photos, kept large - the close-ups are cut from them.
+    ...(job.photos || []).map((p) => ({ target: p, field: p.field, options: { maxEdgePx: config.parts.maxEdgePx }, local: true }))
   ];
 
-  const settled = await Promise.allSettled(tasks.map((t) => prepareOne(t.target.source, t.field, signal)));
+  const settled = await Promise.allSettled(tasks.map((t) => prepareOne(t.target.source, t.field, signal, t.options)));
   if (signal && signal.aborted) throw new StudioError('Request cancelled.', { status: 499, code: 'CANCELLED' });
 
   const problems = [];
@@ -214,7 +216,8 @@ async function prepareImages(job, signal) {
     );
   }
 
-  await fitRequestBudget(tasks.map((t) => t.target.image));
+  // Photos kept for cutting (local) never go to the model whole, so they are not shrunk to fit a request.
+  await fitRequestBudget(tasks.filter((t) => !t.local).map((t) => t.target.image));
   return tasks.map((t) => ({ field: t.field, ...t.target.image }));
 }
 

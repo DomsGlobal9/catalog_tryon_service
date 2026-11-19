@@ -14,22 +14,26 @@
 const KEEP_MS = 15 * 60 * 1000; // after the job finishes
 const MAX_RUNNING_MS = 60 * 60 * 1000; // a job that never finished is forgotten after this
 const MAX_JOBS = 20; // a result holds one or two photographs of a few MB each
+// ...but a POST /parts result holds up to 8 close-ups, so memory is capped as well as the count.
+const MAX_BYTES = 150 * 1024 * 1024;
 
 const jobs = new Map();
+const sizeOf = (j) => [...j.images, ...j.parts].reduce((s, e) => s + (typeof e.image === 'string' ? e.image.length : 0), 0);
 
 function prune(now = Date.now()) {
   for (const [id, j] of jobs) {
     if ((j.finishedAt && now - j.finishedAt > KEEP_MS) || now - j.startedAt > MAX_RUNNING_MS) jobs.delete(id);
   }
   // Oldest first (a Map keeps insertion order); a finished result goes before a running one.
-  while (jobs.size > MAX_JOBS) {
+  const total = () => [...jobs.values()].reduce((s, j) => s + sizeOf(j), 0);
+  while (jobs.size > MAX_JOBS || (jobs.size > 1 && total() > MAX_BYTES)) {
     const oldestFinished = [...jobs].find(([, j]) => j.finishedAt);
     jobs.delete(oldestFinished ? oldestFinished[0] : jobs.keys().next().value);
   }
 }
 
 function begin(jobId, account) {
-  jobs.set(jobId, { account: account || null, status: 'running', images: [], reading: null, done: null, error: null, startedAt: Date.now(), finishedAt: null });
+  jobs.set(jobId, { account: account || null, status: 'running', images: [], parts: [], located: null, reading: null, done: null, error: null, startedAt: Date.now(), finishedAt: null });
   prune();
 }
 
@@ -39,6 +43,11 @@ function record(jobId, event) {
   if (!j || !event) return;
   if (event.type === 'image') {
     j.images = [...j.images.filter((i) => i.view !== event.view), event];
+  } else if (event.type === 'part') {
+    j.parts = [...j.parts.filter((p) => p.area !== event.area), event]; // POST /parts: one per part
+    prune();
+  } else if (event.type === 'located') {
+    j.located = event; // POST /parts: where each part was found
   } else if (event.type === 'reading') {
     j.reading = event; // POST /sketch: what was read from the drawing
   } else if (event.type === 'done') {
@@ -55,4 +64,4 @@ function get(jobId, account) {
   return j && j.account === (account || null) ? j : null;
 }
 
-module.exports = { begin, record, get, KEEP_MS, MAX_JOBS, _reset: () => jobs.clear() };
+module.exports = { begin, record, get, KEEP_MS, MAX_JOBS, MAX_BYTES, _reset: () => jobs.clear() };

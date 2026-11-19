@@ -418,7 +418,17 @@ function imageOnly(event) {
     // POST /sketch only: what was read from the drawing, so the app can show it (owner, 28 Oct 2026).
     case 'reading': return { type: 'reading', jobId: event.jobId, garment: event.garment, views: event.views, parts: event.parts, notes: event.notes, unreadable: event.unreadable };
     case 'image': return { type: 'image', jobId: event.jobId, view: event.view, ...(event.annotations ? { views: event.views, annotations: event.annotations } : {}), mimeType: event.mimeType, width: event.width, height: event.height, image: event.image };
-    case 'done': return { type: 'done', jobId: event.jobId, status: event.status, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}), views: event.views };
+    // POST /parts (19 Nov 2026): where each part was found, and each part as it is ready - the app
+    // shows every close-up with Keep / Redo / Drop, so it needs whether it was found, why not, and
+    // whether it is the sharp close-up or the plain cut.
+    case 'located': return { type: 'located', jobId: event.jobId, parts: event.parts.map(({ area, name, found, reason }) => ({ area, name, found, ...(reason ? { reason } : {}) })) };
+    case 'part': return event.found
+      ? { type: 'part', jobId: event.jobId, area: event.area, name: event.name, found: true, enhanced: event.enhanced, lowDetail: event.lowDetail, ...(event.sameAs ? { sameAs: event.sameAs } : {}),
+        ...(event.quality ? { checkPassed: event.quality.passed } : {}), ...(event.error ? { error: event.error } : {}),
+        mimeType: event.mimeType, width: event.width, height: event.height, image: event.image }
+      : { type: 'part', jobId: event.jobId, area: event.area, name: event.name, found: false, reason: event.reason, message: event.message };
+    case 'done': return { type: 'done', jobId: event.jobId, status: event.status, ...(event.presentation && event.presentation !== 'model' ? { presentation: event.presentation } : {}),
+      ...(event.summary ? { summary: event.summary } : { views: event.views }) };
     // details carries what the docs promise (GENERATION_BLOCKED's reason, which
     // image failed) - written for the caller, never upstream text.
     case 'error': return { type: 'error', jobId: event.jobId, code: event.code, message: event.message, retryable: event.retryable, ...(event.details ? { details: event.details } : {}) };
@@ -460,7 +470,8 @@ function result(req, res) {
       message: `No result for this jobId. It is unknown, belongs to another account, or finished more than ${resultStore.KEEP_MS / 60000} minutes ago.` } });
     return;
   }
-  res.json({ success: true, jobId, status: j.status, images: j.images, ...(j.reading ? { reading: j.reading } : {}), done: j.done, error: j.error });
+  res.json({ success: true, jobId, status: j.status, images: j.images, ...(j.reading ? { reading: j.reading } : {}),
+    ...(j.located || j.parts.length ? { located: j.located, parts: j.parts } : {}), done: j.done, error: j.error });
 }
 
 /** GET /options  - everything a client needs to build a valid request. */
@@ -472,7 +483,9 @@ function options(_req, res) {
       maxDesigns: config.limits.maxDesigns,
       maxFabrics: config.limits.maxFabrics,
       maxImageMb: config.limits.maxImageBytes / 1024 / 1024,
-      maxRequestMb: config.limits.maxBodyMb
+      maxRequestMb: config.limits.maxBodyMb,
+      // POST /parts: photos per request and parts per request.
+      parts: { maxPhotos: config.parts.maxPhotos, maxParts: config.parts.maxParts, photoViews: ['front', 'back', 'side', 'detail'] }
     },
     images: {
       accepted: ['base64 (raw or data:image/...;base64,)', `https links on ${config.input.allowedHosts.join(', ')}`],

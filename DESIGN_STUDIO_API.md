@@ -9,10 +9,11 @@ uploads, or anywhere else — as long as you send them as base64 or Cloudinary l
 
 | | |
 | :--- | :--- |
-| **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/cat` |
+| **Base URL (production)** | `https://api-super-admin.onrender.com/api/gateway/studio` (Design Studio's own gateway name, since 19 November 2026). The old `.../gateway/cat` keeps working. |
 | **Headers** | `x-api-key: <your key>` and `Content-Type: application/json` |
 | **Generate** | `POST /api/v1/designstudio/generate` — answers as a live event stream |
 | **Sketch to photo** | `POST /api/v1/designstudio/sketch` — a hand-drawn sketch with labelled colours, made into a photograph (since 28 October 2026) |
+| **Part close-ups** | `POST /api/v1/designstudio/parts` — a clear close-up of each part of a garment, from your own photo of it (since 19 November 2026) |
 | **Cancel** | `POST /api/v1/designstudio/cancel` |
 | **Options** | `GET /api/v1/designstudio/options` — garments, design areas and limits |
 | **Output** | JPEG, portrait **3:4** (about 900 × 1200 px), plain studio background, as base64. Full length, except a blouse (waist-up). **Two photographs (front and back)** for every garment by default; `views` can ask for one side |
@@ -872,6 +873,81 @@ Before the stream (plain JSON): `400` for a bad request (`PRESENTATION_NOT_AVAIL
 an unknown field), `422 IMAGE_UNUSABLE` for a picture that cannot be read, `429` as in `/generate`.
 **One job per `clientId` across `/generate` and `/sketch`**: a new request replaces the running one, and
 `/cancel` stops either.
+
+---
+
+## `POST /api/v1/designstudio/parts`
+
+**One clear close-up of each part of a garment, made from your own photo of it** (since 19 November
+2026). A blouse photo comes back as its front, back, neck, sleeve and hand design; a saree photo as its
+pallu, border, body, pleats, zari work and so on. Use it for "Make part images" in a design library:
+show each close-up with **Keep**, **Redo** and **Drop**; nothing is stored here.
+
+```json
+{
+  "clientId": "boutique-7-design-118",
+  "garment": "BLOUSE",
+  "photos": ["https://res.cloudinary.com/scaleezy/image/upload/v1/designs/118-front.jpg",
+             { "image": "https://res.cloudinary.com/scaleezy/image/upload/v1/designs/118-back.jpg", "view": "back" }],
+  "parts": ["FRONT", "BACK", "NECK", "SLEEVE", "HAND"]
+}
+```
+
+| Field | Type | What it does |
+| :--- | :--- | :--- |
+| `clientId` | string | **Required.** As in `/generate`: one job per `clientId` across all Design Studio endpoints. |
+| `garment` | id from `/options` | **Required.** |
+| `photos` | 1-3 of: base64 or Cloudinary link, or `{ image, view }` | **Required.** Photos of the same garment. `view` is `front`, `back`, `side` or `detail` (optional, helps find the back). Also accepted: `photo` / `image` / `imageUrl` for one photo, `images` for several, `backPhoto` for the back. **Send the original photo, not a thumbnail:** it is kept up to 4096 px and the close-ups are cut from it, so a phone photo gives far sharper close-ups than a 1000 px copy. |
+| `parts` | 1-8 of: area id, or `{ area, note }` | The parts to make, as the design areas in `/options` (`"neck"`, `"Neck Design"` and `NECK` all work). Left out: every part of the garment (the first 8). `note` tells the AI what to look at ("the gold cuff, not the bangle"). |
+| `enhance` | boolean | Default `true`: a sharp close-up made by the AI from the cut. `false`: the part as cut from your photo (a few seconds, nothing redrawn). |
+| `productName` | string | A style hint only. |
+
+**Redo** one part: send the same request with `parts: ["NECK"]`.
+
+### How it is made
+
+1. **Found** (Gemini Flash, a few seconds per photo, all photos at once): where each part is, and how
+   clearly it shows. Each part is taken from the photo that shows it best.
+2. **Never made up.** A part that is not in any photo (the back of a blouse photographed from the front)
+   comes back `found: false` with `reason: "NOT_VISIBLE"`; a part too small to show its design,
+   `"TOO_SMALL"`. Each has a `message` to show: *"The back design is not in this photo. Send a photo that
+   shows it."* A tailor stitches from these pictures, so nothing is drawn that the photo does not show.
+3. **Cut** from the full-size photo, with room around the part (a cuff keeps its sleeve, a neckline its
+   shoulders).
+4. **Made sharp** (the image model, 2K): the same part, the same motifs, colours and work, as if
+   photographed up close with a better camera. About 20 seconds per part; up to 3 parts are made at the
+   same time.
+5. **Checked** against the cut: `same_design`, `same_colours`, `nothing_added`, `nothing_removed`. A
+   failure is made once more with the fault named, and the better one kept. A remaining fault is reported
+   (`checkPassed: false`) - the boutique decides.
+
+### The stream
+
+```
+data: {"type":"start","jobId":"9a2e..."}
+data: {"type":"located","jobId":"9a2e...","parts":[{"area":"FRONT","name":"Front Design","found":true},
+       {"area":"BACK","name":"Back Design","found":false,"reason":"NOT_VISIBLE"}, ...]}
+data: {"type":"part","jobId":"9a2e...","area":"BACK","name":"Back Design","found":false,"reason":"NOT_VISIBLE",
+       "message":"The back design is not in this photo. Send a photo that shows it."}
+data: {"type":"part","jobId":"9a2e...","area":"NECK","name":"Neck Design","found":true,"enhanced":true,"lowDetail":false,
+       "checkPassed":true,"mimeType":"image/jpeg","width":2048,"height":2048,"image":"data:image/jpeg;base64,..."}
+...
+data: {"type":"done","jobId":"9a2e...","status":"ok","summary":{"made":4,"enhanced":4,"notFound":1,"fallback":0}}
+```
+
+Parts are made side by side, so `part` events arrive **in any order**: match them by `area`.
+
+| `part` field | Meaning |
+| :--- | :--- |
+| `found` | `false`: nothing was made; `reason` and `message` say why. |
+| `enhanced` | `true`: the sharp close-up. `false`: the part as cut from your photo - asked for with `enhance: false`, or the AI could not make it just now (then `error` is set, `retryable: true`: Redo that part). |
+| `lowDetail` | The part was small in the photo, so the close-up had little to work from and fine work may be filled in. Look twice before keeping it, or send a closer photo. |
+| `checkPassed` | The check against the cut: `true` passed, `false` a difference remained, `null` the check could not run. |
+| `sameAs` | This part was found in the same place as another part of the same photo (a saree's border and its zari work), so the same close-up is sent under both names. Made - and paid for - once. |
+
+`GET /result/{jobId}` returns `located`, every `part` and `done`. Errors in the stream: `PARTS_NOT_LOCATED`
+(the photos could not be read twice; nothing was made; retry). Before the stream: `400` (an unknown part,
+more than 3 photos, more than 8 parts), `422 IMAGE_UNUSABLE`, `429`.
 
 ---
 

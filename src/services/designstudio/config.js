@@ -136,6 +136,32 @@ const config = {
     maxRegenerations: int('DESIGNSTUDIO_QA_MAX_REGENERATIONS', 0, { min: 0, max: 2 })
   },
 
+  // POST /parts (19 Nov 2026): close-ups of each part of a garment from the boutique's own photos.
+  // One vision call per photo finds the parts; each found part is cut from the photo at full size
+  // and made sharp by the image model, then checked against the cut and made once more if it changed.
+  parts: {
+    locateModel: process.env.DESIGNSTUDIO_PARTS_LOCATE_MODEL || 'gemini-2.5-flash',
+    locateTimeoutMs: int('DESIGNSTUDIO_PARTS_LOCATE_TIMEOUT_MS', 30000, { min: 100 }),
+    maxPhotos: 3,
+    maxParts: int('DESIGNSTUDIO_PARTS_MAX', 8, { min: 1, max: 12 }),
+    // The photos are kept up to this size: the close-up is cut from them, so a phone photo's detail counts.
+    maxEdgePx: int('DESIGNSTUDIO_PARTS_MAX_EDGE', 4096, { min: 1024, max: 8192 }),
+    // What the part finder is sent (it only needs to see where things are).
+    locateEdgePx: 1536,
+    imageSize: (process.env.DESIGNSTUDIO_PARTS_IMAGE_SIZE || '2K').toUpperCase(),
+    // Parts made at the same time within one request.
+    concurrency: int('DESIGNSTUDIO_PARTS_CONCURRENCY', 3, { min: 1, max: 6 }),
+    // A part smaller than this in the photo (short side, px) is a speck: "send a closer photo".
+    minPartPx: 24,
+    // Every cut is at least this share of the photo's short side, centred on the part, so a cuff
+    // keeps its sleeve and a neckline its shoulders. Measured 19 Nov: tighter cuts lost the context.
+    minShare: 0.3,
+    margin: 0.08,
+    // A cut shorter than this (px) carries little detail: the close-up is marked lowDetail.
+    lowDetailPx: 300,
+    maxRegenerations: int('DESIGNSTUDIO_PARTS_MAX_REGENERATIONS', 1, { min: 0, max: 2 })
+  },
+
   limits: {
     // 8 covers every saree area (a real design-library saree sent 7 on 13 Oct and got a 400 at 6),
     // and 8 designs + 3 fabrics + the person + the front photo stays within the image model's 14 pictures.

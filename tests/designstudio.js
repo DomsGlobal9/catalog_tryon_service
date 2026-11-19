@@ -2021,6 +2021,149 @@ async function runAll({ check, eq, section, SRC }) {
     const collected = await (await getResult(events[0].jobId, 'sketch-own-acct')).json();
     eq('GET /result has the reading as well as the photo', [collected.status, collected.reading && collected.reading.garment, collected.images.map((i) => i.view)], ['done', 'LEHANGA', ['front']]);
 
+    // POST /parts over HTTP (19 Nov 2026): a close-up of each part from the boutique's own photo.
+    const partsLocate = S('parts/locate');
+    const partsCut = S('parts/cut');
+    const locateCalls = [];
+    const locateFake = (answers) => async (url, opts) => {
+      const b = JSON.parse(opts.body);
+      locateCalls.push(b);
+      const ans = typeof answers === 'function' ? answers(b, locateCalls.length) : answers;
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ parts: ans }) }] } }] }), { status: 200 });
+    };
+    const partsCheck = (fails = []) => async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+      same_design: !fails.includes('same_design'), same_colours: true, nothing_added: !fails.includes('nothing_added'), nothing_removed: true,
+      evidence: fails.length ? 'round dots became small flowers' : 'none' }) }] } }] }), { status: 200 });
+    const NECK_BOX = [350, 400, 450, 600];
+    const blouseFound = [
+      { part: 'FRONT', visible: 'clearly', box_2d: [300, 200, 800, 800], note: 'black ikat' },
+      { part: 'BACK', visible: 'no', box_2d: [], note: 'only the front is shown' },
+      { part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: 'sweetheart neckline' },
+      { part: 'SLEEVE', visible: 'partly', box_2d: [400, 100, 700, 300], note: '' },
+      { part: 'HAND', visible: 'clearly', box_2d: [700, 100, 701, 101], note: 'gold cuff' } // a speck: under 1 px
+    ];
+    partsLocate._setFetch(locateFake(blouseFound));
+    qa._setFetch(partsCheck());
+    let pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-1', garment: 'BLOUSE', photo: IMG, parts: ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'] }, { headers: { 'x-gateway-client-id': 'parts-acct' } })));
+    let partEvents = events.filter((e) => e.type === 'part');
+    const pLocated = events.find((e) => e.type === 'located');
+    const pDone = events[events.length - 1];
+    eq('POST /parts: start, where each part is, then one `part` each - the back (not in the photo) and the speck-sized hand answered at once with why, the rest made; done counts them',
+      [events.filter((e) => e.type !== 'status').slice(0, 2).map((e) => e.type), pLocated.parts.map((p) => [p.area, p.found, p.reason || null]),
+        partEvents.filter((p) => !p.found).map((p) => [p.area, p.reason, /Send a (photo that shows it|closer photo of it)\./.test(p.message)]),
+        partEvents.filter((p) => p.found).map((p) => p.area).sort(), pDone.type, pDone.summary],
+      [['start', 'located'], [['FRONT', true, null], ['BACK', false, 'NOT_VISIBLE'], ['NECK', true, null], ['SLEEVE', true, null], ['HAND', false, 'TOO_SMALL']],
+        [['BACK', 'NOT_VISIBLE', true], ['HAND', 'TOO_SMALL', true]], ['FRONT', 'NECK', 'SLEEVE'], 'done', { made: 3, enhanced: 3, notFound: 2, fallback: 0 }]);
+    eq('one locate call for the photo (JSON, all five parts named); one 2K image call per found part with only its cut; every close-up checked and passed',
+      [locateCalls.length, locateCalls[0].generationConfig.responseMimeType, ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'].every((id) => locateCalls[0].contents[0].parts[1].text.includes(`- ${id}:`)),
+        pCalls.length, pCalls.every((c) => c.body.generationConfig.imageConfig.imageSize === '2K'), pCalls.every((c) => imagesIn(c) === 1),
+        partEvents.filter((p) => p.found).every((p) => p.enhanced && p.quality.passed && p.image.startsWith('data:image/jpeg;base64,'))],
+      [1, 'application/json', true, 3, true, true, true]);
+    const neckEv = partEvents.find((p) => p.area === 'NECK');
+    eq('a small part is cut with room around it (30% of the photo\'s short side: 270 px of 900), in the image model\'s nearest shape, and marked lowDetail; the large front is not',
+      [neckEv.source.cut, neckEv.lowDetail, partEvents.find((p) => p.area === 'FRONT').lowDetail,
+        pCalls.some((c) => c.body.generationConfig.imageConfig.aspectRatio === '1:1'), /FIDELITY - THE HIGHEST PRIORITY/.test(textOf(pCalls[0]))],
+      [{ width: 270, height: 270 }, true, false, true, true]);
+    const pCollected = await (await getResult(events[0].jobId, 'parts-acct')).json();
+    eq('GET /result has every part, the located list and done',
+      [pCollected.status, pCollected.parts.map((p) => p.area).sort(), pCollected.located.parts.length, pCollected.done.summary.made],
+      ['done', ['BACK', 'FRONT', 'HAND', 'NECK', 'SLEEVE'], 5, 3]);
+
+    partsLocate._setFetch(locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }]));
+    qa._setFetch(qaSequence(partsCheck(['same_design']), partsCheck()));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-2', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
+    eq('a close-up the checker finds changed is made once more with the fault named, and the corrected one kept',
+      [pCalls.length, /THE LAST ATTEMPT CHANGED THE GARMENT: round dots became small flowers/.test(textOf(pCalls[1])), events.find((e) => e.type === 'part').quality],
+      [2, true, { checked: true, passed: true, failures: [], regenerated: true }]);
+    qa._setFetch(partsCheck(['nothing_added']));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-2b', garment: 'BLOUSE', photo: IMG, parts: ['NECK'] })));
+    eq('...and when the second is no better, it is still delivered with the fault reported (the boutique decides: Keep, Redo or Drop)',
+      [pCalls.length, events.find((e) => e.type === 'part').quality.passed, events.find((e) => e.type === 'part').quality.failures.map((f) => f.check), events[events.length - 1].type],
+      [2, false, ['nothing_added'], 'done']);
+
+    partsLocate._setFetch(locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }, { part: 'FRONT', visible: 'clearly', box_2d: [300, 200, 800, 800], note: '' }]));
+    qa._setFetch(partsCheck());
+    pCalls = script([() => new Response(JSON.stringify({ error: { code: 400, message: 'bad request' } }), { status: 400 })]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-3', garment: 'BLOUSE', photo: IMG, parts: ['NECK', 'FRONT'] })));
+    partEvents = events.filter((e) => e.type === 'part');
+    eq('the image model failing never sinks the job: each part comes back as cut from the photo, enhanced false, with a retryable error; done says so',
+      [partEvents.map((p) => [p.enhanced, !!p.image, p.error && p.error.retryable]), events[events.length - 1].type, events[events.length - 1].summary.fallback],
+      [[[false, true, true], [false, true, true]], 'done', 2]);
+
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-4', garment: 'BLOUSE', photo: IMG, parts: ['NECK', 'FRONT'], enhance: false })));
+    eq('enhance: false gives the cuts alone - no image model, no check',
+      [pCalls.length, events.filter((e) => e.type === 'part').map((p) => [p.enhanced, !!p.quality]), events[events.length - 1].summary],
+      [0, [[false, false], [false, false]], { made: 2, enhanced: 0, notFound: 0, fallback: 0 }]);
+
+    let locateTries = 0;
+    partsLocate._setFetch(async () => { locateTries++; return new Response('down', { status: 503 }); });
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-5', garment: 'BLOUSE', photo: IMG })));
+    const pErr = events.find((e) => e.type === 'error');
+    eq('when no photo can be read, nothing is made: asked twice, then a retryable error',
+      [locateTries, pErr && pErr.code, pErr && pErr.retryable, pCalls.length], [2, 'PARTS_NOT_LOCATED', true, 0]);
+
+    // The photo is kept large and cut at full size; the part finder sees a small copy.
+    const BIG = await png(3000, 4000, '#224466');
+    locateCalls.length = 0;
+    partsLocate._setFetch(locateFake([{ part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }]));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-6', garment: 'BLOUSE', photo: BIG, parts: ['NECK'] })));
+    const seen = await sharp(Buffer.from(locateCalls[0].contents[0].parts[0].inlineData.data, 'base64')).metadata();
+    const sentCut = await sharp(Buffer.from(pCalls[0].body.contents[0].parts.find((p) => p.inlineData).inlineData.data, 'base64')).metadata();
+    eq('a 3000x4000 photo: the finder sees 1152x1536, the neck is cut from the full photo (900 px, not the 345 px a 1536 copy would give) and is not lowDetail',
+      [[seen.width, seen.height], events.find((e) => e.type === 'part').source.cut, [sentCut.width, sentCut.height], events.find((e) => e.type === 'part').lowDetail],
+      [[1152, 1536], { width: 900, height: 900 }, [900, 900], false]);
+
+    // Two photos: each part from the photo that shows it best; the back from the back photo.
+    partsLocate._setFetch(locateFake((b, n) => (/showing its back/.test(b.contents[0].parts[1].text)
+      ? [{ part: 'BACK', visible: 'clearly', box_2d: [200, 200, 700, 800], note: 'keyhole' }, { part: 'NECK', visible: 'partly', box_2d: [100, 300, 300, 700], note: '' }]
+      : [{ part: 'BACK', visible: 'no', box_2d: [], note: '' }, { part: 'NECK', visible: 'clearly', box_2d: NECK_BOX, note: '' }])));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-7', garment: 'BLOUSE', photos: [IMG, { image: IMG, view: 'back' }], parts: ['BACK', 'NECK'] })));
+    eq('two photos: the back is taken from the back photo, the neck from the photo that shows it clearly',
+      events.find((e) => e.type === 'located').parts.map((p) => [p.area, p.photo, p.view]), [['BACK', 1, 'back'], ['NECK', 0, null]]);
+
+    // A saree's border and its zari work found in the same place: one close-up, sent under both names.
+    partsLocate._setFetch(locateFake([{ part: 'BORDER', visible: 'clearly', box_2d: [200, 500, 320, 680], note: '' },
+      { part: 'ZARI_WORK', visible: 'clearly', box_2d: [199, 508, 318, 680], note: '' }, { part: 'BODY', visible: 'clearly', box_2d: [400, 50, 1000, 580], note: '' }]));
+    pCalls = script([() => answer([imagePart(FINAL)])]);
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-same', garment: 'SAREE', photo: IMG, parts: ['BORDER', 'ZARI_WORK', 'BODY'] })));
+    partEvents = events.filter((e) => e.type === 'part');
+    eq('two parts in the same place are made once and sent under both names (sameAs); a different place is its own close-up',
+      [pCalls.length, partEvents.map((p) => [p.area, p.sameAs || null]).sort(), partEvents.find((p) => p.area === 'ZARI_WORK').image === partEvents.find((p) => p.area === 'BORDER').image,
+        events[events.length - 1].summary],
+      [2, [['BODY', null], ['BORDER', null], ['ZARI_WORK', 'BORDER']], true, { made: 3, enhanced: 3, notFound: 0, fallback: 0 }]);
+    const pallu = partsCut.cutRect({ y0: 100, x0: 500, y1: 950, x1: 760 }, 900, 1200);
+    eq('a long strip (a pallu from shoulder to knee) is cut as a section from its middle, never more than twice as long as wide',
+      [pallu.height / pallu.width <= 2, Math.round(pallu.top + pallu.height / 2) === Math.round(((100 + 950) / 2 / 1000) * 1200)], [true, true]);
+
+    res = await post('/parts', { clientId: 'parts-8', garment: 'BLOUSE', photo: IMG, parts: ['POCKET'] });
+    json = await res.json();
+    eq('a part the garment does not have is a 400 naming the parts it does have, before anything is read',
+      [res.status, json.error.details[0].code, /FRONT, BACK, NECK/.test(json.error.message)], [400, 'UNKNOWN_DESIGN_AREA', true]);
+    res = await post('/parts', { clientId: 'parts-9', garment: 'BLOUSE', photos: [IMG, IMG, IMG, IMG] });
+    eq('more than 3 photos is a 400', (await res.json()).error.code, 'VALIDATION_ERROR');
+
+    const io = S('controller').imageOnly;
+    eq('the image-only stream (production default) keeps what the app needs for Keep / Redo / Drop, and drops the rest',
+      [io({ type: 'part', jobId: 'j', area: 'NECK', name: 'Neck Design', found: true, enhanced: true, lowDetail: false, quality: { passed: true, failures: [] }, source: { photo: 0 }, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' }),
+        io({ type: 'part', jobId: 'j', area: 'BACK', name: 'Back Design', found: false, reason: 'NOT_VISIBLE', message: 'm' }),
+        io({ type: 'located', jobId: 'j', parts: [{ area: 'BACK', name: 'Back Design', found: false, reason: 'NOT_VISIBLE', note: 'n' }] }),
+        io({ type: 'done', jobId: 'j', status: 'ok', endpoint: 'parts', summary: { made: 1 }, timings: {} })],
+      [{ type: 'part', jobId: 'j', area: 'NECK', name: 'Neck Design', found: true, enhanced: true, lowDetail: false, checkPassed: true, mimeType: 'image/jpeg', width: 2, height: 2, image: 'data:x' },
+        { type: 'part', jobId: 'j', area: 'BACK', name: 'Back Design', found: false, reason: 'NOT_VISIBLE', message: 'm' },
+        { type: 'located', jobId: 'j', parts: [{ area: 'BACK', name: 'Back Design', found: false, reason: 'NOT_VISIBLE' }] },
+        { type: 'done', jobId: 'j', status: 'ok', summary: { made: 1 } }]);
+    eq('the cut stays inside the photo at its edges, and every shape is one the image model can make',
+      [partsCut.cutRect({ y0: 0, x0: 950, y1: 30, x1: 1000 }, 900, 1200), partsCut.nearestRatio(0.9), partsCut.nearestRatio(0.3), partsCut.nearestRatio(5)],
+      [{ left: 630, top: 0, width: 270, height: 270 }, '1:1', '9:16', '21:9']);
+    qa._setFetch(qaAnswer());
+
     check('no log line contains the API key or raw base64',!logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);
   } finally {
