@@ -21,6 +21,7 @@ const { resolveSketchRequest, readSketch, mergeLabels, buildSketchPrompt, review
 const resultStore = require('./resultStore');
 const { imageOnly, logOutcome, PIPELINE } = require('./controller');
 const { admitGeneration } = require('../../middleware/generationGuard');
+const { stepLog, secondsSince, checkWord } = require('../../lib/stepLog');
 
 async function sketch(req, res, next) {
   const requestId = crypto.randomUUID();
@@ -166,6 +167,8 @@ async function sketch(req, res, next) {
     const results = [];
     let frontGarment = null;
     for (const view of views) {
+      const viewStarted = Date.now();
+      const attemptsBefore = attempts;
       const prompt = buildSketchPrompt(job, { reading, parts, view, frontPhoto: view === 'back' && frontGarment ? frontGarment.image : null, presentation: garmentPresentation });
       send({ type: 'status', stage: 'generating', view, message: ownPhoto ? `Making the ${view} of the garment.` : `Making the ${view} view from the sketch.` });
       let result = await generate(prompt.parts, 'generating');
@@ -188,6 +191,11 @@ async function sketch(req, res, next) {
         height: result.image.height,
         bytes: result.image.bytes,
         image: `data:${result.image.mimeType};base64,${result.image.base64}`
+      });
+      stepLog('DesignStudio', {
+        requestId, jobId: admitted.job.id, endpoint: 'sketch', garment: job.garmentId, item: view, result: 'made',
+        seconds: secondsSince(viewStarted), attempts: attempts - attemptsBefore, check: checkWord(quality),
+        redone: quality.regenerated ? 'yes' : null, ownPhoto: ownPhoto ? 'yes' : null, size: `${result.image.width}x${result.image.height}`
       });
     }
     send({

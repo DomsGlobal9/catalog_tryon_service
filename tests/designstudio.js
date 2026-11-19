@@ -2128,6 +2128,17 @@ async function runAll({ check, eq, section, SRC }) {
     eq('two photos: the back is taken from the back photo, the neck from the photo that shows it clearly',
       events.find((e) => e.type === 'located').parts.map((p) => [p.area, p.photo, p.view]), [['BACK', 1, 'back'], ['NECK', 0, null]]);
 
+    // The parrot case (19 Nov, production): blurry ikat flowers became birds on a small neck cut.
+    const enh = S('parts/enhance');
+    const pJob = { garmentId: 'BLOUSE', product: 'blouse', productName: null };
+    const pPart = { areaId: 'NECK', name: 'Neck Design', note: null };
+    const small = enh.enhanceParts(pJob, pPart, { image: { mimeType: 'image/jpeg', base64: 'x' }, lowDetail: true })[0].text;
+    const large = enh.enhanceParts(pJob, pPart, { image: { mimeType: 'image/jpeg', base64: 'x' }, lowDetail: false })[0].text;
+    eq('a shape never becomes a bird or a flower it is not; a small, blurry cut is only sharpened, its motifs kept as simple; the check looks for new figures',
+      [/no bird, animal, face, peacock, elephant, flower or leaf appears where the picture shows only a blot/.test(small), /Ikat, block-print and woven blurs stay/.test(large),
+        /THIS PIECE IS SMALL AND BLURRY/.test(small), /THIS PIECE IS SMALL AND BLURRY/.test(large), enh.CHECKS.map(([id]) => id).includes('no_new_figures')],
+      [true, true, true, false, true]);
+
     // A saree's border and its zari work found in the same place: one close-up, sent under both names.
     partsLocate._setFetch(locateFake([{ part: 'BORDER', visible: 'clearly', box_2d: [200, 500, 320, 680], note: '' },
       { part: 'ZARI_WORK', visible: 'clearly', box_2d: [199, 508, 318, 680], note: '' }, { part: 'BODY', visible: 'clearly', box_2d: [400, 50, 1000, 580], note: '' }]));
@@ -2163,6 +2174,35 @@ async function runAll({ check, eq, section, SRC }) {
       [partsCut.cutRect({ y0: 0, x0: 950, y1: 30, x1: 1000 }, 900, 1200), partsCut.nearestRatio(0.9), partsCut.nearestRatio(0.3), partsCut.nearestRatio(5)],
       [{ left: 630, top: 0, width: 270, height: 270 }, '1:1', '9:16', '21:9']);
     qa._setFetch(qaAnswer());
+
+    // One clear log line per thing made (19 Nov 2026): which part / view, how long, check, redone.
+    const partLines = logs.filter((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=parts garment=BLOUSE item=/.test(l));
+    eq('every /parts request logs one line per part: what happened to it, how long it took, the check',
+      ['FRONT', 'BACK', 'NECK', 'SLEEVE', 'HAND'].map((id) => {
+        const l = partLines.find((x) => x.includes(` item=${id} `) && /parts-1|/.test(x));
+        return l && (l.match(/ result=(\S+)/) || [])[1];
+      }),
+      ['made', 'not_in_photo', 'made', 'made', 'too_small']);
+    check('...a made part says seconds, attempts and the check result; a shared one says sameAs; a failed AI says plain_cut_ai_failed',
+      partLines.some((l) => / item=NECK result=made seconds=[\d.]+ attempts=\d+ check=passed /.test(l))
+        && logs.some((l) => / endpoint=parts garment=SAREE item=ZARI_WORK result=made .*sameAs=BORDER/.test(l))
+        && partLines.some((l) => / result=plain_cut_ai_failed .*error=/.test(l)));
+    check('/generate logs one line per photograph made, with its seconds, attempts and check',
+      logs.some((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=generate garment=\S+ item=(front|back) result=made seconds=[\d.]+ attempts=\d+ check=\S+/.test(l)));
+    check('/sketch logs one line per photograph made',
+      logs.some((l) => /^\[DesignStudio\] requestId=\S+ jobId=\S+ endpoint=sketch garment=\S+ item=front result=made /.test(l)));
+    const { stepLog: sl, checkWord: cw, MAX_VALUE } = require(path.join(SRC, 'lib/stepLog'));
+    const said = [];
+    const keepLog = console.log;
+    console.log = (...a) => said.push(a.join(' '));
+    sl('Test', { a: 'one two', b: null, c: 'x\ny\r\nz', d: 'A'.repeat(5000), e: '' });
+    console.log = keepLog;
+    eq('the shared log line: values with spaces quoted, empty values left out, line breaks removed, long values cut',
+      [said[0].startsWith('[Test] a="one two" c="x y z" d='), !/b=|e=/.test(said[0]), said[0].length < MAX_VALUE + 60, said.length], [true, true, true, 1]);
+    eq('the check word reads one check or a quality object with several',
+      [cw({ checked: true, passed: true, failures: [] }), cw({ checked: true, passed: false, failures: [{ check: 'same_design' }] }), cw({ checked: false, passed: null }),
+        cw({ regenerated: true, inspection: { checked: true, passed: false, failures: [{ id: 'colour' }] }, photo: { checked: true, passed: true } }), cw(null)],
+      ['passed', 'failed(same_design)', 'skipped', 'failed(inspection:colour)', 'skipped']);
 
     check('no log line contains the API key or raw base64',!logs.some((l) => /AIzaFAKE|AIzaSyLEAK/.test(l) || /[A-Za-z0-9+/]{400,}/.test(l)), `${logs.length} log lines checked`);
     check('every request is logged once with its outcome', logs.filter((l) => /\[DesignStudio\] requestId=.* outcome=OK/.test(l)).length >= 2);

@@ -18,6 +18,7 @@ const cache = require('./services/searchCache');
 const rateLimit = require('./middleware/rateLimit');
 const { ORIENTATIONS, SHOT_TYPES, RECENCIES } = require('./middleware/validate');
 const { NotConfiguredError } = require('./lib/errors');
+const { stepLog, secondsSince } = require('../../lib/stepLog');
 
 /**
  * Build the per-source plans and charge the caller for the provider calls they
@@ -43,15 +44,18 @@ function budgetBucket(req, clientId) {
 /** clientId as one log line: a caller could put line breaks in it to forge log entries. */
 const forLog = (value) => String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ');
 
-function logLine(searchId, clientId, resolved, sources, startedAt, extra = '') {
+// One line per search, in the same shape as every other endpoint (lib/stepLog.js).
+function logLine(searchId, clientId, resolved, sources, startedAt, extra = {}) {
   const perSource = sources
     .map((s) => (s.status === 'ok' ? `${s.source}:${s.returned}${s.cached ? '(cache)' : ''}` : `${s.source}:ERR`))
-    .join(' ');
-  console.log(
-    `[Discovery] searchId=${searchId} client=${forLog(clientId)} ` +
-    `cat=${resolved.category || '-'}/${resolved.designType || '-'} src=${resolved.interpreted.source} ` +
-    `[${perSource}] ${Date.now() - startedAt}ms${extra}`
-  );
+    .join(',');
+  const ok = sources.filter((s) => s.status === 'ok');
+  stepLog('Discovery', {
+    searchId, endpoint: extra.endpoint || 'search', client: forLog(clientId),
+    garment: resolved.category || '-', item: resolved.designType || '-', from: resolved.interpreted.source,
+    result: ok.length ? 'found' : 'failed', results: ok.reduce((n, s) => n + (s.returned || 0), 0), sources: perSource,
+    seconds: secondsSince(startedAt), status: extra.status, left: extra.closedByClient ? 'caller left early' : null
+  });
 }
 
 /**
@@ -223,8 +227,7 @@ async function searchStream(req, res, next) {
       durationMs: Date.now() - startedAt
     });
 
-    logLine(searchId, clientId, resolved, ordered, startedAt,
-      ` stream status=${status}${closedByClient ? ' (client left early)' : ''}`);
+    logLine(searchId, clientId, resolved, ordered, startedAt, { endpoint: 'search-stream', status, closedByClient });
   } catch (err) {
     // searchSources never rejects for a source failure, so reaching here is a bug.
     console.error(`[Discovery] searchId=${searchId} stream crashed:`, err && err.stack ? err.stack : err);

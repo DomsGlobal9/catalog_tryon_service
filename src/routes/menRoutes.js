@@ -76,6 +76,7 @@ const BOTTOM_WEAR_BODY_REFERENCE_URLS = {
 // Running jobs are tracked in middleware/generationGuard.js, shared with the
 // women pipeline and visible to every server.
 const { admitGeneration, cancelGeneration } = require("../middleware/generationGuard");
+const { stepLog, secondsSince } = require("../lib/stepLog");
 const { budgetKey } = require("../middleware/identity");
 const shared = require("../lib/shared");
 const { publicMessage } = require("../lib/publicError");
@@ -171,17 +172,15 @@ async function runSSEGeneration(req, res, {
   });
 
 
-  console.log("========================================");
-  console.log(`MEN'S ${modeName} GENERATION STARTED`);
-  console.log("Client:", clientId);
-  console.log("Category:", category);
-  console.log("Category Group:", categoryGroup);
-  console.log("Sizes:", validatedSizes);
-  console.log("Size Type:", sizeType);
-  console.log("User Photo:", userPhoto ? "Yes" : "No");
-  console.log("Body References:", useBodyReferences ? "Yes" : "No");
-  console.log("Previous jobs:", previousJobs - 1);
-  console.log("========================================");
+  // One line per request and one per size made (lib/stepLog.js), instead of the old banner blocks
+  // that could not be told apart when two requests ran at once.
+  const startedAt = Date.now();
+  const jobId = controller.id || null;
+  const endpoint = `men-${String(modeName).toLowerCase().replace(/[^a-z]+/g, '-')}`;
+  stepLog('Catalog', {
+    jobId, endpoint, account: req.account, garment: category, group: categoryGroup, sizes: validatedSizes.join(','),
+    sizeType, ownPhoto: userPhoto ? 'yes' : null, tops: isMixAndMatch ? tops.length : null, result: 'started'
+  });
 
 
   // --------------------------------------------------------
@@ -212,6 +211,8 @@ async function runSSEGeneration(req, res, {
   });
 
 
+  let sizesMade = 0;
+  let sizesFailed = 0;
   try {
     const allResults = {};
 
@@ -265,6 +266,8 @@ async function runSSEGeneration(req, res, {
             status: "GENERATING"
           });
 
+          const sizeStarted = Date.now();
+          const item = isMixAndMatch ? `size-${currentSize}-top-${topIndex + 1}` : `size-${currentSize}`;
           try {
             // Set when the streaming callback below emits SIZE_READY, so the
             // post-await emit does not send the same image a second time.
@@ -275,14 +278,10 @@ async function runSSEGeneration(req, res, {
               if (categoryGroup === 'BOTTOM_WEAR') {
                 // Bottom wear: use dedicated waist-size URLs directly
                 bodyReferenceUrl = BOTTOM_WEAR_BODY_REFERENCE_URLS[String(currentSize)];
-                console.log('Selected Waist Size:', currentSize);
-                console.log('Selected Bottom Wear Body Reference:', bodyReferenceUrl);
               } else {
                 // Top wear: map to standard letter size
                 const mappedSize = getMappedSize(currentSize);
                 bodyReferenceUrl = MEN_BODY_REFERENCE_URLS[mappedSize];
-                console.log('Selected Size:', currentSize, 'Mapped to:', mappedSize);
-                console.log('Selected Body Reference:', bodyReferenceUrl);
               }
             }
 
@@ -339,8 +338,12 @@ async function runSSEGeneration(req, res, {
                 result: result
               });
             }
+            sizesMade += 1;
+            stepLog('Catalog', { jobId, endpoint, garment: category, item, result: 'made', seconds: secondsSince(sizeStarted) });
           } catch (error) {
             if (controller.signal.aborted) return; // reported once, below
+            sizesFailed += 1;
+            stepLog('Catalog', { jobId, endpoint, garment: category, item, result: 'failed', seconds: secondsSince(sizeStarted), why: error && error.message });
             console.error(`Error generating size ${currentSize}:`, error);
             sendEvent({
               type: "ERROR",
@@ -358,6 +361,7 @@ async function runSSEGeneration(req, res, {
     // catalog, so no COMPLETE.
     if (controller.signal.aborted) {
       sendEvent({ type: "ERROR", code: "CANCELLED", error: "Generation was cancelled." });
+      stepLog('Catalog', { jobId, endpoint, result: 'cancelled', made: sizesMade, seconds: secondsSince(startedAt), why: 'replaced by a newer job or the caller hung up' });
       return;
     }
 
@@ -367,11 +371,12 @@ async function runSSEGeneration(req, res, {
       mode: userPhoto ? "USER_PHOTO" : "MODEL"
     });
 
-    console.log(`MEN'S ${modeName} GENERATION COMPLETE`);
+    stepLog('Catalog', { jobId, endpoint, garment: category, result: 'complete', made: sizesMade, failed: sizesFailed || null, seconds: secondsSince(startedAt) });
 
   } catch (error) {
 
     console.error(`MEN'S ${modeName} GENERATION ERROR:`, error);
+    stepLog('Catalog', { jobId, endpoint, result: 'failed', made: sizesMade, seconds: secondsSince(startedAt), why: error && error.message });
 
     if (error.name === "AbortError" || controller.signal.aborted) {
       sendEvent({
@@ -446,7 +451,9 @@ router.post(
         }
       }
 
+      const adviceStarted = Date.now();
       const result = await recommendSizeFromPhoto(userPhoto);
+      stepLog('Catalog', { endpoint: 'men-recommend-size', account: req.account, result: 'advised', size: result && (result.recommendedSize || result.size), seconds: secondsSince(adviceStarted) });
       return res.json({ success: true, ...result });
 
 

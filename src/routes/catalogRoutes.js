@@ -20,6 +20,7 @@ const { admitGeneration, cancelGeneration } = require('../middleware/generationG
 const { parseColourVariant, colourSummary } = require('../services/colourVariant');
 const { publicMessage } = require('../lib/publicError');
 const billing = require('../modules/billing/billing.service');
+const { stepLog, secondsSince } = require('../lib/stepLog');
 
 /** A job-status write must never take the stream down with it. */
 async function recordJob(jobId, data) {
@@ -57,6 +58,7 @@ router.post('/cancel-job/women', async (req, res) => {
 router.post('/generate-catalog/women', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;
+  let viewsDelivered = 0;
   let heartbeat = null;
   let admitted = null;
 
@@ -131,19 +133,12 @@ router.post('/generate-catalog/women', async (req, res) => {
         error: 'This jobId was already delivered and charged. Send a new jobId to make another catalog.'
       });
     }
-    let viewsDelivered = 0;
+    viewsDelivered = 0;
 
     // 1. Fetch the exact 4 Base Poses from the Database for this model
     const model = await prisma.aiModel.findUnique({
       where: { id: modelId }
     });
-    console.log('===== MODEL SELECTED =====');
-console.log('modelId:', modelId);
-console.log('frontBaseUrl:', model?.frontBaseUrl);
-console.log('backBaseUrl:', model?.backBaseUrl);
-console.log('sideBaseUrl:', model?.sideBaseUrl);
-console.log('sittingBaseUrl:', model?.sittingBaseUrl);
-console.log('==========================');
 
     if (!model) {
       return res.status(404).json({ success: false, error: 'AI Model not found' });
@@ -161,7 +156,6 @@ console.log('==========================');
         
         const baseUrlPath = model.frontBaseUrl.substring(0, model.frontBaseUrl.lastIndexOf('/'));
         finalFrontBaseUrl = `${baseUrlPath}/${specialFileName}`;
-        console.log("DUPATTA OVERRIDE: Using special front image:", finalFrontBaseUrl);
       }
     }
 
@@ -191,6 +185,8 @@ console.log('==========================');
       }
     });
     jobId = job.id;
+    stepLog('Catalog', { jobId, endpoint: 'women', account: req.account, garment: safeCategory, model: modelId, colour: variant ? variant.colorName : null, result: 'started' });
+    let lastViewAt = Date.now();
 
     // --- SSE STREAMING INITIALIZATION ---
     res.setHeader('Content-Type', 'text/event-stream');
@@ -238,6 +234,8 @@ console.log('==========================');
         // Fire events back to the client the millisecond a view finishes!
         res.write(`data: ${JSON.stringify({ type: 'VIEW_READY', ...progressEvent })}\n\n`);
         viewsDelivered += 1;
+        stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, item: progressEvent.view, result: 'made', seconds: secondsSince(lastViewAt) });
+        lastViewAt = Date.now();
       },
       abortController.signal
     );
@@ -259,12 +257,13 @@ console.log('==========================');
     // 5. Close stream
     res.write(`data: ${JSON.stringify(variant ? { type: 'COMPLETE', jobId: jobId, colorVariant: variant } : { type: 'COMPLETE', jobId: jobId })}\n\n`);
     res.end();
+    stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, result: 'complete', views: viewsDelivered, seconds: secondsSince(startTime) });
 
   } catch (error) {
     const open = res.headersSent && !res.writableEnded && !res.destroyed;
     const message = String((error && error.message) || error);
     if ((error && error.name === 'AbortError') || message.includes('AbortError')) {
-      console.log(`Job ${jobId} was aborted (Likely due to Zombie Killer or client disconnect).`);
+      stepLog('Catalog', { jobId, endpoint: 'women', result: 'cancelled', views: viewsDelivered, seconds: secondsSince(startTime), why: 'replaced by a newer job or the caller hung up' });
       await recordJob(jobId, { status: 'CANCELLED', latencyMs: Date.now() - startTime });
       // Replaced by a newer job or cancelled from elsewhere while the caller is
       // still listening: say so, so the caller does not read the end of the
@@ -277,6 +276,7 @@ console.log('==========================');
     }
 
     console.error(`[Catalog] job ${jobId} failed:`, message);
+    stepLog('Catalog', { jobId, endpoint: 'women', result: 'failed', views: viewsDelivered, seconds: secondsSince(startTime), code: error && error.code });
     await recordJob(jobId, { status: 'FAILED', errorMessage: message.slice(0, 1000), latencyMs: Date.now() - startTime });
 
     const error_ = publicMessage(error);

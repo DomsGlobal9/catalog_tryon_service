@@ -28,6 +28,7 @@ const { generateImage } = require('./geminiImage');
 const { reviewImage, reviewView, reviewLabels, correctionsText } = require('./qualityCheck');
 const { garmentGuide, taxonomy } = require('./garmentGuide');
 const { framePerson, makeDresser } = require('./drapeOnPerson');
+const { stepLog, secondsSince, checkWord } = require('../../lib/stepLog');
 const resultStore = require('./resultStore');
 const { admitGeneration, cancelGeneration } = require('../../middleware/generationGuard');
 
@@ -325,6 +326,8 @@ async function generate(req, res, next) {
     let early = null; // { from: front image, plan, draft: Promise, stop: AbortController }
     try {
     for (const view of views) {
+      const viewStarted = Date.now();
+      const attemptsBefore = attempts;
       let plan;
       let result;
       if (view === 'back' && early && frontResult && early.from === frontResult.image) {
@@ -365,6 +368,11 @@ async function generate(req, res, next) {
         height: result.image.height,
         bytes: result.image.bytes,
         image: `data:${result.image.mimeType};base64,${result.image.base64}`
+      });
+      stepLog('DesignStudio', {
+        requestId, jobId: admitted.job.id, endpoint: 'generate', garment: job.garmentId, item: isSketch ? 'sheet' : view || viewPrompt.pose,
+        result: 'made', seconds: secondsSince(viewStarted), attempts: attempts - attemptsBefore, check: checkWord(quality),
+        redone: quality && quality.regenerated ? 'yes' : null, ownPhoto: ownPhoto ? 'yes' : null, size: `${result.image.width}x${result.image.height}`
       });
     }
     } finally {

@@ -27,6 +27,7 @@ const { resolvePartsRequest } = require('./request');
 const { locateParts } = require('./locate');
 const { cutPart } = require('./cut');
 const { enhancePart } = require('./enhance');
+const { stepLog, secondsSince, checkWord } = require('../../../lib/stepLog');
 
 const MESSAGES = {
   not_visible: (p, job) => `The ${p.name.toLowerCase()} is not in ${job.photos.length > 1 ? 'these photos' : 'this photo'}. Send a photo that shows it.`,
@@ -148,6 +149,7 @@ async function parts(req, res, next) {
     for (const f of located.found.filter((x) => x.status !== 'found')) {
       summary.notFound += 1;
       send({ type: 'part', jobId, area: f.areaId, name: f.name, found: false, reason: f.status.toUpperCase(), message: MESSAGES[f.status](f, job) });
+      stepLog('DesignStudio', { requestId, jobId, endpoint: 'parts', garment: job.garmentId, item: f.areaId, result: f.status === 'too_small' ? 'too_small' : 'not_in_photo', px: f.px });
     }
 
     // Step two: each found part, cut and made sharp, side by side. Parts found in the same place of
@@ -157,15 +159,24 @@ async function parts(req, res, next) {
     const groups = groupSameSpot(located.found.filter((f) => f.status === 'found'));
     await pool(groups, config.parts.concurrency, async ({ lead, followers }) => {
       if (abort.signal.aborted) return;
+      const partStarted = Date.now();
       const part = job.parts.find((p) => p.areaId === lead.areaId);
       const cut = await cutPart(lead.photo.image, lead.box);
       const source = { photo: lead.photo.index, box: [lead.box.y0, lead.box.x0, lead.box.y1, lead.box.x1], cut: { width: cut.rect.width, height: cut.rect.height } };
-      const deliver = (fields) => {
+      const deliver = (fields, partAttempts = 0) => {
         for (const [i, f] of [lead, ...followers].entries()) {
           summary.made += 1;
           if (fields.enhanced) summary.enhanced += 1;
           if (fields.error) summary.fallback += 1;
           send({ type: 'part', jobId, area: f.areaId, name: f.name, found: true, source, lowDetail: cut.lowDetail, ...(i ? { sameAs: lead.areaId } : {}), ...fields });
+          stepLog('DesignStudio', {
+            requestId, jobId, endpoint: 'parts', garment: job.garmentId, item: f.areaId,
+            result: fields.error ? 'plain_cut_ai_failed' : fields.enhanced ? 'made' : 'plain_cut',
+            seconds: secondsSince(partStarted), attempts: i ? 0 : partAttempts,
+            check: fields.enhanced ? checkWord(fields.quality) : null, redone: fields.quality && fields.quality.regenerated ? 'yes' : null,
+            sameAs: i ? lead.areaId : null, lowDetail: cut.lowDetail ? 'yes' : null, cut: `${cut.rect.width}x${cut.rect.height}`,
+            error: fields.error ? fields.error.code : null
+          });
         }
       };
       if (!job.enhance) {
@@ -176,7 +187,7 @@ async function parts(req, res, next) {
       try {
         const made = await enhancePart(job, part, cut, { signal: abort.signal });
         attempts += made.attempts;
-        deliver({ enhanced: true, quality: made.quality, mimeType: made.image.mimeType, width: made.image.width, height: made.image.height, image: dataUri(made.image) });
+        deliver({ enhanced: true, quality: made.quality, mimeType: made.image.mimeType, width: made.image.width, height: made.image.height, image: dataUri(made.image) }, made.attempts);
       } catch (err) {
         if ((err instanceof StudioError && err.code === 'CANCELLED') || abort.signal.aborted) throw err;
         console.warn(`[DesignStudio] requestId=${requestId} part ${lead.areaId} not enhanced: ${err.code || ''} ${redact(err.message || '')}`);
