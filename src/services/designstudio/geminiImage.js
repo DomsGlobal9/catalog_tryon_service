@@ -17,6 +17,7 @@ const sharp = require('sharp');
 const { config } = require('./config');
 const { StudioError, redact } = require('./errors');
 const { aiLog, secondsSince } = require('../../lib/stepLog');
+const { isLimit, quotaWaitMs } = require('../../lib/aiLimits');
 
 let fetchImpl = (...args) => fetch(...args);
 let sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -92,12 +93,14 @@ async function attempt(body, signal, timeoutMs) {
       // Not "billing": Google's ordinary per-minute 429 says "check your plan and
       // billing details" too, and that one clears in seconds. A spent DAILY quota
       // names a PerDay quota id.
-      if (/spending cap|spend cap|budget|exceeded its monthly|PerDay/i.test(detail)) {
+      if (isLimit(response.status, detail)) {
         console.error(`[DesignStudio] image model quota/spending cap reached: ${redact(detail).slice(0, 200)}`);
-        throw new StudioError(
+        const limit = new StudioError(
           'The image model has reached its spending cap or quota for this deployment. Generation is unavailable until that is raised.',
           { status: 424, code: 'MODEL_QUOTA_EXCEEDED' }
         );
+        limit.retryAfterMs = quotaWaitMs(detail); // asked once more after this wait (lib/aiLimits.js)
+        throw limit;
       }
       throw new RetryableFailure(`image model busy (HTTP ${response.status}) ${redact(detail).slice(0, 160)}`,
         { kind: 'busy', retryAfterMs: Number.isFinite(retryAfter) ? Math.min(retryAfter * 1000, 10000) : 0 });
@@ -181,6 +184,7 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio,
   let busyRetries = 0;
   let noImageRetries = 0;
   let timeoutRetries = 0;
+  let quotaRetries = 0;
   let attempts = 0;
   let lastFailure = null;
 
@@ -197,8 +201,16 @@ async function generateImage(parts, { signal, onAttempt, imageSize, aspectRatio,
       if (attempts > 1) aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'ok_after_retry', seconds: secondsSince(attemptStarted) });
       return { image, attempts, usage: result.usage, modelText: result.text, finishReason: result.finishReason };
     } catch (err) {
+      // A limit refusal is asked once more after a wait: measured 19 Nov, they came and went in minutes.
+      if (err instanceof StudioError && err.code === 'MODEL_QUOTA_EXCEEDED' && quotaRetries < 1 && Date.now() + err.retryAfterMs + 1000 < deadline) {
+        quotaRetries += 1;
+        aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'retrying', reason: 'Gemini usage limit reached', waitSeconds: Math.round(err.retryAfterMs / 100) / 10, why: 'a limit refusal often clears within minutes' });
+        await sleep(err.retryAfterMs);
+        if (signal && signal.aborted) throw new StudioError('Generation cancelled.', { status: 499, code: 'CANCELLED' });
+        continue;
+      }
       if (!(err instanceof RetryableFailure)) {
-        // Not retried: a refusal, a rejected request, a spending cap. Said once, clearly.
+        // Not retried: a refusal, a rejected request, a limit refused twice. Said once, clearly.
         if (!(err instanceof StudioError && err.code === 'CANCELLED')) {
           aiLog({ call: 'image', model: config.gemini.model, attempt: attempts, result: 'failed', code: err.code, reason: err.message, seconds: secondsSince(attemptStarted) });
         }

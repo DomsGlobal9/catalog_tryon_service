@@ -25,6 +25,7 @@ async function runAll({ check, eq, section, SRC }) {
     GEMINI_API_KEY: 'AIzaFAKE_TEST_KEY_never_sent_anywhere_000',
     DESIGNSTUDIO_RETRY_BASE_MS: '5',
     DESIGNSTUDIO_CHECK_RETRY_MS: '5',
+    AI_QUOTA_RETRY_MS: '5',
     DESIGNSTUDIO_HEARTBEAT_MS: '60',
     // The endpoint tests below read every event; the image-only default is tested on its own.
     DESIGNSTUDIO_STREAM_DETAIL: 'full',
@@ -1452,7 +1453,7 @@ async function runAll({ check, eq, section, SRC }) {
   // Seen for real: a spent spending cap arrives as 429, exactly like "too busy".
   calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Your project has exceeded its monthly spending cap. Please go to AI Studio to manage your project spend cap.' } }), { status: 429 })]);
   out = await run();
-  eq('a spending cap is reported at once, not retried three times', [out.error.code, out.error.status, calls.length, out.error.retryable], ['MODEL_QUOTA_EXCEEDED', 424, 1, false]);
+  eq('a spending cap is asked once more after a wait (19 Nov: such refusals cleared in minutes), then reported - never retried three times', [out.error.code, out.error.status, calls.length, out.error.retryable], ['MODEL_QUOTA_EXCEEDED', 424, 2, false]);
   check('and the message tells an operator what to do', /spending cap or quota/.test(out.error.message), out.error.message);
   calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).' } }), { status: 429 }), () => answer([imagePart(FINAL)])]);
   out = await run();
@@ -1466,7 +1467,10 @@ async function runAll({ check, eq, section, SRC }) {
   const perDay = JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel' }] }] } });
   calls = script([() => new Response(perDay, { status: 429 })]);
   out = await run();
-  eq('a spent DAILY quota is reported at once as MODEL_QUOTA_EXCEEDED', [out.error.code, calls.length], ['MODEL_QUOTA_EXCEEDED', 1]);
+  eq('a spent DAILY quota is asked once more, then reported as MODEL_QUOTA_EXCEEDED', [out.error.code, calls.length], ['MODEL_QUOTA_EXCEEDED', 2]);
+  calls = script([() => new Response(JSON.stringify({ error: { code: 429, message: 'Your project has exceeded its monthly spending cap.' } }), { status: 429 }), () => answer([imagePart(FINAL)])]);
+  out = await run();
+  eq('...and when the limit has cleared by then, the picture is made', [!!out.image, calls.length], [true, 2]);
   calls = script([() => new Response(JSON.stringify({ error: { code: 503, message: 'The model is overloaded. Please try again later.' } }), { status: 503 })]);
   out = await run();
   eq('still unavailable after retries: the caller gets our sentence, not Google\'s body',
@@ -2109,6 +2113,11 @@ async function runAll({ check, eq, section, SRC }) {
     const pErr = events.find((e) => e.type === 'error');
     eq('when no photo can be read, nothing is made: asked three times (with a wait before each retry), then a retryable error',
       [locateTries, pErr && pErr.code, pErr && pErr.retryable, pCalls.length], [3, 'PARTS_NOT_LOCATED', true, 0]);
+    partsLocate._setFetch(async () => new Response(JSON.stringify({ error: { code: 429, message: 'Your project has exceeded its monthly spending cap.', status: 'RESOURCE_EXHAUSTED' } }), { status: 429 }));
+    ({ events } = await readEvents(await post('/parts', { clientId: 'parts-limit', garment: 'BLOUSE', photo: IMG })));
+    const limitErr = events.find((e) => e.type === 'error');
+    eq('...and when the AI refuses for its usage limit, the error says so (not "the photo could not be read")',
+      [limitErr && limitErr.code, limitErr && limitErr.retryable, limitErr && /usage limit/.test(limitErr.message)], ['AI_LIMIT_REACHED', true, true]);
 
     // The photo is kept large and cut at full size; the part finder sees a small copy.
     const BIG = await png(3000, 4000, '#224466');

@@ -47,6 +47,7 @@ function cachedBaseModel(url, produce) {
 const { imageUrlToBase64, ImageFetchError } = require('../lib/fetchImage');
 const { providerLimitError } = require('../lib/publicError');
 const { aiLog, secondsSince } = require('../lib/stepLog');
+const { quotaWaitMs } = require('../lib/aiLimits');
 
 
 // ============================================================
@@ -308,6 +309,7 @@ async function callGeminiImageGen(
   let delay = 2000;
 
   const TRIES = retries;
+  let quotaRetried = false;
   const tryNo = () => TRIES - retries + 1;
   const callStarted = Date.now();
 
@@ -362,7 +364,16 @@ async function callGeminiImageGen(
 
         const limit = providerLimitError(resp.status, errText);
         if (limit) {
-          aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `spending cap or quota (HTTP ${resp.status})`, why: 'never clears on retry' });
+          // Asked once more after a wait: measured 19 Nov, limit refusals came and went in minutes (lib/aiLimits.js).
+          if (!quotaRetried) {
+            quotaRetried = true;
+            const wait = quotaWaitMs(errText);
+            aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'retrying', reason: `Gemini usage limit reached (HTTP ${resp.status})`, waitSeconds: wait / 1000, why: 'a limit refusal often clears within minutes' });
+            await new Promise((resolve) => setTimeout(resolve, wait));
+            if (abortSignal && abortSignal.aborted) throw new Error('AbortError: Generation cancelled by client');
+            continue;
+          }
+          aiLog({ call: 'catalog-image', attempt: tryNo(), of: TRIES, result: 'failed', reason: `Gemini usage limit reached (HTTP ${resp.status}), twice`, why: 'the AI account limit needs raising' });
           throw limit;
         }
 

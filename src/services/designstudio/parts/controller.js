@@ -137,6 +137,10 @@ async function parts(req, res, next) {
     job.locateMs = Date.now() - locateStarted;
     if (!located.answeredPhotos) {
       console.warn(`[DesignStudio] requestId=${requestId} parts not located: ${located.problems.join('; ')}`);
+      // Say what really happened: a usage limit is not a problem with the photo (19 Nov 2026).
+      if (located.limited) {
+        throw new StudioError('The AI service has reached its usage limit right now. Please try again in a few minutes.', { status: 429, code: 'AI_LIMIT_REACHED', retryable: true });
+      }
       throw new StudioError('The photo could not be read just now. Please try again in a moment.', { status: 424, code: 'PARTS_NOT_LOCATED', retryable: true });
     }
     // The back, when no photo shows it, is made by the AI from the front (owner, 19 Nov 2026), and the

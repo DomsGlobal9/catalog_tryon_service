@@ -14,6 +14,7 @@
 const sharp = require('sharp');
 const { config } = require('../config');
 const { aiLog } = require('../../../lib/stepLog');
+const { isLimit, quotaWaitMs } = require('../../../lib/aiLimits');
 const { partWhere } = require('./describe');
 
 let fetchImpl = (...args) => fetch(...args);
@@ -88,8 +89,11 @@ async function locateInPhoto(job, photo, { signal } = {}) {
   // Measured 19 Nov in production: two tries back to back both met the same Gemini overload, and the
   // whole request ended "photo could not be read". Three tries, with a short wait before each retry.
   const TRIES = 3;
+  let wait = 0;
+  let limited = false;
   for (let attempt = 1; attempt <= TRIES; attempt++) {
-    if (attempt > 1) await pause(1000 * (attempt - 1), signal);
+    if (attempt > 1) await pause(wait, signal);
+    wait = 1000 * attempt;
     const timeout = AbortSignal.timeout(config.parts.locateTimeoutMs);
     try {
       const response = await fetchImpl(`${config.gemini.baseUrl}/models/${encodeURIComponent(config.parts.locateModel)}:generateContent`, {
@@ -99,10 +103,15 @@ async function locateInPhoto(job, photo, { signal } = {}) {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout
       });
       if (!response.ok) {
+        const detail = await response.text().catch(() => '');
         problem = `HTTP ${response.status}`;
-        aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: attempt < TRIES ? 'retrying' : 'gave_up', reason: problem, waitSeconds: attempt < TRIES ? attempt : null });
+        // A usage-limit refusal: wait as long as Gemini asks (or 20 s), not 1-2 s (lib/aiLimits.js).
+        limited = response.status === 429 && (isLimit(response.status, detail) || /RESOURCE_EXHAUSTED|quota/i.test(detail));
+        if (limited) { problem = `HTTP ${response.status} usage limit`; wait = quotaWaitMs(detail); }
+        aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: attempt < TRIES ? 'retrying' : 'gave_up', reason: limited ? 'Gemini usage limit reached (HTTP 429)' : problem, waitSeconds: attempt < TRIES ? Math.round(wait / 100) / 10 : null });
         continue;
       }
+      limited = false;
       const json = await response.json();
       const text = ((((json.candidates || [])[0] || {}).content || {}).parts || []).filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
       const parsed = JSON.parse(text.replace(/```(?:json)?/gi, '').trim());
@@ -118,10 +127,11 @@ async function locateInPhoto(job, photo, { signal } = {}) {
     } catch (err) {
       if (signal && signal.aborted) throw err;
       problem = err && err.name === 'TimeoutError' ? 'timed out' : 'unreadable answer';
+      limited = false;
       aiLog({ call: 'find-parts', model: config.parts.locateModel, photo: photo.index, attempt, of: TRIES, result: attempt < TRIES ? 'retrying' : 'gave_up', reason: problem, waitSeconds: attempt < TRIES ? attempt : null });
     }
   }
-  return { problem };
+  return { problem, limited };
 }
 
 /** The part's short side in the photo as kept (photo.image.sent: up to parts.maxEdgePx), in pixels. */
@@ -155,7 +165,9 @@ async function locateParts(job, { signal } = {}) {
     if (best.px < config.parts.minPartPx) return { areaId: part.areaId, name: part.name, status: 'too_small', px: Math.round(best.px), photo: best.photo, note: best.note };
     return { areaId: part.areaId, name: part.name, status: 'found', photo: best.photo, box: best.box, px: Math.round(best.px), visible: best.visible, note: best.note };
   });
-  return { found, answeredPhotos: answered.length, problems: results.filter((r) => r.problem).map((r) => r.problem) };
+  return { found, answeredPhotos: answered.length, problems: results.filter((r) => r.problem).map((r) => r.problem),
+    // Every photo refused for the AI's usage limit, not for anything about the photo.
+    limited: results.length > 0 && results.every((r) => r.limited) };
 }
 
 const REFINE_SCHEMA = {

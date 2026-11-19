@@ -54,6 +54,8 @@ async function offline() {
   if (!process.env.SERPER_API_KEY) process.env.SERPER_API_KEY = 'offline-test-key-never-sent';
   // Offline means no database either: shared state runs in its in-memory mode.
   process.env.SHARED_STATE = 'off';
+  // A limit refusal is asked once more after this wait (lib/aiLimits.js); 20 s in production.
+  process.env.AI_QUOTA_RETRY_MS = '5';
 
   const taxonomy = require(path.join(SRC, 'modules/discovery/taxonomy'));
   const { parseInstruction } = require(path.join(SRC, 'modules/discovery/services/instructionParser'));
@@ -364,8 +366,8 @@ async function offline() {
       await svc.callGeminiImageGen([{ text: 'x' }], null);
       check(label + ': a spent spending cap fails at once with a plain, shown message', false, 'did not throw');
     } catch (err) {
-      check(label + ': a spent spending cap fails at once with a plain, shown message (no retries)',
-        calls === 1 && err.code === 'PROVIDER_LIMIT_REACHED' && err.expose === true && /spending limit/.test(err.message), `calls ${calls}: ${err.message}`);
+      check(label + ': a spending cap is asked once more after a wait (it can clear in minutes), then fails with a plain, shown message - never three times',
+        calls === 2 && err.code === 'PROVIDER_LIMIT_REACHED' && err.expose === true && /spending limit/.test(err.message), `calls ${calls}: ${err.message}`);
     }
     calls = 0;
     global.fetch = async () => { calls++; return answer(503, '{"error":{"code":503,"message":"The model is overloaded."}}'); };

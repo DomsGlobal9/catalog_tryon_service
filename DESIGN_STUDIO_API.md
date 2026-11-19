@@ -954,9 +954,12 @@ Parts are made side by side, so `part` events arrive **in any order**: match the
 | `generated` | `true` (with `from: "front"` and a `message`): this part is not from any photo - the AI made it from the front, because no back photo was sent. Show the message beside it. |
 | `sameAs` | This part was found in the same place as another part of the same photo (a saree's border and its zari work), so the same close-up is sent under both names. Made - and paid for - once. |
 
-`GET /result/{jobId}` returns `located`, every `part` and `done`. Errors in the stream: `PARTS_NOT_LOCATED`
-(the photos could not be read twice; nothing was made; retry). Before the stream: `400` (an unknown part,
-more than 3 photos, more than 8 parts), `422 IMAGE_UNUSABLE`, `429`.
+`GET /result/{jobId}` returns `located`, every `part` and `done`. Errors in the stream:
+`PARTS_NOT_LOCATED` (the photos could not be read in three tries; nothing was made; retry) and
+`AI_LIMIT_REACHED` (the AI service refused for its usage limit - nothing is wrong with the photo; retry in
+a few minutes). A part refused for the limit comes back as the plain cut with `error.code`
+`MODEL_QUOTA_EXCEEDED`. Every limit refusal is asked once more after a short wait before it is reported.
+Before the stream: `400` (an unknown part, more than 3 photos, more than 8 parts), `422 IMAGE_UNUSABLE`, `429`.
 
 ---
 
