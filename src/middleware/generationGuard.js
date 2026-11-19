@@ -2,9 +2,10 @@
 // generationGuard.js — the checks every generation passes before it starts.
 // =============================================================================
 //
-// 1. Per-customer budget: GENERATION_RATE_LIMIT_PER_HOUR generations per hour
-//    (0 turns it off), counted across all servers.
-// 2. This server's capacity (see lib/capacity.js).
+// 1. Per-customer budget, per product (19 Nov 2026): GENERATION_RATE_LIMIT_PER_HOUR catalog
+//    generations per hour, GENERATION_RATE_LIMIT_PER_HOUR_STUDIO Design Studio ones (0 turns
+//    one off), counted across all servers. Design Studio no longer eats the catalog's budget.
+// 2. This server's capacity for that product (see lib/capacity.js).
 // 3. Replace this owner's previous job, wherever it is running, then list the
 //    new one so a later cancel can find it from any server.
 //
@@ -17,7 +18,15 @@ const capacity = require('../lib/capacity');
 const { ownerKey, budgetKey } = require('./identity');
 
 const PER_HOUR = Number(process.env.GENERATION_RATE_LIMIT_PER_HOUR ?? 60);
+const PER_HOUR_STUDIO = Number(process.env.GENERATION_RATE_LIMIT_PER_HOUR_STUDIO ?? PER_HOUR);
 const CAPACITY_RETRY_SEC = 10;
+
+// Which product's slots and budget a pipeline uses. Women's and men's catalog are one product.
+const PRODUCT_OF = { women: 'catalog', men: 'catalog', designstudio: 'studio' };
+const productOf = (pipeline) => PRODUCT_OF[pipeline] || 'catalog';
+const limitOf = (product) => (product === 'studio' ? PER_HOUR_STUDIO : PER_HOUR);
+// The catalog keeps its old bucket name, so counts already running are not reset.
+const bucketOf = (product, req, clientId) => (product === 'catalog' ? `generation:${budgetKey(req, clientId)}` : `generation:${product}:${budgetKey(req, clientId)}`);
 
 function refuse(res, retryAfterSec, error, extra = {}) {
   res.set('Retry-After', String(retryAfterSec));
@@ -32,13 +41,15 @@ function refuse(res, retryAfterSec, error, extra = {}) {
 async function admitGeneration(req, res, { clientId, pipeline }) {
   // Budget first, so a customer who is out of budget never has their running job
   // stopped by a request that is about to be refused anyway.
-  const bucket = `generation:${budgetKey(req, clientId)}`;
-  if (PER_HOUR > 0) {
-    const budget = await shared.rateLimiter.consume(bucket, 1, { limit: PER_HOUR, windowSec: 3600 });
+  const product = productOf(pipeline);
+  const perHour = limitOf(product);
+  const bucket = bucketOf(product, req, clientId);
+  if (perHour > 0) {
+    const budget = await shared.rateLimiter.consume(bucket, 1, { limit: perHour, windowSec: 3600 });
     if (!budget.allowed) {
-      console.warn(`[Limit] generation refused for ${budgetKey(req, clientId)}: ${budget.used}/${PER_HOUR} this hour`);
+      console.warn(`[Limit] ${product} generation refused for ${budgetKey(req, clientId)}: ${budget.used}/${perHour} this hour`);
       return refuse(res, budget.retryAfterSec,
-        `Generation limit reached: ${PER_HOUR} per hour. Retry in ${budget.retryAfterSec}s.`);
+        `Generation limit reached: ${perHour} per hour. Retry in ${budget.retryAfterSec}s.`);
     }
   }
 
@@ -48,12 +59,12 @@ async function admitGeneration(req, res, { clientId, pipeline }) {
   const replaced = await shared.jobs.cancel(key);
   if (replaced) console.log(`[Zombie Killer] ${key} started a new job; stopped the previous one.`);
 
-  const releaseSlot = capacity.tryAcquire();
+  const releaseSlot = capacity.tryAcquire(product);
   if (!releaseSlot) {
     // Refused for this server's load, not the customer's use: give the unit back.
-    if (PER_HOUR > 0) await shared.rateLimiter.refund(bucket, 1, { windowSec: 3600 });
-    const { activeGenerations, maxConcurrent } = capacity.stats();
-    console.warn(`[Capacity] Rejecting ${pipeline} generation for ${clientId}: ${activeGenerations}/${maxConcurrent} slots in use.`);
+    if (perHour > 0) await shared.rateLimiter.refund(bucket, 1, { windowSec: 3600 });
+    const { activeGenerations, maxConcurrent } = capacity.stats(product);
+    console.warn(`[Capacity] Rejecting ${pipeline} generation for ${clientId}: ${activeGenerations}/${maxConcurrent} ${product} slots in use.`);
     return refuse(res, CAPACITY_RETRY_SEC, 'Service at capacity. Please retry shortly.', { activeGenerations, maxConcurrent });
   }
 

@@ -1601,7 +1601,7 @@ async function runAll({ check, eq, section, SRC }) {
     check('done reports attempts and timings', doneEvent.status === 'ok' && doneEvent.attempts === 2 && doneEvent.timings.totalMs >= doneEvent.timings.generateMs, JSON.stringify(doneEvent.timings));
     const sentParts = calls[calls.length - 1].body.contents[0].parts;
     eq('Gemini received 3 images (2 designs, 1 fabric) with their labels', sentParts.filter((p) => p.inlineData).length, 3);
-    eq('the capacity slot is given back afterwards', capacity.stats().activeGenerations, 0);
+    eq('the capacity slot is given back afterwards (Design Studio has its own pool)', capacity.stats('studio').activeGenerations, 0);
 
     // The describe step failing must not stop a generation.
     describe._setFetch(describeAnswer('service down', 503));
@@ -1854,7 +1854,7 @@ async function runAll({ check, eq, section, SRC }) {
     await reader.read();
     leaving.abort();
     await new Promise((r) => setTimeout(r, 150));
-    eq('a caller who disconnects stops the Gemini call and frees the slot', [geminiSignal && geminiSignal.aborted, capacity.stats().activeGenerations], [true, 0]);
+    eq('a caller who disconnects stops the Gemini call and frees the slot', [geminiSignal && geminiSignal.aborted, capacity.stats('studio').activeGenerations], [true, 0]);
 
     res = await post('/cancel', {});
     eq('cancel without clientId is 400', res.status, 400);

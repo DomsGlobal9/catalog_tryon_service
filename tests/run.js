@@ -994,6 +994,8 @@ async function sharedStateWithoutDatabase() {
   process.env.SHARED_STATE = 'off';
   process.env.GENERATION_RATE_LIMIT_PER_HOUR = '2';
   process.env.MAX_CONCURRENT_GENERATIONS = '1';
+  // Design Studio's own pool (since 19 Nov 2026), also one slot here: its tests fill it on purpose.
+  process.env.MAX_CONCURRENT_STUDIO = '1';
   const { admitGeneration, cancelGeneration } = require(path.join(SRC, 'middleware/generationGuard'));
   const capacity = require(path.join(SRC, 'lib/capacity'));
   const fakeReq = (account) => ({ account });
@@ -1026,6 +1028,25 @@ async function sharedStateWithoutDatabase() {
     check('budget refusal says when to retry', Number(res4.headers['retry-after']) >= 1 && Number(res4.headers['retry-after']) <= 3600 && /per hour/.test(res4.body.error),
       'Retry-After ' + res4.headers['retry-after'] + ': ' + res4.body.error);
     eq('every slot released', capacity.stats().activeGenerations, 0);
+
+    // 19 Nov 2026 (owner: "new buckets for every service"): one pool and one budget per product.
+    console.log = () => {}; console.warn = () => {};
+    const busyCatalog = await admitGeneration(fakeReq('C'), fakeRes(), { clientId: 'c1', pipeline: 'women' });
+    const studioWhileBusy = await admitGeneration(fakeReq('D'), fakeRes(), { clientId: 'd1', pipeline: 'designstudio' });
+    const catalogBlockedRes = fakeRes();
+    const catalogBlocked = await admitGeneration(fakeReq('E'), catalogBlockedRes, { clientId: 'e1', pipeline: 'men' });
+    const poolsDuring = [capacity.stats('catalog').activeGenerations, capacity.stats('studio').activeGenerations];
+    await busyCatalog.release(); await studioWhileBusy.release();
+    // Account A spent its catalog budget above (2 of 2 this hour).
+    const studioForSpentRes = fakeRes();
+    const studioForSpent = await admitGeneration(fakeReq('A'), studioForSpentRes, { clientId: 'u3', pipeline: 'designstudio' });
+    if (studioForSpent) await studioForSpent.release();
+    console.log = silence; console.warn = silenceWarn;
+    eq('a full catalog pool does not block Design Studio - its own slots - while catalog is still refused (429)',
+      [!!busyCatalog, !!studioWhileBusy, catalogBlocked, catalogBlockedRes.statusCode, poolsDuring], [true, true, null, 429, [1, 1]]);
+    eq('Design Studio has its own hourly budget: an account out of catalog budget still gets in',
+      [!!studioForSpent, studioForSpentRes.statusCode], [true, 200]);
+    eq('all pools are given back', capacity.allStats(), { catalog: { activeGenerations: 0, maxConcurrent: 1 }, studio: { activeGenerations: 0, maxConcurrent: 1 } });
     // COLOUR VARIANTS, at the route: a bad colour is refused as a JSON 400 before
     // it touches the database or takes a generation slot. (Lives here because
     // loading the route loads the capacity module, whose limits this section sets.)

@@ -302,4 +302,4 @@ async function shutdown() {
 
 module.exports = router;
 module.exports.shutdown = shutdown;
-module.exports.stats = () => ({ ...capacity.stats(), ...shared.jobs.stats() });
+module.exports.stats = () => ({ ...capacity.stats(), pools: capacity.allStats(), ...shared.jobs.stats() });
