@@ -183,6 +183,14 @@ const FOLDED = 'neatly folded into a flat rectangle';
       const front = images.find((c) => c.refs[0] === 'GARMENT REFERENCE' && c.refs.includes('SAREE DETAIL 1'));
       check('the front view gets SAREE DETAIL 1 and 2, told they are the same saree', !!front && front.refs.includes('SAREE DETAIL 2') && /not a second garment/.test(front.text), images.map((c) => c.refs));
       const viewCalls = images.filter((c) => !c.text.includes('product photographer'));
+      check('without a colour variant the extras are copied exactly, colours too', /Copy these details exactly/.test(front.text) && !/NOT its colours/.test(front.text));
+      images.length = 0;
+      await ai.generate4ViewCatalog({ fullDress: saree, category: 'SAREE', prepared, colour: { name: 'Royal Blue', hex: '#2745A8' } }, BASES, () => {});
+      const recoloured = images.find((c) => c.refs[0] === 'GARMENT REFERENCE');
+      check('with a colour variant the extras give the design only, never their old colour', recoloured && (recoloured.text.match(/NOT its colours: the colours follow the colour instruction/g) || []).length === 2, recoloured && recoloured.text.slice(-600));
+      images.length = 0; checks.length = 0; events.length = 0;
+      await ai.generate4ViewCatalog({ fullDress: saree, category: 'SAREE', prepared,
+        afterFront: (front2, refs) => shots.makeProductShots({ ...refs, front: front2 }, { generate: ai.callGeminiImageGen, onShot: (s) => events.push(s) }) }, BASES, () => {});
       check('side and sitting do not get the extras (they copy the front)', viewCalls.filter((c) => c.refs.includes('SAREE DETAIL 1')).length === 1, viewCalls.length);
       const shotCalls = images.filter((c) => c.text.includes('product photographer'));
       check('every shot gets SAREE, SAREE DETAIL 1, SAREE DETAIL 2 and the FRONT VIEW', shotCalls.length === 3 && shotCalls.every((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,SAREE DETAIL 2,FRONT VIEW'), shotCalls.map((c) => c.refs));

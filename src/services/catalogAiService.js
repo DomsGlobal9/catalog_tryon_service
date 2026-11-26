@@ -434,7 +434,11 @@ const buildPayloadParts = (
 
         // More photos of the same saree (owner, 26 Nov): the pallu and border are copied, not guessed.
         processedExtras.forEach((extra, i) => {
-          parts.push({ text: `SAREE DETAIL ${i + 1} — another photo of the SAME saree (its pallu, border or a close-up). Copy these details exactly; it is not a second garment:` });
+          // With a colour variant the extra photos are in the OLD colour: they give the design only.
+          const what = colour
+            ? 'Copy its pallu and border DESIGN exactly, but NOT its colours: the colours follow the colour instruction above'
+            : 'Copy these details exactly';
+          parts.push({ text: `SAREE DETAIL ${i + 1} — another photo of the SAME saree (its pallu, border or a close-up). ${what}; it is not a second garment:` });
           parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(extra) } });
         });
 
