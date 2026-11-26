@@ -320,11 +320,20 @@ async function prepareGarment(input, abortSignal) {
  * Raw base64 for saree/blouse/extras (what generate4ViewCatalog takes); front as a data URI.
  */
 async function prepareInputs({ saree, blouse = null, extras = [], front = null }, abortSignal) {
+  // With up to six photos in one request, a refusal names the photo (production, 26 Nov: "An image
+  // link could not be downloaded" left the caller guessing which of them was meant).
+  const named = (label, input) => prepareGarment(input, abortSignal).catch((err) => {
+    if (err && err.expose && typeof err.message === 'string' && !err.named) {
+      err.message = `${label}: ${err.message.charAt(0).toLowerCase()}${err.message.slice(1)}`;
+      err.named = true;
+    }
+    throw err;
+  });
   const [s, b, f, ...x] = await Promise.all([
-    prepareGarment(saree, abortSignal),
-    prepareGarment(blouse, abortSignal),
-    prepareGarment(front, abortSignal),
-    ...extras.map((e) => prepareGarment(e, abortSignal))
+    named('The saree photo (saree)', saree),
+    named('The blouse photo (blouse)', blouse),
+    named('The front view (frontView)', front),
+    ...extras.map((e, i) => named(`Extra photo ${i + 1} (sareeExtras)`, e))
   ]);
   return { saree: s, blouse: b, extras: x, front: f ? `data:${INPUT_MIME};base64,${f}` : null };
 }

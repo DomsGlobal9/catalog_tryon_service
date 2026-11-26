@@ -266,6 +266,16 @@ const FOLDED = 'neatly folded into a flat rectangle';
     check('the shots got the saree, the extra, the blouse (folded/table) and the sent front view', images.filter((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,BLOUSE,FRONT VIEW').length === 2 && images.filter((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,FRONT VIEW').length === 1, images.map((c) => c.refs));
     check('the extra was checked to be the same saree', sameChecks.length === 1);
 
+    // 7c2. A bad photo among several is named.
+    const bad = streamRes();
+    await handler({ body: { clientId: 'shots-only-test-bad', saree, sareeExtras: [saree, 'bm90IGFuIGltYWdl'], productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, bad);
+    const badErr = bad.events.find((e) => e.type === 'ERROR');
+    check('an unreadable extra is named: "Extra photo 2 (sareeExtras): a garment image could not be read"', badErr && badErr.code === 'INVALID_IMAGE' && badErr.error.startsWith('Extra photo 2 (sareeExtras): a garment image could not be read'), badErr);
+    const badFront = streamRes();
+    await handler({ body: { clientId: 'shots-only-test-bad2', saree, frontView: 'bm90IGFuIGltYWdl', productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, badFront);
+    const badFrontErr = badFront.events.find((e) => e.type === 'ERROR');
+    check('an unreadable frontView is named', badFrontErr && badFrontErr.error.startsWith('The front view (frontView): '), badFrontErr);
+
     // 7d. A different saree among the extras: refused in the stream, nothing drawn.
     images.length = 0; sameChecks.length = 0;
     sameSareeFor = () => ({ same_saree: false, evidence: 'a plain green saree' });
