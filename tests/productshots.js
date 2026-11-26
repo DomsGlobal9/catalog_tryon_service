@@ -32,6 +32,8 @@ const FOLDED = 'neatly folded into a flat rectangle';
   const checks = [];   // every checker call
   let verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, same_spacing: true, no_person: true, evidence: 'none' });
   let failImageWhen = () => false;
+  const sameChecks = [];  // every "is this extra photo the same saree?" call
+  let sameSareeFor = () => ({ same_saree: true, evidence: 'same saree' });
   const reply = (await sharp({ create: { width: 300, height: 400, channels: 3, background: '#7a1f2b' } }).jpeg().toBuffer()).toString('base64');
   const server = http.createServer((req, res) => {
     let body = '';
@@ -42,11 +44,16 @@ const FOLDED = 'neatly folded into a flat rectangle';
       const text = parts.filter((p) => p.text).map((p) => p.text).join('\n');
       res.setHeader('content-type', 'application/json');
       if (parsed.generationConfig && parsed.generationConfig.responseSchema) {
+        if (parsed.generationConfig.responseSchema.properties.same_saree) {
+          sameChecks.push(text);
+          res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(sameSareeFor(sameChecks.length)) }] } }] }));
+          return;
+        }
         checks.push(text);
         res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(verdictFor(checks.length)) }] } }] }));
         return;
       }
-      images.push({ text, refs: parts.filter((p) => p.text && /^[A-Z ]+ - /.test(p.text)).map((p) => p.text.split(' - ')[0]) });
+      images.push({ text, refs: parts.filter((p) => p.text && /^[A-Z0-9 ]+ (-|—) /.test(p.text)).map((p) => p.text.split(/ (?:-|—) /)[0]) });
       if (failImageWhen(text)) { res.statusCode = 400; res.end(JSON.stringify({ error: { message: 'stand-in refusal' } })); return; }
       res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inline_data: { mime_type: 'image/jpeg', data: reply } }] } }] }));
     });
@@ -160,6 +167,40 @@ const FOLDED = 'neatly folded into a flat rectangle';
     check('a pinned random picks the first and last setting', pickPlace(pleats, () => 0) === pleats.places[0] && pickPlace(pleats, () => 0.9999) === pleats.places[pleats.places.length - 1]);
     check('the pleats fan is gone (owner, 26 Nov)', !SHOTS.some((s) => s.id === 'pleats' || /hand fan/.test(s.scene)));
 
+    // 6b. Extra photos of the same saree reach the front view, every shot and every check.
+    {
+      images.length = 0; checks.length = 0; sameChecks.length = 0;
+      const pallu = await jpeg('#a01f5c');
+      const border = await jpeg('#d4af37');
+      const prepared = await ai.prepareInputs({ saree, extras: [pallu, border] });
+      check('prepareInputs gives the saree and both extras', !!prepared.saree && prepared.extras.length === 2 && prepared.blouse === null && prepared.front === null);
+      const events = [];
+      console.log('\nWith two extra saree photos');
+      await ai.generate4ViewCatalog(
+        { fullDress: saree, category: 'SAREE', prepared,
+          afterFront: (front, refs) => shots.makeProductShots({ ...refs, front }, { generate: ai.callGeminiImageGen, onShot: (s) => events.push(s) }) },
+        BASES, () => {});
+      const front = images.find((c) => c.refs[0] === 'GARMENT REFERENCE' && c.refs.includes('SAREE DETAIL 1'));
+      check('the front view gets SAREE DETAIL 1 and 2, told they are the same saree', !!front && front.refs.includes('SAREE DETAIL 2') && /not a second garment/.test(front.text), images.map((c) => c.refs));
+      const viewCalls = images.filter((c) => !c.text.includes('product photographer'));
+      check('side and sitting do not get the extras (they copy the front)', viewCalls.filter((c) => c.refs.includes('SAREE DETAIL 1')).length === 1, viewCalls.length);
+      const shotCalls = images.filter((c) => c.text.includes('product photographer'));
+      check('every shot gets SAREE, SAREE DETAIL 1, SAREE DETAIL 2 and the FRONT VIEW', shotCalls.length === 3 && shotCalls.every((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,SAREE DETAIL 2,FRONT VIEW'), shotCalls.map((c) => c.refs));
+      check('every shot is told to copy the pallu and border from them, never guess', shotCalls.every((c) => /copy the pallu and border from them exactly, never guess/.test(c.text)));
+      check('every check sees the extras as part of the saree', checks.length === 3 && checks.every((t) => t.includes('SAREE 2 -') && t.includes('SAREE 3 -')), checks.length);
+      check('all three shots made', events.filter((s) => s.image).length === 3);
+
+      // Same-saree check.
+      const uri = ai.toDataUri;
+      let mismatched = await shots.verifyExtras(uri(prepared.saree), prepared.extras.map(uri));
+      check('two matching extras: nothing refused, one check per extra', mismatched.length === 0 && sameChecks.length === 2, [mismatched, sameChecks.length]);
+      sameSareeFor = (n) => (n === 4 ? { same_saree: false, evidence: 'a green saree with a gold border, not this pink one' } : { same_saree: true, evidence: 'same' });
+      mismatched = await shots.verifyExtras(uri(prepared.saree), prepared.extras.map(uri));
+      check('a different saree is named by its place and reason', mismatched.length === 1 && mismatched[0].index === 2 && /green saree/.test(mismatched[0].evidence), mismatched);
+      sameSareeFor = () => ({ same_saree: true, evidence: 'same' });
+      check('the same-saree question allows close-ups, the pallu and other light', sameChecks.every((t) => /pallu often has bigger or denser motifs/.test(t) && /false ONLY when/.test(t)));
+    }
+
     // 7. The route refuses before any work.
     const router = require(path.join(SRC, 'routes/catalogRoutes'));
     const handler = router.stack.find((l) => l.route && l.route.path === '/generate-catalog/women').route.stack[0].handle;
@@ -172,6 +213,59 @@ const FOLDED = 'neatly folded into a flat rectangle';
     await handler({ body: { clientId: 'c', modelId: 'saree1', saree: 'x', productShots: 'true', colour: 'Royal Blue' }, on() {} }, coloured);
     check('productShots with a colour variant is a 400', coloured.statusCode === 400 && coloured.body.code === 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', [coloured.statusCode, coloured.body]);
     check('no AI was called for either', images.length === before);
+
+    // 7b. New fields refused clearly before any work.
+    const refused = async (body) => { const r = routeRes(); await handler({ body, on() {} }, r); return [r.statusCode, r.body && r.body.code, r.body && r.body.error]; };
+    let got = await refused({ clientId: 'c', modelId: 'saree1', saree: 'x', sareeExtras: ['a', 'b', 'c', 'd'] });
+    check('four extra photos is a 400 INVALID_SAREE_EXTRAS naming the limit', got[0] === 400 && got[1] === 'INVALID_SAREE_EXTRAS' && /1 to 3/.test(got[2]), got);
+    got = await refused({ clientId: 'c', modelId: 'saree1', saree: 'x', sareeExtras: ['a', ''] });
+    check('an empty extra photo is a 400 INVALID_SAREE_EXTRAS', got[0] === 400 && got[1] === 'INVALID_SAREE_EXTRAS', got);
+    got = await refused({ clientId: 'c', modelId: 'saree1', saree: 'x', sareeExtras: [{ url: 'a' }] });
+    check('an extra photo that is not text is a 400', got[0] === 400 && got[1] === 'INVALID_SAREE_EXTRAS', got);
+    got = await refused({ clientId: 'c', modelId: 'lehanga1', saree: 'x', category: 'LEHANGA', sareeExtras: ['a'] });
+    check('extras on a lehenga is a 400 SAREE_EXTRAS_SAREE_ONLY', got[0] === 400 && got[1] === 'SAREE_EXTRAS_SAREE_ONLY', got);
+    got = await refused({ clientId: 'c', modelId: 'saree1', saree: 'x', frontView: 'x' });
+    check('frontView without productShotsOnly is a 400 INVALID_FRONT_VIEW', got[0] === 400 && got[1] === 'INVALID_FRONT_VIEW', got);
+    got = await refused({ clientId: 'c', saree: 'x', productShotsOnly: true, category: 'LEHANGA' });
+    check('productShotsOnly on a lehenga is a 400 that names productShotsOnly', got[0] === 400 && got[1] === 'PRODUCT_SHOTS_SAREE_ONLY' && /^productShotsOnly/.test(got[2]), got);
+    got = await refused({ clientId: 'c', saree: 'x', productShotsOnly: true, color: 'Red' });
+    check('productShotsOnly with a colour is a 400', got[0] === 400 && got[1] === 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', got);
+    got = await refused({ saree: 'x', productShotsOnly: true });
+    check('productShotsOnly still needs a clientId', got[0] === 400 && /clientId is required/.test(got[2]), got);
+    got = await refused({ clientId: 'c', saree: 'x' });
+    check('a normal catalog still needs a modelId (unchanged)', got[0] === 400 && got[2] === 'clientId and modelId are required.', got);
+    check('no AI was called for any of them', images.length === before);
+
+    // 7c. productShotsOnly through the real route: no model views, the shots, COMPLETE.
+    const streamRes = () => {
+      const r = { statusCode: 200, body: null, headersSent: false, writableEnded: false, writableFinished: false, destroyed: false, events: [], handlers: {},
+        status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; this.headersSent = true; return this; }, set() { return this; }, setHeader() {},
+        flushHeaders() { this.headersSent = true; }, on(e, fn) { this.handlers[e] = fn; },
+        write(chunk) { String(chunk).split('\n').filter((l) => l.startsWith('data: ')).forEach((l) => this.events.push(JSON.parse(l.slice(6)))); return true; },
+        end() { this.writableEnded = true; this.writableFinished = true; } };
+      return r;
+    };
+    images.length = 0; checks.length = 0; sameChecks.length = 0;
+    const only = streamRes();
+    console.log('\nproductShotsOnly through the route');
+    await handler({ body: { clientId: 'shots-only-test', saree, blouse, sareeExtras: [saree], frontView: saree, productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, only);
+    const types = only.events.map((e) => e.type);
+    check('the stream has the shots and COMPLETE, and no VIEW_READY', types.filter((t) => t === 'PRODUCT_SHOT').length === 3 && types[types.length - 1] === 'COMPLETE' && !types.includes('VIEW_READY'), types);
+    const done = only.events.find((e) => e.type === 'COMPLETE');
+    check('COMPLETE says 3 made, 0 failed, with a job id', done && done.productShots.made === 3 && done.productShots.failed === 0 && /^[0-9a-f-]{36}$/.test(done.jobId), done);
+    check('only the 3 shots were drawn (no model views)', images.length === 3 && images.every((c) => c.text.includes('product photographer')), images.length);
+    check('the shots got the saree, the extra, the blouse (folded/table) and the sent front view', images.filter((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,BLOUSE,FRONT VIEW').length === 2 && images.filter((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,FRONT VIEW').length === 1, images.map((c) => c.refs));
+    check('the extra was checked to be the same saree', sameChecks.length === 1);
+
+    // 7d. A different saree among the extras: refused in the stream, nothing drawn.
+    images.length = 0; sameChecks.length = 0;
+    sameSareeFor = () => ({ same_saree: false, evidence: 'a plain green saree' });
+    const wrong = streamRes();
+    await handler({ body: { clientId: 'shots-only-test-2', saree, sareeExtras: [blouse], productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, wrong);
+    const err = wrong.events.find((e) => e.type === 'ERROR');
+    check('ERROR SAREE_EXTRA_MISMATCH names extra photo 1 and why', err && err.code === 'SAREE_EXTRA_MISMATCH' && /Extra photo 1/.test(err.error) && err.details[0].extra === 1 && /green/.test(err.details[0].reason), err);
+    check('no picture was drawn for the refused request', images.length === 0, images.length);
+    sameSareeFor = () => ({ same_saree: true, evidence: 'same' });
   } catch (e) {
     check(`the run reached the end (stopped at: ${String(e && e.message || e).split('\n')[0]})`, false);
   } finally {

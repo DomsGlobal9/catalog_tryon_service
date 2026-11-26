@@ -123,6 +123,9 @@ generated onto a chosen AI model.
 | `category` | String | No | Defaults to `SAREE`. See *Category handling*. |
 | `dupattaStyleUrl` | String | No | **LEHANGA only.** See *Dupatta style*. |
 | `color` | String or Object | No | **Colour variant:** the same garment in another colour. A name, a hex code, or `{ name, hex, border, blouse }`. See *Colour variants*. `colour` and `colorVariant` are accepted as aliases. |
+| `sareeExtras` | Array of strings | No | **SAREE only.** 1 to 3 more photos of the **same** saree (its pallu, border or a close-up), each a link or base64. The front view and the product shots copy the pallu and border from them instead of guessing. Each is checked to be the same saree first; a different saree ends the stream with `ERROR` `SAREE_EXTRA_MISMATCH` (nothing made, nothing charged). |
+| `productShotsOnly` | Boolean | No | **SAREE only.** `true` makes **only** the three product photos - no model views, `modelId` not needed. For sarees whose views were made earlier. Takes `saree`, `blouse`, `sareeExtras` and `frontView`. Not billed. |
+| `frontView` | String | No | Only with `productShotsOnly`: the front view made earlier (link or base64), so the shots see how the border and pallu look worn. |
 | `productShots` | Boolean | No | **SAREE only.** `true` adds three product photos of the saree with no model (folded, table scene, fabric close-up) beside the three views. See *Product shots*. Not with `color` yet. |
 | `topBack` | String | No | **Accepted but ignored** — see below. |
 | `jobId` | String | No | Your own id for this run (up to 128 letters, digits, `.` `_` `-` `:`). A run is charged once per `jobId`: sending a `jobId` that was already delivered is refused with `409 ALREADY_DELIVERED` before any work starts. See *Billing*. |
@@ -394,8 +397,14 @@ kept (`redos` says how many times; `regenerated` is true when there was at least
 A shot that could not be made comes with `error: { code, message, retryable: true }` and no `image`;
 the views are never affected. `COMPLETE` then carries `productShots: { made, failed }`.
 
-Errors before the stream: `400 PRODUCT_SHOTS_SAREE_ONLY` (another `category`) and
-`400 PRODUCT_SHOTS_NO_COLOUR_VARIANT` (sent together with `color`). A run with shots takes about
+Errors before the stream: `400 PRODUCT_SHOTS_SAREE_ONLY` (another `category`),
+`400 PRODUCT_SHOTS_NO_COLOUR_VARIANT` (sent together with `color`), `400 INVALID_SAREE_EXTRAS` (not a list of
+1-3 photos), `400 SAREE_EXTRAS_SAREE_ONLY`, `400 INVALID_FRONT_VIEW` (frontView without productShotsOnly, or not
+one image). In the stream: `ERROR` `SAREE_EXTRA_MISMATCH` with `details: [{ extra, reason }]` when an extra
+photo shows another saree.
+
+**`productShotsOnly`** streams `STATUS`, three `PRODUCT_SHOT` and `COMPLETE` `{ jobId, productShots: { made,
+failed } }` - no `VIEW_READY` - in about 20-30 s. A run with shots takes about
 50 s instead of about 30 s.
 
 **`COLOR_VARIANT`** — only when the request carried `color`; sent right after the first `STATUS`.

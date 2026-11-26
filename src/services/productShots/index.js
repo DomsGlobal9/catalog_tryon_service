@@ -23,7 +23,7 @@ const splitDataUri = (img) => {
 };
 const inline = (img) => { const { mimeType, data } = splitDataUri(img); return { inline_data: { mime_type: mimeType, data } }; };
 
-function shotPrompt(shot, place, { hasBlouse }) {
+function shotPrompt(shot, place, { hasBlouse, extras = 0 }) {
   return [
     'You are a product photographer for an Indian saree shop. Make ONE product photograph of the saree in the reference photos. There is NO person, NO model, NO mannequin and NO hands anywhere in the picture: the saree alone.',
     '',
@@ -31,6 +31,7 @@ function shotPrompt(shot, place, { hasBlouse }) {
     shot.lightOnly
       ? `THE LIGHT: ${place}. Keep the true colours of the saree in this light.`
       : `THE SETTING: ${place}. Choose the exact tones of the setting so they flatter the saree: never the saree's own main colour, so the saree stands out clearly.`,
+    extras ? `The ${extras === 1 ? 'SAREE DETAIL photo shows' : 'SAREE DETAIL photos show'} more of the SAME saree (its pallu, border or a close-up): copy the pallu and border from ${extras === 1 ? 'it' : 'them'} exactly, never guess them.` : '',
     hasBlouse && !shot.lightOnly ?'The blouse piece from the BLOUSE photo lies neatly folded beside the saree, small, its fabric showing.' : '',
     '',
     'THE SAREE MUST BE EXACTLY THE SAME SAREE: the same base colour, the same motifs at the same size, shape and spacing, the same border with the same width, colours and pattern, the same pallu design, the same zari. The saree has three zones and each keeps its own pattern wherever it shows: the BODY (the main field), the BORDER and the PALLU - never put a generic pattern where the own pattern of this saree belongs. Do not add, remove, simplify or invent any motif, figure, stripe, check or border. Where the SAREE photo does not show a part clearly, use the FRONT VIEW photo for how it looks.',
@@ -43,8 +44,10 @@ function shotPrompt(shot, place, { hasBlouse }) {
 }
 
 function shotParts(shot, place, refs) {
-  const parts = [{ text: shotPrompt(shot, place, { hasBlouse: !!refs.blouse }) }];
+  const extras = refs.extras || [];
+  const parts = [{ text: shotPrompt(shot, place, { hasBlouse: !!refs.blouse, extras: extras.length }) }];
   parts.push({ text: 'SAREE - the real saree (the truth for its design, colours and border):' }, inline(refs.saree));
+  extras.forEach((x, i) => parts.push({ text: `SAREE DETAIL ${i + 1} - another photo of the SAME saree (pallu, border or close-up):` }, inline(x)));
   if (refs.blouse && !shot.lightOnly) parts.push({ text: 'BLOUSE - the blouse piece sold with it:' }, inline(refs.blouse));
   if (refs.front) parts.push({ text: 'FRONT VIEW - the same saree worn by a model (only to see its border and pallu; draw no person):' }, inline(refs.front));
   return parts;
@@ -70,6 +73,7 @@ async function checkShot(refs, image, signal) {
     const toPart = (img) => { const { mimeType, data } = splitDataUri(img); return { inlineData: { mimeType, data } }; };
     const { parsed } = await studio().askInspector([
       { text: 'SAREE - a real photo of a saree:' }, toPart(refs.saree),
+      ...(refs.extras || []).flatMap((x, i) => [{ text: `SAREE ${i + 2} - another real photo of the SAME saree (pallu, border or close-up); what it shows counts as part of the saree:` }, toPart(x)]),
       { text: 'PRODUCT PHOTO - meant to show this same saree, folded or arranged, with no person. Its arrangement and background are free; only the saree itself must match:' }, toPart(image),
       { text: `Judge as a strict saree seller; framing, folding and background do not count.\n${CHECKS.map(([id, q]) => `${id}: ${q}`).join('\n')}\nevidence: one short sentence naming the difference that matters most, or "none".` }
     ], SCHEMA, signal);
@@ -80,6 +84,36 @@ async function checkShot(refs, image, signal) {
     if (signal && signal.aborted) throw err;
     return { checked: false, failures: [] };
   }
+}
+
+const SAME_SCHEMA = {
+  type: 'OBJECT',
+  properties: { same_saree: { type: 'BOOLEAN' }, evidence: { type: 'STRING' } },
+  required: ['same_saree', 'evidence'],
+  propertyOrdering: ['same_saree', 'evidence']
+};
+
+/**
+ * Each extra photo must show the SAME saree as the main photo (its pallu, border or a close-up).
+ * Returns the extras that clearly do not: [{ index (1-based), evidence }]. A check that cannot run
+ * counts as a match - the photo is used, never refused on a guess.
+ */
+async function verifyExtras(saree, extras, signal) {
+  const toPart = (img) => { const { mimeType, data } = splitDataUri(img); return { inlineData: { mimeType, data } }; };
+  const results = await Promise.all((extras || []).map(async (extra, i) => {
+    try {
+      const { parsed } = await studio().askInspector([
+        { text: 'MAIN - a photo of a saree:' }, toPart(saree),
+        { text: 'EXTRA - meant to be another photo of the SAME saree: its pallu, its border, a close-up of its fabric, or the saree folded:' }, toPart(extra),
+        { text: 'same_saree: false ONLY when EXTRA clearly shows a different saree or no saree at all (a different base colour, a different border, a different kind of motif). A close-up, another part of the same saree (the pallu often has bigger or denser motifs, in the same colours and style), other light or another angle is the same saree.\nevidence: one short sentence.' }
+      ], SAME_SCHEMA, signal);
+      if (parsed && parsed.same_saree === false) return { index: i + 1, evidence: String(parsed.evidence || '').slice(0, 200) };
+    } catch (err) {
+      if (signal && signal.aborted) throw err;
+    }
+    return null;
+  }));
+  return results.filter(Boolean);
 }
 
 const isCancel = (err, signal) => (signal && signal.aborted) || /AbortError/.test(String((err && err.message) || err));
@@ -151,4 +185,4 @@ async function makeProductShots(refs, { generate, onShot, signal, random } = {})
   })));
 }
 
-module.exports = { SHOT_COUNT: SHOTS.length, makeProductShots, makeShot, shotPrompt, shotParts, checkShot, CHECKS };
+module.exports = { SHOT_COUNT: SHOTS.length, verifyExtras, makeProductShots, makeShot, shotPrompt, shotParts, checkShot, CHECKS };

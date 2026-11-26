@@ -21,6 +21,7 @@ const { parseColourVariant, colourSummary } = require('../services/colourVariant
 const { publicMessage } = require('../lib/publicError');
 const billing = require('../modules/billing/billing.service');
 const productShots = require('../services/productShots');
+const { randomUUID } = require('crypto');
 const { stepLog, secondsSince, setContext } = require('../lib/stepLog');
 
 /** A job-status write must never take the stream down with it. */
@@ -30,6 +31,83 @@ async function recordJob(jobId, data) {
     await prisma.drapeJob.update({ where: { id: jobId }, data });
   } catch (err) {
     console.error(`[Catalog] could not record job ${jobId} as ${data.status}:`, err.message);
+  }
+}
+
+const MAX_SAREE_EXTRAS = 3;
+
+/** Refuses (as a stream ERROR, nothing made, nothing charged) extra photos of a different saree. */
+async function refuseMismatchedExtras(prepared, signal) {
+  const mismatched = await productShots.verifyExtras(
+    aiGenerationService.toDataUri(prepared.saree), prepared.extras.map(aiGenerationService.toDataUri), signal);
+  if (!mismatched.length) return;
+  const which = mismatched.map((m) => m.index).join(' and ');
+  const err = new Error(`Extra photo ${which} (sareeExtras) shows a different saree from the main photo. Send only photos of this saree: its pallu, border or a close-up.`);
+  err.code = 'SAREE_EXTRA_MISMATCH';
+  err.status = 422;
+  err.expose = true;
+  err.details = mismatched.map((m) => ({ extra: m.index, reason: m.evidence }));
+  throw err;
+}
+
+/**
+ * productShotsOnly: the product photos for a saree whose views already exist. No model views, no
+ * base poses, no database job row (a job row needs a model); not charged (product shots are not
+ * billed yet). Same stream, same events as the shots in a full run.
+ */
+async function runShotsOnly(req, res, { clientId, saree, blouse, extras, front }) {
+  const startTime = Date.now();
+  const jobId = randomUUID();
+  let made = 0;
+  let failed = 0;
+  let heartbeat = null;
+  const admitted = await admitGeneration(req, res, { clientId, pipeline: 'women' });
+  if (!admitted) return;
+  const abortController = admitted.job;
+  const writeEvent = (event) => { if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`); };
+  res.on('close', () => { if (!res.writableFinished && !abortController.signal.aborted) abortController.abort(); });
+  try {
+    setContext({ jobId, endpoint: 'women-shots' });
+    stepLog('Catalog', { jobId, endpoint: 'women-shots', account: req.account, garment: 'SAREE', result: 'started', extras: extras.length || null, front: front ? 'sent' : null });
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    writeEvent({ type: 'STATUS', message: `Making ${productShots.SHOT_COUNT} product shots...` });
+    heartbeat = setInterval(() => { if (!res.writableEnded) res.write(`: keepalive ${Date.now()}\n\n`); }, SSE_HEARTBEAT_MS);
+
+    const prepared = await aiGenerationService.prepareInputs({ saree, blouse, extras, front }, abortController.signal);
+    if (prepared.extras.length) await refuseMismatchedExtras(prepared, abortController.signal);
+    const toUri = aiGenerationService.toDataUri;
+    await productShots.makeProductShots(
+      { saree: toUri(prepared.saree), blouse: toUri(prepared.blouse), extras: prepared.extras.map(toUri), front: prepared.front },
+      {
+        generate: aiGenerationService.callGeminiImageGen,
+        signal: abortController.signal,
+        onShot: (shot) => { if (shot.image) made += 1; else failed += 1; writeEvent({ type: 'PRODUCT_SHOT', ...shot }); }
+      });
+    writeEvent({ type: 'COMPLETE', jobId, productShots: { made, failed } });
+    res.end();
+    stepLog('Catalog', { jobId, endpoint: 'women-shots', result: 'complete', shots: `${made} of ${productShots.SHOT_COUNT}`, seconds: secondsSince(startTime) });
+  } catch (error) {
+    const message = String((error && error.message) || error);
+    const open = res.headersSent && !res.writableEnded && !res.destroyed;
+    if ((error && error.name === 'AbortError') || message.includes('AbortError') || abortController.signal.aborted) {
+      stepLog('Catalog', { jobId, endpoint: 'women-shots', result: 'cancelled', seconds: secondsSince(startTime) });
+      if (open) { writeEvent({ type: 'ERROR', code: 'CANCELLED', error: 'Generation was cancelled.' }); res.end(); }
+      return;
+    }
+    console.error(`[Catalog] shots-only job ${jobId} failed:`, message);
+    stepLog('Catalog', { jobId, endpoint: 'women-shots', result: 'failed', seconds: secondsSince(startTime), code: error && error.code });
+    if (open) {
+      writeEvent({ type: 'ERROR', code: (error.expose && error.code) || 'GENERATION_FAILED', error: publicMessage(error), ...(error.expose && error.details ? { details: error.details } : {}) });
+      res.end();
+    } else if (!res.headersSent) {
+      res.status(500).json({ success: false, error: publicMessage(error) });
+    }
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
+    await admitted.release();
   }
 }
 
@@ -89,12 +167,23 @@ router.post('/generate-catalog/women', async (req, res) => {
     const topFront = req.body.blouse || req.body.top || req.body.topFront;
     const topBack = req.body.topBack;
 
+    // PRODUCT SHOTS ONLY (26 Nov 2026): the product photos of a saree whose model views were made
+    // earlier - no model, so no modelId.
+    const shotsOnly = req.body.productShotsOnly === true || req.body.productShotsOnly === 'true';
+
     // Validate strictly required fields
-    if (!clientId || !modelId) {
-      return res.status(400).json({ success: false, error: 'clientId and modelId are required.' });
-    }
-    if (typeof clientId !== 'string' || typeof modelId !== 'string') {
-      return res.status(400).json({ success: false, error: 'clientId and modelId must be text.' });
+    if (shotsOnly) {
+      if (!clientId) return res.status(400).json({ success: false, error: 'clientId is required.' });
+      if (typeof clientId !== 'string' || (modelId !== undefined && modelId !== null && typeof modelId !== 'string')) {
+        return res.status(400).json({ success: false, error: 'clientId and modelId must be text.' });
+      }
+    } else {
+      if (!clientId || !modelId) {
+        return res.status(400).json({ success: false, error: 'clientId and modelId are required.' });
+      }
+      if (typeof clientId !== 'string' || typeof modelId !== 'string') {
+        return res.status(400).json({ success: false, error: 'clientId and modelId must be text.' });
+      }
     }
 
     if (!fullDress) {
@@ -122,12 +211,36 @@ router.post('/generate-catalog/women', async (req, res) => {
 
     // PRODUCT SHOTS (optional, owner 26 Nov 2026): photos of the saree with no model - folded and a
     // styled table scene - each in a random setting. Sarees only for now.
-    const wantShots = req.body.productShots === true || req.body.productShots === 'true';
+    const wantShots = shotsOnly || req.body.productShots === true || req.body.productShots === 'true';
+    const shotsField = shotsOnly ? 'productShotsOnly' : 'productShots';
     if (wantShots && safeCategory !== 'SAREE') {
-      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_SAREE_ONLY', error: 'productShots is available for sarees only (category "SAREE").' });
+      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_SAREE_ONLY', error: `${shotsField} is available for sarees only (category "SAREE").` });
     }
     if (wantShots && colour) {
-      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', error: 'productShots cannot be combined with a colour variant yet. Ask for them on the normal catalog request.' });
+      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', error: `${shotsField} cannot be combined with a colour variant yet. Ask for them on the normal catalog request.` });
+    }
+
+    // EXTRA SAREE PHOTOS (optional, 26 Nov 2026): up to 3 more photos of the SAME saree - its pallu,
+    // border or a close-up - so the views and product shots copy them instead of guessing.
+    let sareeExtras = [];
+    const extrasRaw = req.body.sareeExtras;
+    if (extrasRaw !== undefined && extrasRaw !== null) {
+      const list = Array.isArray(extrasRaw) ? extrasRaw : [extrasRaw];
+      if (list.length > MAX_SAREE_EXTRAS || list.some((x) => typeof x !== 'string' || !x.trim())) {
+        return res.status(400).json({ success: false, code: 'INVALID_SAREE_EXTRAS', error: `sareeExtras must be a list of 1 to ${MAX_SAREE_EXTRAS} photos of the same saree (each an image link or base64).` });
+      }
+      if (safeCategory !== 'SAREE') {
+        return res.status(400).json({ success: false, code: 'SAREE_EXTRAS_SAREE_ONLY', error: 'sareeExtras is for sarees only (category "SAREE").' });
+      }
+      sareeExtras = list;
+    }
+    const frontView = req.body.frontView;
+    if (frontView !== undefined && frontView !== null && (!shotsOnly || typeof frontView !== 'string' || !frontView.trim())) {
+      return res.status(400).json({ success: false, code: 'INVALID_FRONT_VIEW', error: shotsOnly ? 'frontView must be one image link or base64 string.' : 'frontView is only read with productShotsOnly.' });
+    }
+
+    if (shotsOnly) {
+      return await runShotsOnly(req, res, { clientId, saree: fullDress, blouse: topFront, extras: sareeExtras, front: frontView || null });
     }
 
     // BILLING: what makes this run "the same request" (the caller's jobId, else
@@ -224,6 +337,14 @@ router.post('/generate-catalog/women', async (req, res) => {
 `);
     }, SSE_HEARTBEAT_MS);
 
+    // Extra saree photos: prepared once and checked to be the same saree before any image is made.
+    let prepared = null;
+    if (sareeExtras.length) {
+      writeEvent({ type: 'STATUS', message: `Checking ${sareeExtras.length} extra saree photo${sareeExtras.length > 1 ? 's' : ''}...` });
+      prepared = await aiGenerationService.prepareInputs({ saree: fullDress, blouse: topFront, extras: sareeExtras }, abortController.signal);
+      await refuseMismatchedExtras(prepared, abortController.signal);
+    }
+
     // 3. Initiate the Generation Service Flow
    const generatedViews = await aiGenerationService.generate4ViewCatalog(
   {
@@ -234,6 +355,7 @@ router.post('/generate-catalog/women', async (req, res) => {
     category: safeCategory,
     dupattaStyleUrl,
     colour,
+    prepared,
     afterFront: wantShots
       ? (front, refs) => {
           writeEvent({ type: 'STATUS', message: `Making ${productShots.SHOT_COUNT} product shots beside the views...` });
@@ -315,7 +437,7 @@ router.post('/generate-catalog/women', async (req, res) => {
 
     const error_ = publicMessage(error);
     if (open) {
-      res.write(`data: ${JSON.stringify({ type: 'ERROR', code: (error.expose && error.code) || 'GENERATION_FAILED', error: error_ })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'ERROR', code: (error.expose && error.code) || 'GENERATION_FAILED', error: error_, ...(error.expose && error.details ? { details: error.details } : {}) })}\n\n`);
       res.end();
     } else if (!res.headersSent) {
       res.status(500).json({ success: false, error: error_ });
