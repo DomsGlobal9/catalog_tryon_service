@@ -123,7 +123,7 @@ generated onto a chosen AI model.
 | `category` | String | No | Defaults to `SAREE`. See *Category handling*. |
 | `dupattaStyleUrl` | String | No | **LEHANGA only.** See *Dupatta style*. |
 | `color` | String or Object | No | **Colour variant:** the same garment in another colour. A name, a hex code, or `{ name, hex, border, blouse }`. See *Colour variants*. `colour` and `colorVariant` are accepted as aliases. |
-| `productShots` | Boolean | No | **SAREE only.** `true` adds three product photos of the saree with no model (pleats fan, folded, table scene) beside the three views. See *Product shots*. Not with `color` yet. |
+| `productShots` | Boolean | No | **SAREE only.** `true` adds two product photos of the saree with no model (folded, table scene) beside the three views. See *Product shots*. Not with `color` yet. |
 | `topBack` | String | No | **Accepted but ignored** — see below. |
 | `jobId` | String | No | Your own id for this run (up to 128 letters, digits, `.` `_` `-` `:`). A run is charged once per `jobId`: sending a `jobId` that was already delivered is refused with `409 ALREADY_DELIVERED` before any work starts. See *Billing*. |
 
@@ -367,21 +367,20 @@ lies centred under her feet. This fixed a front view where a rug took the centre
 model was pushed to the right edge and half cut off. Catalogs made before 29 September keep their old
 framing; make them again to get the new one.
 
-**`PRODUCT_SHOT`** — only when the request carried `productShots: true`. One per shot, three in all,
+**`PRODUCT_SHOT`** — only when the request carried `productShots: true`. One per shot, two in all,
 in any order (they are made side by side with the side and sitting views, after the front).
 ```json
 {
   "type": "PRODUCT_SHOT",
-  "shot": "pleats",
-  "name": "Pleats fan",
-  "setting": "a deep charcoal matte surface with soft side light that makes the zari glow",
+  "shot": "folded",
+  "name": "Folded",
+  "setting": "on a white marble slab, with a small brass diya and a few jasmine buds beside it",
   "image": "data:image/jpeg;base64,/9j/4AAQ...",
   "checkPassed": true,
   "regenerated": false
 }
 ```
-`shot` is `pleats` (a fan of pleats seen from above, the pallu spread behind), `folded` (folded the way
-a shop stacks it, border and a corner of the pallu showing, small props beside it) or `table` (a
+`shot` is `folded` (folded the way a shop stacks it, border and a corner of the pallu showing, small props beside it) or `table` (a
 styled still-life: the saree draped over a table with brass, flowers and similar props). Same 3:4
 JPEG as the views. **The setting is picked at random every time**, so two products never look
 copy-pasted; the saree itself is never changed.
@@ -394,7 +393,7 @@ the views are never affected. `COMPLETE` then carries `productShots: { made, fai
 
 Errors before the stream: `400 PRODUCT_SHOTS_SAREE_ONLY` (another `category`) and
 `400 PRODUCT_SHOTS_NO_COLOUR_VARIANT` (sent together with `color`). A run with shots takes about
-55 s instead of about 30 s.
+45 s instead of about 30 s.
 
 **`COLOR_VARIANT`** — only when the request carried `color`; sent right after the first `STATUS`.
 Says what colour was understood and that the result is approximate. See *Colour variants*.

@@ -1,27 +1,15 @@
 // =============================================================================
-// productShots/settings.js - the three product shots and the places they are shot in.
+// productShots/settings.js - the product shots and the places they are shot in.
 // =============================================================================
 //
-// Owner, 26 Nov 2026: besides the three model views, every saree gets three product photos with no
-// model - like a shop's own photos: a fan of pleats, the folded saree, a styled table scene - and
+// Owner, 26 Nov 2026: besides the three model views, every saree gets product photos with no
+// model - like a shop's own photos: the folded saree and a styled table scene (a fan of pleats was
+// tried and dropped the same day) - and
 // "not the same backgrounds" for every product. So each shot picks its surface and props at random
 // from its own list, every time. The saree is never changed; only what it lies on.
 
-/** The three shots, in the order they are listed in the answer. */
+/** The product shots, in the order they are listed in the answer. The pleats fan was removed on 26 Nov (owner did not like the style). */
 const SHOTS = [
-  {
-    id: 'pleats',
-    name: 'Pleats fan',
-    scene: 'THE SHOT: the saree photographed from directly above, lying flat. Its pleats are gathered at the bottom of the picture and fan out upwards like an open hand fan, every pleat crisp and evenly spaced, the border running along the edge of each pleat. Above the fan the pallu is spread out flat so its full design shows. The saree fills most of the picture.',
-    places: [
-      'a smooth light-grey textured plaster backdrop with soft even daylight',
-      'a warm ivory linen cloth, softly textured, in gentle window light',
-      'a pale beige stone surface with a fine natural grain, soft daylight',
-      'a deep charcoal matte surface with soft side light that makes the zari glow',
-      'a dusty rose handmade-paper backdrop, soft diffused light',
-      'a light oak wooden floor with fine grain, soft daylight from one side'
-    ]
-  },
   {
     id: 'folded',
     name: 'Folded',

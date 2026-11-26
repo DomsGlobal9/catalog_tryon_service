@@ -120,8 +120,8 @@ router.post('/generate-catalog/women', async (req, res) => {
     }
     const variant = colourSummary(colour);
 
-    // PRODUCT SHOTS (optional, owner 26 Nov 2026): three photos of the saree with no model - a fan
-    // of pleats, folded, a styled table scene - each in a random setting. Sarees only for now.
+    // PRODUCT SHOTS (optional, owner 26 Nov 2026): photos of the saree with no model - folded and a
+    // styled table scene - each in a random setting. Sarees only for now.
     const wantShots = req.body.productShots === true || req.body.productShots === 'true';
     if (wantShots && safeCategory !== 'SAREE') {
       return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_SAREE_ONLY', error: 'productShots is available for sarees only (category "SAREE").' });
@@ -236,7 +236,7 @@ router.post('/generate-catalog/women', async (req, res) => {
     colour,
     afterFront: wantShots
       ? (front, refs) => {
-          writeEvent({ type: 'STATUS', message: 'Making 3 product shots beside the views...' });
+          writeEvent({ type: 'STATUS', message: `Making ${productShots.SHOT_COUNT} product shots beside the views...` });
           return productShots.makeProductShots({ ...refs, front }, {
             generate: aiGenerationService.callGeminiImageGen,
             signal: abortController.signal,
@@ -291,7 +291,7 @@ router.post('/generate-catalog/women', async (req, res) => {
       ...(wantShots ? { productShots: { made: shotsMade, failed: shotsFailed } } : {})
     })}\n\n`);
     res.end();
-    stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, result: 'complete', views: viewsDelivered, shots: wantShots ? `${shotsMade} of 3` : null, seconds: secondsSince(startTime) });
+    stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, result: 'complete', views: viewsDelivered, shots: wantShots ? `${shotsMade} of ${productShots.SHOT_COUNT}` : null, seconds: secondsSince(startTime) });
 
   } catch (error) {
     const open = res.headersSent && !res.writableEnded && !res.destroyed;

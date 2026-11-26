@@ -1,5 +1,5 @@
 // =============================================================================
-// productShots - three product photos of a saree, no model, each in a random setting.
+// productShots - product photos of a saree (folded, table scene), no model, each in a random setting.
 // =============================================================================
 //
 // Asked for with "productShots": true on the women catalog request (sarees only, owner 26 Nov 2026).
@@ -120,7 +120,7 @@ async function makeShot(shot, refs, { generate, signal, random } = {}) {
 }
 
 /**
- * All three shots side by side. `onShot` fires as each one lands (made or failed).
+ * All shots side by side. `onShot` fires as each one lands (made or failed).
  * @returns {Promise<Array>} one result per shot, in SHOTS order
  */
 async function makeProductShots(refs, { generate, onShot, signal, random } = {}) {
@@ -131,4 +131,4 @@ async function makeProductShots(refs, { generate, onShot, signal, random } = {})
   })));
 }
 
-module.exports = { makeProductShots, makeShot, shotPrompt, shotParts, checkShot, CHECKS };
+module.exports = { SHOT_COUNT: SHOTS.length, makeProductShots, makeShot, shotPrompt, shotParts, checkShot, CHECKS };
