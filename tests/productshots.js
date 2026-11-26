@@ -202,11 +202,34 @@ const FOLDED = 'neatly folded into a flat rectangle';
       const uri = ai.toDataUri;
       let mismatched = await shots.verifyExtras(uri(prepared.saree), prepared.extras.map(uri));
       check('two matching extras: nothing refused, one check per extra', mismatched.length === 0 && sameChecks.length === 2, [mismatched, sameChecks.length]);
-      sameSareeFor = (n) => (n === 4 ? { same_saree: false, evidence: 'a green saree with a gold border, not this pink one' } : { same_saree: true, evidence: 'same' });
-      mismatched = await shots.verifyExtras(uri(prepared.saree), prepared.extras.map(uri));
-      check('a different saree is named by its place and reason', mismatched.length === 1 && mismatched[0].index === 2 && /green saree/.test(mismatched[0].evidence), mismatched);
-      sameSareeFor = () => ({ same_saree: true, evidence: 'same' });
-      check('the same-saree question allows close-ups, the pallu and other light', sameChecks.every((t) => /pallu often has bigger or denser motifs/.test(t) && /false ONLY when/.test(t)));
+      const differ = { same_saree: false, certain: true, evidence: 'a green saree with a gold border, not this pink one' };
+      const same = { same_saree: true, certain: true, evidence: 'same' };
+      const one = [uri(prepared.extras[1])];
+      // Certain and confirmed by a second look: refused, named by its place.
+      sameChecks.length = 0; sameSareeFor = () => differ;
+      mismatched = await shots.verifyExtras(uri(prepared.saree), [uri(prepared.extras[0]), ...one]);
+      check('a certain "different", confirmed by a second look, is refused and named', mismatched.length === 2 && mismatched[1].index === 2 && /green saree/.test(mismatched[1].evidence) && sameChecks.length === 4, [mismatched, sameChecks.length]);
+      // The production false refusal: one look says different, the second does not -> used.
+      sameChecks.length = 0; sameSareeFor = (n) => (n === 1 ? differ : same);
+      mismatched = await shots.verifyExtras(uri(prepared.saree), one);
+      check('one look says different, the second says same: the photo is used (the 26 Nov false refusal)', mismatched.length === 0 && sameChecks.length === 2, [mismatched, sameChecks.length]);
+      // Different but not certain: used, no second look.
+      sameChecks.length = 0; sameSareeFor = () => ({ ...differ, certain: false });
+      mismatched = await shots.verifyExtras(uri(prepared.saree), one);
+      check('"different" twice but never certain: the photo is used', mismatched.length === 0 && sameChecks.length === 2, [mismatched, sameChecks.length]);
+      sameChecks.length = 0; sameSareeFor = (n) => (n === 1 ? { ...differ, certain: false } : differ);
+      mismatched = await shots.verifyExtras(uri(prepared.saree), one);
+      check('an unsure "different" then a certain one: refused (1 of 3 teal photos slipped through before)', mismatched.length === 1 && sameChecks.length === 2, [mismatched, sameChecks.length]);
+      // Body cloth of another colour is decisive even when the checker's own verdict wavers.
+      sameChecks.length = 0; sameSareeFor = () => ({ same_saree: true, certain: false, extra_shows: ['body', 'border'], same_body_colour: false, evidence: 'teal body against a pink body' });
+      mismatched = await shots.verifyExtras(uri(prepared.saree), one);
+      check('a body of a different colour is refused (twice seen) even if same_saree wavers', mismatched.length === 1 && /teal body/.test(mismatched[0].evidence) && sameChecks.length === 2, [mismatched, sameChecks.length]);
+      // A contrast pallu: another colour, but no body cloth in the photo -> the same saree.
+      sameChecks.length = 0; sameSareeFor = () => ({ same_saree: true, certain: true, extra_shows: ['pallu'], same_body_colour: false, evidence: 'a green pallu on a red saree' });
+      mismatched = await shots.verifyExtras(uri(prepared.saree), one);
+      check('a contrast-colour pallu (no body cloth shown) is used, not refused', mismatched.length === 0 && sameChecks.length === 1, [mismatched, sameChecks.length]);
+      sameSareeFor = () => same;
+      check('the same-saree question asks which parts show, compares the body colour, allows a contrast pallu', sameChecks.every((t) => /extra_shows/.test(t) && /same_body_colour/.test(t) && /contrast colour/.test(t) && /main_body_colour/.test(t)));
     }
 
     // 7. The route refuses before any work.
@@ -286,7 +309,7 @@ const FOLDED = 'neatly folded into a flat rectangle';
 
     // 7d. A different saree among the extras: refused in the stream, nothing drawn.
     images.length = 0; sameChecks.length = 0;
-    sameSareeFor = () => ({ same_saree: false, evidence: 'a plain green saree' });
+    sameSareeFor = () => ({ same_saree: false, certain: true, evidence: 'a plain green saree' });
     const wrong = streamRes();
     await handler({ body: { clientId: 'shots-only-test-2', saree, sareeExtras: [blouse], productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, wrong);
     const err = wrong.events.find((e) => e.type === 'ERROR');

@@ -86,32 +86,72 @@ async function checkShot(refs, image, signal) {
   }
 }
 
+// Production, 26 Nov: the same photo of a pink saree's border was accepted, then 30 s later refused as
+// "a different saree" - a false refusal stops the whole job, which is worse than using a doubtful photo
+// (every shot is still checked against all the photos). So a photo is refused only when the checker
+// names the base colour of each, says it is CERTAIN, and a second, separate look agrees.
+// The firmest sign is the BODY cloth: a pallu may be a contrast colour, the body never changes. So the
+// checker first says which parts EXTRA shows, then compares the body colour only when the body shows.
 const SAME_SCHEMA = {
   type: 'OBJECT',
-  properties: { same_saree: { type: 'BOOLEAN' }, evidence: { type: 'STRING' } },
-  required: ['same_saree', 'evidence'],
-  propertyOrdering: ['same_saree', 'evidence']
+  properties: {
+    main_body_colour: { type: 'STRING' },
+    extra_shows: { type: 'ARRAY', items: { type: 'STRING', enum: ['body', 'pallu', 'border', 'blouse', 'not a saree'] } },
+    extra_body_colour: { type: 'STRING' },
+    same_body_colour: { type: 'BOOLEAN' },
+    same_saree: { type: 'BOOLEAN' },
+    certain: { type: 'BOOLEAN' },
+    evidence: { type: 'STRING' }
+  },
+  required: ['main_body_colour', 'extra_shows', 'extra_body_colour', 'same_body_colour', 'same_saree', 'certain', 'evidence'],
+  propertyOrdering: ['main_body_colour', 'extra_shows', 'extra_body_colour', 'same_body_colour', 'same_saree', 'certain', 'evidence']
 };
+
+const SAME_QUESTION = [
+  'main_body_colour: the colour of the BODY cloth of the saree in MAIN (its main field, not the border or pallu), in two or three words.',
+  'extra_shows: which parts of a saree EXTRA shows - the body (the main field), the pallu (the decorated end), the border, a blouse - or "not a saree".',
+  'extra_body_colour: the colour of the body cloth in EXTRA, or "not shown" when EXTRA shows no body cloth.',
+  'same_body_colour: false when EXTRA shows body cloth of a clearly different colour family than MAIN (for example teal against pink, green against red); true when it is the same colour family in other light, or when EXTRA shows no body cloth.',
+  'same_saree: false when EXTRA is a different saree: body cloth of a clearly different colour, or a border of a clearly different kind (other width, colours or pattern). A close-up, a folded part, other light or another angle of the same saree is the same saree; its pallu may carry bigger or different motifs and even a contrast colour.',
+  'certain: true when the difference or the match is plain to see.',
+  'evidence: one short sentence.'
+].join('\n');
 
 /**
  * Each extra photo must show the SAME saree as the main photo (its pallu, border or a close-up).
- * Returns the extras that clearly do not: [{ index (1-based), evidence }]. A check that cannot run
- * counts as a match - the photo is used, never refused on a guess.
+ * Returns the extras that clearly do not: [{ index (1-based), evidence }]. Refused only on a certain
+ * "different" that a second look confirms; a check that cannot run counts as a match.
  */
 async function verifyExtras(saree, extras, signal) {
   const toPart = (img) => { const { mimeType, data } = splitDataUri(img); return { inlineData: { mimeType, data } }; };
-  const results = await Promise.all((extras || []).map(async (extra, i) => {
+  const ask = async (extra) => {
     try {
       const { parsed } = await studio().askInspector([
         { text: 'MAIN - a photo of a saree:' }, toPart(saree),
         { text: 'EXTRA - meant to be another photo of the SAME saree: its pallu, its border, a close-up of its fabric, or the saree folded:' }, toPart(extra),
-        { text: 'same_saree: false ONLY when EXTRA clearly shows a different saree or no saree at all (a different base colour, a different border, a different kind of motif). A close-up, another part of the same saree (the pallu often has bigger or denser motifs, in the same colours and style), other light or another angle is the same saree.\nevidence: one short sentence.' }
+        { text: SAME_QUESTION }
       ], SAME_SCHEMA, signal);
-      if (parsed && parsed.same_saree === false) return { index: i + 1, evidence: String(parsed.evidence || '').slice(0, 200) };
+      if (!parsed) return null;
+      // A body of another colour is decisive on its own; otherwise the checker's own verdict.
+      const bodyDiffers = parsed.same_body_colour === false && Array.isArray(parsed.extra_shows) && parsed.extra_shows.includes('body');
+      if (!bodyDiffers && parsed.same_saree !== false) return null;
+      return { certain: bodyDiffers || parsed.certain === true, evidence: String(parsed.evidence || '').slice(0, 200) };
     } catch (err) {
       if (signal && signal.aborted) throw err;
+      return null;
     }
-    return null;
+  };
+  // Any "different" gets a second look; refused only when both looks say different and at least one
+  // is certain (measured 26 Nov: own photo refused 0 of 6, but an unsure first look let 1 of 3 teal through).
+  const results = await Promise.all((extras || []).map(async (extra, i) => {
+    const first = await ask(extra);
+    if (!first) return null;
+    const second = await ask(extra);
+    if (!second || !(first.certain || second.certain)) {
+      stepLog('Catalog', { endpoint: 'women', item: `extra photo ${i + 1}`, result: 'advised', why: second ? 'two looks said a different saree, neither was sure - the photo is used' : 'one look said a different saree, the second did not - the photo is used' });
+      return null;
+    }
+    return { index: i + 1, evidence: (first.certain ? first : second).evidence };
   }));
   return results.filter(Boolean);
 }
