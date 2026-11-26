@@ -35,6 +35,9 @@ function shotPrompt(shot, place, { hasBlouse }) {
     '',
     'THE SAREE MUST BE EXACTLY THE SAME SAREE: the same base colour, the same motifs at the same size, shape and spacing, the same border with the same width, colours and pattern, the same pallu design, the same zari. The saree has three zones and each keeps its own pattern wherever it shows: the BODY (the main field), the BORDER and the PALLU - never put a generic pattern where the own pattern of this saree belongs. Do not add, remove, simplify or invent any motif, figure, stripe, check or border. Where the SAREE photo does not show a part clearly, use the FRONT VIEW photo for how it looks.',
     '',
+    // 26 Nov production: a folded teal saree came out with twice as many leaf motifs as the real one.
+    'MOTIF SPACING AND COUNT: look at how far apart the motifs sit in the SAREE photo and keep exactly that spacing - the same number of motifs per area, never more crowded and never sparser. Large motifs stay large and few; small buttis stay small. A motif is never cut in half to fill a gap, never repeated where the SAREE photo has plain cloth, and the plain cloth between motifs stays plain.',
+    '',
     'QUALITY: a real, high-end product photograph - crisp fabric texture, real folds and soft natural shadows, true colours, sharp focus on the saree. No text, logo, label, watermark, price tag or frame anywhere. Exactly one photograph.'
   ].filter((line) => line !== null).join('\n');
 }
@@ -52,6 +55,7 @@ const CHECKS = [
   ['same_colours', 'The same base colour and the same colours of motifs, border and zari as the SAREE photo.'],
   ['same_border', 'The same border: the same width, pattern and colours.'],
   ['nothing_added', 'No motif, figure, stripe or border appears on the saree that the SAREE photo does not show.'],
+  ['same_spacing', 'The motifs sit as far apart as in the SAREE photo - not more crowded, not sparser; plain cloth between motifs stays plain.'],
   ['no_person', 'There is no person, face, hand or mannequin, and no text, logo or watermark in the PRODUCT PHOTO.']
 ];
 const SCHEMA = {
@@ -80,9 +84,16 @@ async function checkShot(refs, image, signal) {
 
 const isCancel = (err, signal) => (signal && signal.aborted) || /AbortError/.test(String((err && err.message) || err));
 
+// Owner, 26 Nov: "everything should be perfect". One redo left the folded shot wrong on 2 of 4 sarees,
+// so a shot that still differs is made a second time. Set PRODUCT_SHOT_MAX_REDOS to change it.
+const MAX_REDOS = Math.max(0, Number(process.env.PRODUCT_SHOT_MAX_REDOS ?? 2));
+// Lower is better: a passed check 0, each difference 1; an unchecked picture is kept only over a failed one.
+const score = (v) => (v.checked ? v.failures.length : 0.5);
+
 /**
- * One shot: made, checked, made once more when the check finds a difference (the better of the two
- * is kept). Throws only on cancel; any other failure comes back as { error }.
+ * One shot: made, checked, and made again (up to MAX_REDOS times) while the check finds a difference;
+ * every redo is told every difference found so far. The best picture is kept. Throws only on cancel;
+ * any other failure comes back as { error }.
  */
 async function makeShot(shot, refs, { generate, signal, random } = {}) {
   const place = pickPlace(shot, random);
@@ -92,19 +103,26 @@ async function makeShot(shot, refs, { generate, signal, random } = {}) {
     let image = await generate(parts, signal);
     let verdict = studio().config.pair.enabled ? await checkShot(refs, image, signal) : { checked: false, failures: [] };
     let regenerated = false;
-    if (verdict.failures.length) {
+    let redos = 0;
+    const wrong = [];
+    let last = verdict;
+    while (last.failures.length && redos < MAX_REDOS) {
+      wrong.push(last.failures[0].evidence || last.failures.map((f) => f.check).join(', '));
       try {
-        const again = await generate([...parts, { text: `THE LAST ATTEMPT WAS WRONG: ${verdict.failures[0].evidence || verdict.failures.map((f) => f.check).join(', ')}. Make it again with the saree exactly as in the SAREE photo.` }], signal);
+        const again = await generate([...parts, { text: `THE EARLIER ATTEMPTS WERE WRONG: ${wrong.map((w, i) => `(${i + 1}) ${w}`).join(' ')}. Make it again with the saree exactly as in the SAREE photo - its motifs, their spacing, its border and its colours.` }], signal);
+        redos += 1;
         regenerated = true;
-        const second = await checkShot(refs, again, signal);
-        if (!second.checked || second.failures.length <= verdict.failures.length) { image = again; verdict = second; }
+        last = await checkShot(refs, again, signal);
+        if (score(last) < score(verdict)) { image = again; verdict = last; }
+        if (!last.checked) break;
       } catch (err) {
         if (isCancel(err, signal)) throw err;
+        break;
       }
     }
     const checkPassed = verdict.checked ? verdict.failures.length === 0 : null;
-    stepLog('Catalog', { endpoint: 'women', item: `shot ${shot.id}`, result: 'made', seconds: secondsSince(started), check: checkPassed === null ? 'not checked' : checkPassed ? 'passed' : `still differs: ${verdict.failures.map((f) => f.check).join(', ')}`, setting: place.slice(0, 60) });
-    return { shot: shot.id, name: shot.name, setting: place, image, checkPassed, regenerated, ...(checkPassed === false ? { differences: verdict.failures.map((f) => f.check) } : {}) };
+    stepLog('Catalog', { endpoint: 'women', item: `shot ${shot.id}`, result: 'made', seconds: secondsSince(started), redos, check: checkPassed === null ? 'not checked' : checkPassed ? 'passed' : `still differs: ${verdict.failures.map((f) => f.check).join(', ')}`, setting: place.slice(0, 60) });
+    return { shot: shot.id, name: shot.name, setting: place, image, checkPassed, regenerated, redos, ...(checkPassed === false ? { differences: verdict.failures.map((f) => f.check) } : {}) };
   } catch (err) {
     if (isCancel(err, signal)) throw err;
     const limit = err && err.code === 'PROVIDER_LIMIT_REACHED';

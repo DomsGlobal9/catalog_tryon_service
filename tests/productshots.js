@@ -30,7 +30,7 @@ const FOLDED = 'neatly folded into a flat rectangle';
 (async () => {
   const images = [];   // prompt text of every image call
   const checks = [];   // every checker call
-  let verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, no_person: true, evidence: 'none' });
+  let verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, same_spacing: true, no_person: true, evidence: 'none' });
   let failImageWhen = () => false;
   const reply = (await sharp({ create: { width: 300, height: 400, channels: 3, background: '#7a1f2b' } }).jpeg().toBuffer()).toString('base64');
   const server = http.createServer((req, res) => {
@@ -101,6 +101,8 @@ const FOLDED = 'neatly folded into a flat rectangle';
     const shotCalls = images.filter((c) => c.text.includes('product photographer'));
     check('every shot call gets the SAREE and the FRONT VIEW, no BLOUSE when none was sent', shotCalls.length === 3 && shotCalls.every((c) => c.refs.join() === 'SAREE,FRONT VIEW'), shotCalls.map((c) => c.refs));
     check('every shot prompt forbids a person and keeps the saree exactly', shotCalls.every((c) => /NO person/.test(c.text) && /EXACTLY THE SAME SAREE/.test(c.text)));
+    check('every shot prompt keeps the motif spacing and count', shotCalls.every((c) => /MOTIF SPACING AND COUNT/.test(c.text) && /never more crowded/.test(c.text)));
+    check('the check asks about spacing too', checks.every((t) => /same_spacing/.test(t)));
     check('each shot names a setting from its own list', shotEvents.every((s) => SHOTS.find((x) => x.id === s.shot).places.includes(s.setting)));
     check('each shot was checked once and passed', checks.length === 3 && shotEvents.every((s) => s.checkPassed === true && s.regenerated === false), checks.length);
 
@@ -119,14 +121,25 @@ const FOLDED = 'neatly folded into a flat rectangle';
     ({ events } = await run('The check finds a difference'));
     const redone = events.filter((e) => typeof e === 'object');
     check('each shot is made again once (9 image calls)', images.length === 9, images.length);
-    check('the redo names the difference', images.filter((c) => /THE LAST ATTEMPT WAS WRONG: the motifs are bigger/.test(c.text)).length === 3);
-    check('the redone shots pass and say regenerated', redone.length === 3 && redone.every((s) => s.regenerated === true && s.checkPassed === true), redone.map((s) => [s.regenerated, s.checkPassed]));
+    check('the redo names the difference', images.filter((c) => c.text.includes('THE EARLIER ATTEMPTS WERE WRONG: (1) the motifs are bigger')).length === 3);
+    check('the redone shots pass and say regenerated, after one redo (a pass stops the redos)', redone.length === 3 && redone.every((s) => s.regenerated === true && s.checkPassed === true && s.redos === 1), redone.map((s) => [s.regenerated, s.checkPassed, s.redos]));
 
     // 4. Still different after the redo: delivered, marked, with what differs.
     verdictFor = () => ({ same_design: true, same_colours: false, same_border: true, nothing_added: true, no_person: true, evidence: 'paler' });
     ({ events } = await run('Still different after the redo'));
     const differs = events.filter((e) => typeof e === 'object');
+    check('a shot that keeps differing is made twice more (3 views + 3 x 3 = 12 image calls)', images.length === 12, images.length);
+    check('the second redo is told both differences found so far', images.filter((c) => c.text.includes('(1) paler (2) paler')).length === 3);
+    check('each says 2 redos', differs.every((s) => s.redos === 2), differs.map((s) => s.redos));
     check('delivered with checkPassed false and the difference named', differs.length === 3 && differs.every((s) => s.image && s.checkPassed === false && s.differences.join() === 'same_colours'), differs.map((s) => s.differences));
+
+    // 4b. The redos come out worse: the first, better picture is kept.
+    verdictFor = (n) => (n <= 3
+      ? { same_design: true, same_colours: false, same_border: true, nothing_added: true, same_spacing: true, no_person: true, evidence: 'paler' }
+      : { same_design: false, same_colours: false, same_border: true, nothing_added: true, same_spacing: true, no_person: true, evidence: 'worse' });
+    ({ events } = await run('The redos are worse'));
+    const kept = events.filter((e) => typeof e === 'object');
+    check('the better first picture is kept (one difference, not two)', kept.length === 3 && kept.every((s) => s.differences.join() === 'same_colours' && s.redos === 2), kept.map((s) => s.differences));
 
     // 5. One shot cannot be made: reported alone, the rest and the views unaffected.
     verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, no_person: true, evidence: 'none' });

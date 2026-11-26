@@ -377,7 +377,8 @@ in any order (they are made side by side with the side and sitting views, after 
   "setting": "on a white marble slab, with a small brass diya and a few jasmine buds beside it",
   "image": "data:image/jpeg;base64,/9j/4AAQ...",
   "checkPassed": true,
-  "regenerated": false
+  "regenerated": false,
+  "redos": 0
 }
 ```
 `shot` is `closeup` (the fabric swirled into soft folds filling the whole picture, body motifs above and
@@ -387,8 +388,9 @@ JPEG as the views. **The setting (for the close-up, the light) is picked at rand
 copy-pasted; the saree itself is never changed.
 
 Each shot is checked against the saree photo (same design, colours, border, nothing added, no person)
-and made once more if it differs. `checkPassed`: `true` passed, `false` a difference remained (then
-`differences` names it, e.g. `["same_design"]` — show it for review or ask again), `null` not checked.
+and the motif spacing; it is made again, up to two more times, while it differs, and the best picture is
+kept (`redos` says how many times; `regenerated` is true when there was at least one). `checkPassed`: `true` passed, `false` a difference remained (then
+`differences` names it, e.g. `["same_spacing"]` — show it for review or ask again), `null` not checked.
 A shot that could not be made comes with `error: { code, message, retryable: true }` and no `image`;
 the views are never affected. `COMPLETE` then carries `productShots: { made, failed }`.
 
