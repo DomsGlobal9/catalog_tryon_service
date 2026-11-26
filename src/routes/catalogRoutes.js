@@ -20,6 +20,7 @@ const { admitGeneration, cancelGeneration } = require('../middleware/generationG
 const { parseColourVariant, colourSummary } = require('../services/colourVariant');
 const { publicMessage } = require('../lib/publicError');
 const billing = require('../modules/billing/billing.service');
+const productShots = require('../services/productShots');
 const { stepLog, secondsSince, setContext } = require('../lib/stepLog');
 
 /** A job-status write must never take the stream down with it. */
@@ -59,8 +60,12 @@ router.post('/generate-catalog/women', async (req, res) => {
   const startTime = Date.now();
   let jobId = null;
   let viewsDelivered = 0;
+  let shotsMade = 0;
+  let shotsFailed = 0;
   let heartbeat = null;
   let admitted = null;
+  // A late product shot must never write to a stream that has already ended.
+  const writeEvent = (event) => { if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`); };
 
   try {
   const { modelId, bottom } = req.body;
@@ -114,6 +119,16 @@ router.post('/generate-catalog/women', async (req, res) => {
       throw err;
     }
     const variant = colourSummary(colour);
+
+    // PRODUCT SHOTS (optional, owner 26 Nov 2026): three photos of the saree with no model - a fan
+    // of pleats, folded, a styled table scene - each in a random setting. Sarees only for now.
+    const wantShots = req.body.productShots === true || req.body.productShots === 'true';
+    if (wantShots && safeCategory !== 'SAREE') {
+      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_SAREE_ONLY', error: 'productShots is available for sarees only (category "SAREE").' });
+    }
+    if (wantShots && colour) {
+      return res.status(400).json({ success: false, code: 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', error: 'productShots cannot be combined with a colour variant yet. Ask for them on the normal catalog request.' });
+    }
 
     // BILLING: what makes this run "the same request" (the caller's jobId, else
     // the Gateway request id). A jobId that was already delivered and charged
@@ -218,7 +233,20 @@ router.post('/generate-catalog/women', async (req, res) => {
     bottom,
     category: safeCategory,
     dupattaStyleUrl,
-    colour
+    colour,
+    afterFront: wantShots
+      ? (front, refs) => {
+          writeEvent({ type: 'STATUS', message: 'Making 3 product shots beside the views...' });
+          return productShots.makeProductShots({ ...refs, front }, {
+            generate: aiGenerationService.callGeminiImageGen,
+            signal: abortController.signal,
+            onShot: (shot) => {
+              if (shot.image) shotsMade += 1; else shotsFailed += 1;
+              writeEvent({ type: 'PRODUCT_SHOT', ...shot });
+            }
+          });
+        }
+      : null
   },
       {
         // No back view (29 Oct): the model's back pose is kept in the database, never drawn.
@@ -256,9 +284,14 @@ router.post('/generate-catalog/women', async (req, res) => {
     });
 
     // 5. Close stream
-    res.write(`data: ${JSON.stringify(variant ? { type: 'COMPLETE', jobId: jobId, colorVariant: variant } : { type: 'COMPLETE', jobId: jobId })}\n\n`);
+    res.write(`data: ${JSON.stringify({
+      type: 'COMPLETE',
+      jobId: jobId,
+      ...(variant ? { colorVariant: variant } : {}),
+      ...(wantShots ? { productShots: { made: shotsMade, failed: shotsFailed } } : {})
+    })}\n\n`);
     res.end();
-    stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, result: 'complete', views: viewsDelivered, seconds: secondsSince(startTime) });
+    stepLog('Catalog', { jobId, endpoint: 'women', garment: safeCategory, result: 'complete', views: viewsDelivered, shots: wantShots ? `${shotsMade} of 3` : null, seconds: secondsSince(startTime) });
 
   } catch (error) {
     const open = res.headersSent && !res.writableEnded && !res.destroyed;

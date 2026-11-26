@@ -309,7 +309,10 @@ const {
   bottom,
   category,
   dupattaStyleUrl,
-  colour = null
+  colour = null,
+  // Optional: (front, { saree, blouse }) => Promise, started as soon as the front view exists and
+  // run beside the side and sitting views (the product shots). Must reject only on cancel.
+  afterFront = null
 } = inputs;
     console.log(`Starting Sequential Generation Flow for Category: ${category}${colour ? ` | colour variant: ${colour.name}${colour.hex ? ' ' + colour.hex : ''} (mode ${COLOUR_VARIANT_MODE})` : ''}`);
 
@@ -453,6 +456,14 @@ const buildPayloadParts = (
 
     if (onProgress) onProgress({ view: 'front', image: generatedFront });
 
+    // Extra work that needs only the finished front (product shots) starts now, beside the views.
+    // Guarded so a cancel while the views are still running is never an unhandled rejection.
+    const asDataUri = (b64) => (b64 ? `data:${INPUT_MIME};base64,${cleanBase64(b64)}` : null);
+    const extraWork = afterFront
+      ? Promise.resolve().then(() => afterFront(generatedFront, { saree: asDataUri(processedFullDress), blouse: asDataUri(processedTopFront) }))
+      : null;
+    if (extraWork) extraWork.catch(() => {});
+
     // 2. Generate Dependent Views (passing the generatedFront as a reference)
     console.log('Generating Dependent Views (Side, Sitting) using Front as reference...');
     
@@ -504,10 +515,13 @@ const buildPayloadParts = (
 
     console.log(`✅ All Dependent Views generated successfully in ${Date.now() - dependentStarted}ms.`);
 
+    const extra = extraWork ? await extraWork : undefined;
+
     return {
       front: generatedFront,
       side: generatedSide,
-      sitting: generatedSitting
+      sitting: generatedSitting,
+      ...(extraWork ? { extra } : {})
     };
 
   } catch (error) {
