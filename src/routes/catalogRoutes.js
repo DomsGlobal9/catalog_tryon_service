@@ -222,9 +222,11 @@ router.post('/generate-catalog/women', async (req, res) => {
 
     // EXTRA SAREE PHOTOS (optional, 26 Nov 2026): up to 3 more photos of the SAME saree - its pallu,
     // border or a close-up - so the views and product shots copy them instead of guessing.
+    // Not sent, null, "" or [] all mean "no extras" (forms leave blanks), never an error.
+    const blank = (v) => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && v.length === 0);
     let sareeExtras = [];
     const extrasRaw = req.body.sareeExtras;
-    if (extrasRaw !== undefined && extrasRaw !== null) {
+    if (!blank(extrasRaw)) {
       const list = Array.isArray(extrasRaw) ? extrasRaw : [extrasRaw];
       if (list.length > MAX_SAREE_EXTRAS || list.some((x) => typeof x !== 'string' || !x.trim())) {
         return res.status(400).json({ success: false, code: 'INVALID_SAREE_EXTRAS', error: `sareeExtras must be a list of 1 to ${MAX_SAREE_EXTRAS} photos of the same saree (each an image link or base64).` });
@@ -234,8 +236,8 @@ router.post('/generate-catalog/women', async (req, res) => {
       }
       sareeExtras = list;
     }
-    const frontView = req.body.frontView;
-    if (frontView !== undefined && frontView !== null && (!shotsOnly || typeof frontView !== 'string' || !frontView.trim())) {
+    const frontView = blank(req.body.frontView) ? null : req.body.frontView;
+    if (frontView !== null && (!shotsOnly || typeof frontView !== 'string')) {
       return res.status(400).json({ success: false, code: 'INVALID_FRONT_VIEW', error: shotsOnly ? 'frontView must be one image link or base64 string.' : 'frontView is only read with productShotsOnly.' });
     }
 

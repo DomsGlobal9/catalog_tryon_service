@@ -224,6 +224,15 @@ const FOLDED = 'neatly folded into a flat rectangle';
     check('an extra photo that is not text is a 400', got[0] === 400 && got[1] === 'INVALID_SAREE_EXTRAS', got);
     got = await refused({ clientId: 'c', modelId: 'lehanga1', saree: 'x', category: 'LEHANGA', sareeExtras: ['a'] });
     check('extras on a lehenga is a 400 SAREE_EXTRAS_SAREE_ONLY', got[0] === 400 && got[1] === 'SAREE_EXTRAS_SAREE_ONLY', got);
+    // Blanks a form leaves behind mean "not sent": they reach the next check, never an extras/frontView error.
+    got = await refused({ clientId: 'c', modelId: 'lehanga1', saree: 'x', category: 'LEHANGA', sareeExtras: [], frontView: '', productShots: true });
+    check('blank sareeExtras ([]) and frontView ("") are ignored - the lehenga gets the productShots error, not an extras one', got[1] === 'PRODUCT_SHOTS_SAREE_ONLY', got);
+    got = await refused({ clientId: 'c', modelId: 'lehanga1', saree: 'x', category: 'LEHANGA', sareeExtras: '  ', frontView: null, productShots: true });
+    check('sareeExtras "  " is ignored too', got[1] === 'PRODUCT_SHOTS_SAREE_ONLY', got);
+    got = await refused({ clientId: 'c', saree: 'x', productShotsOnly: true, frontView: 42, category: 'SAREE', color: 'Red' });
+    check('a frontView that is a number is still refused... after the colour rule', got[1] === 'PRODUCT_SHOTS_NO_COLOUR_VARIANT', got);
+    got = await refused({ clientId: 'c', saree: 'x', productShotsOnly: true, frontView: 42 });
+    check('a frontView that is a number is a 400 INVALID_FRONT_VIEW', got[0] === 400 && got[1] === 'INVALID_FRONT_VIEW', got);
     got = await refused({ clientId: 'c', modelId: 'saree1', saree: 'x', frontView: 'x' });
     check('frontView without productShotsOnly is a 400 INVALID_FRONT_VIEW', got[0] === 400 && got[1] === 'INVALID_FRONT_VIEW', got);
     got = await refused({ clientId: 'c', saree: 'x', productShotsOnly: true, category: 'LEHANGA' });
