@@ -28,8 +28,10 @@ function shotPrompt(shot, place, { hasBlouse }) {
     'You are a product photographer for an Indian saree shop. Make ONE product photograph of the saree in the reference photos. There is NO person, NO model, NO mannequin and NO hands anywhere in the picture: the saree alone.',
     '',
     shot.scene,
-    `THE SETTING: ${place}. Choose the exact tones of the setting so they flatter the saree: never the saree's own main colour, so the saree stands out clearly.`,
-    hasBlouse ? 'The blouse piece from the BLOUSE photo lies neatly folded beside the saree, small, its fabric showing.' : '',
+    shot.lightOnly
+      ? `THE LIGHT: ${place}. Keep the true colours of the saree in this light.`
+      : `THE SETTING: ${place}. Choose the exact tones of the setting so they flatter the saree: never the saree's own main colour, so the saree stands out clearly.`,
+    hasBlouse && !shot.lightOnly ?'The blouse piece from the BLOUSE photo lies neatly folded beside the saree, small, its fabric showing.' : '',
     '',
     'THE SAREE MUST BE EXACTLY THE SAME SAREE: the same base colour, the same motifs at the same size, shape and spacing, the same border with the same width, colours and pattern, the same pallu design, the same zari. The saree has three zones and each keeps its own pattern wherever it shows: the BODY (the main field), the BORDER and the PALLU - never put a generic pattern where the own pattern of this saree belongs. Do not add, remove, simplify or invent any motif, figure, stripe, check or border. Where the SAREE photo does not show a part clearly, use the FRONT VIEW photo for how it looks.',
     '',
@@ -40,7 +42,7 @@ function shotPrompt(shot, place, { hasBlouse }) {
 function shotParts(shot, place, refs) {
   const parts = [{ text: shotPrompt(shot, place, { hasBlouse: !!refs.blouse }) }];
   parts.push({ text: 'SAREE - the real saree (the truth for its design, colours and border):' }, inline(refs.saree));
-  if (refs.blouse) parts.push({ text: 'BLOUSE - the blouse piece sold with it:' }, inline(refs.blouse));
+  if (refs.blouse && !shot.lightOnly) parts.push({ text: 'BLOUSE - the blouse piece sold with it:' }, inline(refs.blouse));
   if (refs.front) parts.push({ text: 'FRONT VIEW - the same saree worn by a model (only to see its border and pallu; draw no person):' }, inline(refs.front));
   return parts;
 }

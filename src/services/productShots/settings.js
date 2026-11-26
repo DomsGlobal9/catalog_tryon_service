@@ -40,6 +40,21 @@ const SHOTS = [
       'an antique rosewood chest, a pair of brass bells, a jasmine garland, a warm ochre wall behind',
       'a cane-weave table, a stack of two hardbound books, a small brass elephant, a potted fern, a soft grey wall behind'
     ]
+  },
+  {
+    // Owner, 26 Nov 2026 ("add this style"): the fabric itself, swirled and filling the frame - no
+    // background and no props, so what varies from product to product is the light, not a place.
+    id: 'closeup',
+    name: 'Fabric close-up',
+    lightOnly: true,
+    scene: 'THE SHOT: a close-up of the saree fabric, gently swirled and gathered into soft, flowing folds that fill the whole picture from edge to edge - no background, no surface, no table and no props anywhere. Seen from slightly above. The BODY with its motifs fills the upper part of the picture and the BORDER runs across the lower part in wide soft folds, so both show clearly. Several motifs lie on the smooth parts of the folds, whole and easy to read, at their true size. The weave texture of the fabric is crisp and visible.',
+    places: [
+      'soft daylight from the left, gentle shadows deep in the folds',
+      'warm late-afternoon light that makes the zari glow, soft shadows',
+      'bright diffused window light from above, airy and even',
+      'moody side light from the right with rich highlights on the curves of the folds',
+      'cool, even studio light with soft natural shadows'
+    ]
   }
 ];
 

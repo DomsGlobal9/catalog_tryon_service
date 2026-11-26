@@ -2,7 +2,7 @@
 // hooked in, with only Gemini replaced: both the image model and the checker point at a stand-in on
 // this machine that answers with a small JPEG (images) or a verdict (checks) and keeps what it was asked.
 //
-// Checks: 3 views + 2 shots (folded, table; the pleats fan was dropped 26 Nov), shots start after the front and carry the saree, blouse and front
+// Checks: 3 views + 3 shots (folded, table, fabric close-up; the pleats fan was dropped 26 Nov), shots start after the front and carry the saree, blouse and front
 // references; no shot prompt asks for a person; a check that finds a difference makes one redo; a
 // shot that fails is reported on its own and the views still arrive; settings vary; the route
 // refuses productShots for a non-saree and with a colour variant before any work.
@@ -95,35 +95,38 @@ const FOLDED = 'neatly folded into a flat rectangle';
     const shotEvents = events.filter((e) => typeof e === 'object');
     check('the front arrives first, then the shots start', events[0] === 'front' && events[1] === 'shots-started', events.map((e) => (typeof e === 'object' ? e.shot : e)));
     check('side and sitting still arrive', events.includes('side') && events.includes('sitting'));
-    check('two shots: folded and table, each with a picture', JSON.stringify(shotEvents.map((s) => s.shot).sort()) === JSON.stringify(['folded', 'table']) && shotEvents.every((s) => /^data:image\/jpeg;base64,/.test(s.image)), shotEvents.map((s) => s.shot));
-    check('the result carries the two shots in order', out && Array.isArray(out.extra) && out.extra.map((s) => s.shot).join() === 'folded,table');
-    check('the image model is asked 5 times (3 views + 2 shots)', images.length === 5, images.length);
+    check('three shots: folded, table, close-up, each with a picture', JSON.stringify(shotEvents.map((s) => s.shot).sort()) === JSON.stringify(['closeup', 'folded', 'table']) && shotEvents.every((s) => /^data:image\/jpeg;base64,/.test(s.image)), shotEvents.map((s) => s.shot));
+    check('the result carries the three shots in order', out && Array.isArray(out.extra) && out.extra.map((s) => s.shot).join() === 'folded,table,closeup');
+    check('the image model is asked 6 times (3 views + 3 shots)', images.length === 6, images.length);
     const shotCalls = images.filter((c) => c.text.includes('product photographer'));
-    check('every shot call gets the SAREE and the FRONT VIEW, no BLOUSE when none was sent', shotCalls.length === 2 && shotCalls.every((c) => c.refs.join() === 'SAREE,FRONT VIEW'), shotCalls.map((c) => c.refs));
+    check('every shot call gets the SAREE and the FRONT VIEW, no BLOUSE when none was sent', shotCalls.length === 3 && shotCalls.every((c) => c.refs.join() === 'SAREE,FRONT VIEW'), shotCalls.map((c) => c.refs));
     check('every shot prompt forbids a person and keeps the saree exactly', shotCalls.every((c) => /NO person/.test(c.text) && /EXACTLY THE SAME SAREE/.test(c.text)));
     check('each shot names a setting from its own list', shotEvents.every((s) => SHOTS.find((x) => x.id === s.shot).places.includes(s.setting)));
-    check('each shot was checked once and passed', checks.length === 2 && shotEvents.every((s) => s.checkPassed === true && s.regenerated === false), checks.length);
+    check('each shot was checked once and passed', checks.length === 3 && shotEvents.every((s) => s.checkPassed === true && s.regenerated === false), checks.length);
 
     // 2. With a blouse photo.
     ({ events } = await run('With a blouse photo', { withBlouse: true }));
     const withBlouse = images.filter((c) => c.text.includes('product photographer'));
-    check('the shots get the BLOUSE too and are told to lay it beside the saree', withBlouse.length === 2 && withBlouse.every((c) => c.refs.join() === 'SAREE,BLOUSE,FRONT VIEW' && /blouse piece/.test(c.text)), withBlouse.map((c) => c.refs));
+    const scenes = withBlouse.filter((c) => !/THE LIGHT:/.test(c.text));
+    const close = withBlouse.filter((c) => /THE LIGHT:/.test(c.text));
+    check('folded and table get the BLOUSE too and are told to lay it beside the saree', scenes.length === 2 && scenes.every((c) => c.refs.join() === 'SAREE,BLOUSE,FRONT VIEW' && /blouse piece/.test(c.text)), scenes.map((c) => c.refs));
+    check('the close-up gets no blouse (the fabric fills the frame) and no setting, only a light', close.length === 1 && close[0].refs.join() === 'SAREE,FRONT VIEW' && !/blouse piece/.test(close[0].text) && !/THE SETTING/.test(close[0].text) && /no props/.test(close[0].text), close.map((c) => c.refs));
 
     // 3. The checker finds a difference on the first look at each shot: one redo each, kept when better.
-    verdictFor = (n) => (n <= 2
+    verdictFor = (n) => (n <= 3
       ? { same_design: false, same_colours: true, same_border: true, nothing_added: true, no_person: true, evidence: 'the motifs are bigger' }
       : { same_design: true, same_colours: true, same_border: true, nothing_added: true, no_person: true, evidence: 'none' });
     ({ events } = await run('The check finds a difference'));
     const redone = events.filter((e) => typeof e === 'object');
-    check('each shot is made again once (7 image calls)', images.length === 7, images.length);
-    check('the redo names the difference', images.filter((c) => /THE LAST ATTEMPT WAS WRONG: the motifs are bigger/.test(c.text)).length === 2);
-    check('the redone shots pass and say regenerated', redone.length === 2 && redone.every((s) => s.regenerated === true && s.checkPassed === true), redone.map((s) => [s.regenerated, s.checkPassed]));
+    check('each shot is made again once (9 image calls)', images.length === 9, images.length);
+    check('the redo names the difference', images.filter((c) => /THE LAST ATTEMPT WAS WRONG: the motifs are bigger/.test(c.text)).length === 3);
+    check('the redone shots pass and say regenerated', redone.length === 3 && redone.every((s) => s.regenerated === true && s.checkPassed === true), redone.map((s) => [s.regenerated, s.checkPassed]));
 
     // 4. Still different after the redo: delivered, marked, with what differs.
     verdictFor = () => ({ same_design: true, same_colours: false, same_border: true, nothing_added: true, no_person: true, evidence: 'paler' });
     ({ events } = await run('Still different after the redo'));
     const differs = events.filter((e) => typeof e === 'object');
-    check('delivered with checkPassed false and the difference named', differs.length === 2 && differs.every((s) => s.image && s.checkPassed === false && s.differences.join() === 'same_colours'), differs.map((s) => s.differences));
+    check('delivered with checkPassed false and the difference named', differs.length === 3 && differs.every((s) => s.image && s.checkPassed === false && s.differences.join() === 'same_colours'), differs.map((s) => s.differences));
 
     // 5. One shot cannot be made: reported alone, the rest and the views unaffected.
     verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, no_person: true, evidence: 'none' });
@@ -132,7 +135,7 @@ const FOLDED = 'neatly folded into a flat rectangle';
     const mixed = events.filter((e) => typeof e === 'object');
     const folded = mixed.find((s) => s.shot === 'folded');
     check('the folded shot comes back as an error, retryable, no picture', folded && !folded.image && folded.error && folded.error.code === 'PRODUCT_SHOT_FAILED' && folded.error.retryable === true, folded);
-    check('the table shot is still made', mixed.filter((s) => s.image).map((s) => s.shot).join() === 'table');
+    check('table and close-up are still made', mixed.filter((s) => s.image).map((s) => s.shot).sort().join() === 'closeup,table');
     check('the three views are still made', out && out.front && out.side && out.sitting);
     check('the error message says nothing technical', folded && !/HTTP|400|stand-in/i.test(folded.error.message), folded && folded.error.message);
     failImageWhen = () => false;
