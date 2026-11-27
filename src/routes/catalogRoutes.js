@@ -21,6 +21,7 @@ const { parseColourVariant, colourSummary } = require('../services/colourVariant
 const { publicMessage } = require('../lib/publicError');
 const billing = require('../modules/billing/billing.service');
 const productShots = require('../services/productShots');
+const sareeReader = require('../services/sareeReader');
 const { randomUUID } = require('crypto');
 const { stepLog, secondsSince, setContext } = require('../lib/stepLog');
 
@@ -36,10 +37,26 @@ async function recordJob(jobId, data) {
 
 const MAX_SAREE_EXTRAS = 3;
 
+const LOOK_BUDGET_MS = Number(process.env.SAREE_LOOK_BUDGET_MS || 15000);
+
+/**
+ * The look's answer, or `fallback` once LOOK_BUDGET_MS has passed (the look itself is left to finish
+ * and its answer ignored). A cancel of the job still ends it at once.
+ */
+function withinBudget(promise, fallback, what, signal) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      stepLog('Catalog', { endpoint: 'women', item: what, result: 'skipped', why: `no answer within ${LOOK_BUDGET_MS / 1000}s - the job goes on without it` });
+      resolve(fallback);
+    }, LOOK_BUDGET_MS);
+  });
+  const guarded = promise.catch((err) => { if (signal && signal.aborted) throw err; return fallback; });
+  return Promise.race([guarded, late]).finally(() => clearTimeout(timer));
+}
+
 /** Refuses (as a stream ERROR, nothing made, nothing charged) extra photos of a different saree. */
-async function refuseMismatchedExtras(prepared, signal) {
-  const mismatched = await productShots.verifyExtras(
-    aiGenerationService.toDataUri(prepared.saree), prepared.extras.map(aiGenerationService.toDataUri), signal);
+function refuseMismatchedExtras(mismatched) {
   if (!mismatched.length) return;
   const which = mismatched.map((m) => m.index).join(' and ');
   const err = new Error(`Extra photo ${which} (sareeExtras) shows a different saree from the main photo. Send only photos of this saree: its pallu, border or a close-up.`);
@@ -48,6 +65,41 @@ async function refuseMismatchedExtras(prepared, signal) {
   err.expose = true;
   err.details = mismatched.map((m) => ({ extra: m.index, reason: m.evidence }));
   throw err;
+}
+
+/**
+ * One look at all the photos before anything is drawn (services/sareeReader, 27 Nov 2026): the photo
+ * that shows the saree's layout best becomes the main one, a "blouse" photo that is really the saree
+ * becomes an extra saree photo, and the fabric facts are written down for every picture. Says what it
+ * changed in a STATUS event. Never fails a job: when the look cannot run, everything stays as sent.
+ */
+async function readAndArrange(prepared, { colour, signal, writeEvent }) {
+  // Both looks - "is every extra the same saree?" and the read - run at the same time, on 768 px
+  // copies (27 Nov: one after the other at full size they took 35 s and a run went past 90 s).
+  const small = aiGenerationService.smallCopy;
+  const [s, b, ...x] = await Promise.all([small(prepared.saree), small(prepared.blouse), ...prepared.extras.map((e) => small(e))]);
+  // Each look gets LOOK_BUDGET_MS: Gemini took 7 to 23 s for the same read on 27 Nov, and a run must stay
+  // under the gateway's 90 s. Past the budget the job goes on as if the look had found nothing.
+  const [mismatched, read] = await Promise.all([
+    x.length ? withinBudget(productShots.verifyExtras(s, x, signal), [], 'extra photos check', signal) : [],
+    withinBudget(sareeReader.readSaree({ saree: s, extras: x, blouse: b, colour }, signal),
+      { read: false, bestIndex: 0, mainShowsLayout: true, blouseShows: b ? 'a blouse' : 'no blouse photo', facts: null }, 'read saree', signal)
+  ]);
+  refuseMismatchedExtras(mismatched);
+  let { saree, extras, blouse } = prepared;
+  extras = [...extras];
+  if (read.read && !read.mainShowsLayout && read.bestIndex > 0) {
+    const better = extras[read.bestIndex - 1];
+    extras[read.bestIndex - 1] = saree;
+    saree = better;
+    writeEvent({ type: 'STATUS', message: `Using extra photo ${read.bestIndex} as the main saree photo: it shows the whole saree better than the close-up sent as the main photo.` });
+  }
+  if (read.read && blouse && read.blouseShows === 'this saree') {
+    if (extras.length < MAX_SAREE_EXTRAS) extras.push(blouse);
+    blouse = null;
+    writeEvent({ type: 'STATUS', message: 'The blouse photo shows the saree itself, not a blouse: it is used as a saree photo, and the blouse is made to match the saree.' });
+  }
+  return { prepared: { ...prepared, saree, extras, blouse }, facts: read.facts };
 }
 
 /**
@@ -76,11 +128,11 @@ async function runShotsOnly(req, res, { clientId, saree, blouse, extras, front }
     writeEvent({ type: 'STATUS', message: `Making ${productShots.SHOT_COUNT} product shots...` });
     heartbeat = setInterval(() => { if (!res.writableEnded) res.write(`: keepalive ${Date.now()}\n\n`); }, SSE_HEARTBEAT_MS);
 
-    const prepared = await aiGenerationService.prepareInputs({ saree, blouse, extras, front }, abortController.signal);
-    if (prepared.extras.length) await refuseMismatchedExtras(prepared, abortController.signal);
+    const sent = await aiGenerationService.prepareInputs({ saree, blouse, extras, front }, abortController.signal);
+    const { prepared, facts } = await readAndArrange(sent, { colour: null, signal: abortController.signal, writeEvent });
     const toUri = aiGenerationService.toDataUri;
     await productShots.makeProductShots(
-      { saree: toUri(prepared.saree), blouse: toUri(prepared.blouse), extras: prepared.extras.map(toUri), front: prepared.front },
+      { saree: toUri(prepared.saree), blouse: toUri(prepared.blouse), extras: prepared.extras.map(toUri), front: prepared.front, facts },
       {
         generate: aiGenerationService.callGeminiImageGen,
         signal: abortController.signal,
@@ -340,11 +392,15 @@ router.post('/generate-catalog/women', async (req, res) => {
     }, SSE_HEARTBEAT_MS);
 
     // Extra saree photos: prepared once and checked to be the same saree before any image is made.
+    // Every saree (27 Nov): one look at all its photos first - see readAndArrange.
     let prepared = null;
+    let facts = null;
     if (sareeExtras.length) {
       writeEvent({ type: 'STATUS', message: `Checking ${sareeExtras.length} extra saree photo${sareeExtras.length > 1 ? 's' : ''}...` });
-      prepared = await aiGenerationService.prepareInputs({ saree: fullDress, blouse: topFront, extras: sareeExtras }, abortController.signal);
-      await refuseMismatchedExtras(prepared, abortController.signal);
+    }
+    if (safeCategory === 'SAREE') {
+      const sent = await aiGenerationService.prepareInputs({ saree: fullDress, blouse: topFront, extras: sareeExtras }, abortController.signal);
+      ({ prepared, facts } = await readAndArrange(sent, { colour, signal: abortController.signal, writeEvent }));
     }
 
     // 3. Initiate the Generation Service Flow
@@ -358,6 +414,7 @@ router.post('/generate-catalog/women', async (req, res) => {
     dupattaStyleUrl,
     colour,
     prepared,
+    facts,
     afterFront: wantShots
       ? (front, refs) => {
           writeEvent({ type: 'STATUS', message: `Making ${productShots.SHOT_COUNT} product shots beside the views...` });

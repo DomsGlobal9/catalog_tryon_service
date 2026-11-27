@@ -32,6 +32,10 @@ const FOLDED = 'neatly folded into a flat rectangle';
   const checks = [];   // every checker call
   let verdictFor = () => ({ same_design: true, same_colours: true, same_border: true, nothing_added: true, same_spacing: true, no_person: true, evidence: 'none' });
   let failImageWhen = () => false;
+  const readerCalls = []; // every "read the saree" call
+  const READ_PLAIN = { best_layout_photo: 1, main_shows_layout: true, blouse_photo_shows: 'no blouse photo', body_colour: 'deep pink', body_stripes: 'none', body_motifs: 'small silver buttis in rows', border: 'narrow silver lattice', pallu: 'not shown', must_keep: ['small silver buttis spread evenly'] };
+  let readerFor = () => READ_PLAIN;
+  let readerDelayMs = 0;
   const sameChecks = [];  // every "is this extra photo the same saree?" call
   let sameSareeFor = () => ({ same_saree: true, evidence: 'same saree' });
   const reply = (await sharp({ create: { width: 300, height: 400, channels: 3, background: '#7a1f2b' } }).jpeg().toBuffer()).toString('base64');
@@ -44,6 +48,13 @@ const FOLDED = 'neatly folded into a flat rectangle';
       const text = parts.filter((p) => p.text).map((p) => p.text).join('\n');
       res.setHeader('content-type', 'application/json');
       if (parsed.generationConfig && parsed.generationConfig.responseSchema) {
+        if (parsed.generationConfig.responseSchema.properties.best_layout_photo) {
+          readerCalls.push({ text, images: parts.filter((p) => p.inlineData).length });
+          const answer = readerFor(readerCalls.length);
+          const send = () => res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: typeof answer === 'string' ? answer : JSON.stringify(answer) }] } }] }));
+          if (readerDelayMs) setTimeout(send, readerDelayMs); else send();
+          return;
+        }
         if (parsed.generationConfig.responseSchema.properties.same_saree) {
           sameChecks.push(text);
           res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(sameSareeFor(sameChecks.length)) }] } }] }));
@@ -306,6 +317,53 @@ const FOLDED = 'neatly folded into a flat rectangle';
     await handler({ body: { clientId: 'shots-only-test-bad2', saree, frontView: 'bm90IGFuIGltYWdl', productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, badFront);
     const badFrontErr = badFront.events.find((e) => e.type === 'ERROR');
     check('an unreadable frontView is named', badFrontErr && badFrontErr.error.startsWith('The front view (frontView): '), badFrontErr);
+
+    // 7e. The saree reader (27 Nov): best main photo, a "blouse" that is the saree, facts everywhere.
+    {
+      const STRIPED = { best_layout_photo: 3, main_shows_layout: false, blouse_photo_shows: 'this saree', body_colour: 'dark maroon', body_stripes: 'thin vertical gold stripes in pairs', body_motifs: 'round gold buttas between the stripes', border: 'wide plain red, no zari', pallu: 'not shown', must_keep: ['the thin vertical gold stripes run through every pleat'] };
+      readerFor = () => STRIPED; readerCalls.length = 0; images.length = 0; checks.length = 0;
+      const r = streamRes();
+      console.log('\nThe reader: a close-up sent as main, a saree sent as the blouse');
+      const pallu = await jpeg('#550011');
+      await handler({ body: { clientId: 'reader-test', saree, blouse, sareeExtras: [pallu, blouse], productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, r);
+      const statuses = r.events.filter((e) => e.type === 'STATUS').map((e) => e.message);
+      check('the reader is asked once, with every photo (main, 2 extras, blouse) as small copies', readerCalls.length === 1 && readerCalls[0].images === 4, readerCalls.map((c) => c.images));
+      check('a close-up main is swapped for the photo that shows the layout, and the stream says so', statuses.some((m) => /Using extra photo 2 as the main saree photo/.test(m)), statuses);
+      check('a "blouse" photo that is the saree becomes a saree photo, and the stream says so', statuses.some((m) => /blouse photo shows the saree itself/.test(m)), statuses);
+      const shotCalls = images.filter((c) => c.text.includes('product photographer'));
+      check('the shots get 3 saree detail photos (2 extras + the moved blouse) and no BLOUSE', shotCalls.length === 3 && shotCalls.every((c) => c.refs.join() === 'SAREE,SAREE DETAIL 1,SAREE DETAIL 2,SAREE DETAIL 3'), shotCalls.map((c) => c.refs));
+      check('every shot carries the SAREE FACTS with the stripes and the plain border', shotCalls.every((c) => /SAREE FACTS/.test(c.text) && /thin vertical gold stripes in pairs\. They run through the WHOLE body/.test(c.text) && /wide plain red, no zari\. Nothing else is added/.test(c.text) && /MUST KEEP: the thin vertical gold stripes run through every pleat/.test(c.text)));
+      check('every shot check is told the facts and checks the stripes', checks.length >= 3 && checks.slice(-3).every((t) => /Notes on the real saree/.test(t) && /same_stripes/.test(t)), checks.length);
+
+      // The views get the facts too, and a colour variant keeps the design only.
+      images.length = 0;
+      const prep = await ai.prepareInputs({ saree });
+      await ai.generate4ViewCatalog({ fullDress: saree, category: 'SAREE', prepared: prep, facts: 'SAREE FACTS (test): - Body stripes: thin gold stripes.' }, BASES, () => {});
+      check('front, side and sitting each carry the facts', images.length === 3 && images.every((c) => c.text.includes('SAREE FACTS (test)')), images.length);
+      const { factsText } = require(path.join(SRC, 'services/sareeReader'));
+      const recoloured = factsText(STRIPED, { colour: { name: 'Royal Blue' } });
+      check('with a colour variant the facts name the new colour and drop the old one', /becomes Royal Blue/.test(recoloured) && !/dark maroon/.test(recoloured) && /thin vertical gold stripes/.test(recoloured), recoloured);
+      const plain = factsText({ ...READ_PLAIN, body_stripes: 'none', body_motifs: 'none' });
+      check('a saree without stripes or motifs is told "none - do not add any"', /Body stripes: none - do not add any/.test(plain) && /Body motifs: none - do not add any/.test(plain), plain);
+
+      // Unusable answer: asked once more; then the job goes on as sent, no facts, no STATUS.
+      readerFor = () => 'not json at all'; readerCalls.length = 0; images.length = 0;
+      const bad = streamRes();
+      await handler({ body: { clientId: 'reader-test-2', saree, productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, bad);
+      check('an unusable read is asked once more, then the shots are made without facts', readerCalls.length === 2 && bad.events.filter((e) => e.type === 'PRODUCT_SHOT' && e.image).length === 3 && images.every((c) => !/SAREE FACTS/.test(c.text)), [readerCalls.length, images.length]);
+      check('nothing is swapped when the read failed', !bad.events.some((e) => e.type === 'STATUS' && /Using extra photo|blouse photo shows/.test(e.message)));
+
+      // Too slow: past the budget the job goes on without the read.
+      readerFor = () => STRIPED; readerDelayMs = 400; readerCalls.length = 0; images.length = 0;
+      process.env.SAREE_LOOK_BUDGET_MS = '100';
+      delete require.cache[require.resolve(path.join(SRC, 'routes/catalogRoutes'))];
+      const slowHandler = require(path.join(SRC, 'routes/catalogRoutes')).stack.find((l) => l.route && l.route.path === '/generate-catalog/women').route.stack[0].handle;
+      const slow = streamRes();
+      const t0 = Date.now();
+      await slowHandler({ body: { clientId: 'reader-test-3', saree, blouse, productShotsOnly: true }, account: 'test-acct', headers: {}, on() {} }, slow);
+      check('a read slower than its budget is skipped: shots made, no facts, blouse kept', slow.events.filter((e) => e.type === 'PRODUCT_SHOT' && e.image).length === 3 && images.every((c) => !/SAREE FACTS/.test(c.text)) && images.some((c) => c.refs.includes('BLOUSE')), [Date.now() - t0, images.map((c) => c.refs)]);
+      delete process.env.SAREE_LOOK_BUDGET_MS; readerDelayMs = 0; readerFor = () => READ_PLAIN;
+    }
 
     // 7d. A different saree among the extras: refused in the stream, nothing drawn.
     images.length = 0; sameChecks.length = 0;

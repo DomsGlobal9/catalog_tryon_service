@@ -50,6 +50,7 @@ function shotParts(shot, place, refs) {
   extras.forEach((x, i) => parts.push({ text: `SAREE DETAIL ${i + 1} - another photo of the SAME saree (pallu, border or close-up):` }, inline(x)));
   if (refs.blouse && !shot.lightOnly) parts.push({ text: 'BLOUSE - the blouse piece sold with it:' }, inline(refs.blouse));
   if (refs.front) parts.push({ text: 'FRONT VIEW - the same saree worn by a model (only to see its border and pallu; draw no person):' }, inline(refs.front));
+  if (refs.facts) parts.push({ text: refs.facts });
   return parts;
 }
 
@@ -59,6 +60,8 @@ const CHECKS = [
   ['same_border', 'The same border: the same width, pattern and colours.'],
   ['nothing_added', 'No motif, figure, stripe or border appears on the saree that the SAREE photo does not show.'],
   ['same_spacing', 'The motifs sit as far apart as in the SAREE photo - not more crowded, not sparser; plain cloth between motifs stays plain.'],
+  // 27 Nov production: thin vertical body stripes were dropped and nobody checked for them.
+  ['same_stripes', 'The body has the same stripes as the SAREE photos - the same direction, colour and spacing, running through every fold - or none if the SAREE photos have none.'],
   ['no_person', 'There is no person, face, hand or mannequin, and no text, logo or watermark in the PRODUCT PHOTO.']
 ];
 const SCHEMA = {
@@ -75,6 +78,7 @@ async function checkShot(refs, image, signal) {
       { text: 'SAREE - a real photo of a saree:' }, toPart(refs.saree),
       ...(refs.extras || []).flatMap((x, i) => [{ text: `SAREE ${i + 2} - another real photo of the SAME saree (pallu, border or close-up); what it shows counts as part of the saree:` }, toPart(x)]),
       { text: 'PRODUCT PHOTO - meant to show this same saree, folded or arranged, with no person. Its arrangement and background are free; only the saree itself must match:' }, toPart(image),
+      ...(refs.facts ? [{ text: `Notes on the real saree, read from its photos:\n${refs.facts}` }] : []),
       { text: `Judge as a strict saree seller; framing, folding and background do not count.\n${CHECKS.map(([id, q]) => `${id}: ${q}`).join('\n')}\nevidence: one short sentence naming the difference that matters most, or "none".` }
     ], SCHEMA, signal);
     if (!parsed) return { checked: false, failures: [] };

@@ -338,6 +338,17 @@ async function prepareInputs({ saree, blouse = null, extras = [], front = null }
   return { saree: s, blouse: b, extras: x, front: f ? `data:${INPUT_MIME};base64,${f}` : null };
 }
 
+/**
+ * A smaller copy for the text model's checks (reading stripes needs no 1024 px; 27 Nov: a read of five
+ * full-size photos took 15 s and pushed a run past the gateway's 90 s). Returns a data URI.
+ */
+async function smallCopy(b64, edge = 768) {
+  if (!b64) return null;
+  const out = await sharp(Buffer.from(cleanBase64(b64), 'base64'))
+    .resize(edge, edge, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+  return `data:image/jpeg;base64,${out.toString('base64')}`;
+}
+
 /** Raw base64 from prepareInputs as a data URI (what the product shots take). */
 const toDataUri = (b64) => (b64 ? `data:${INPUT_MIME};base64,${cleanBase64(b64)}` : null);
 
@@ -359,7 +370,9 @@ const {
   afterFront = null,
   // Optional: images the route has already prepared with prepareInputs() - { saree, blouse, extras } -
   // so they are not downloaded twice. extras = more photos of the SAME saree (pallu, border, close-up).
-  prepared = null
+  prepared = null,
+  // Optional: the saree's fabric facts in words (services/sareeReader) - given to every view.
+  facts = null
 } = inputs;
     console.log(`Starting Sequential Generation Flow for Category: ${category}${colour ? ` | colour variant: ${colour.name}${colour.hex ? ' ' + colour.hex : ''} (mode ${COLOUR_VARIANT_MODE})` : ''}`);
 
@@ -458,6 +471,9 @@ const buildPayloadParts = (
         parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(referenceImage) } });
       }
 
+      // 27 Nov: thin body stripes were lost in the pleats - the facts name them, for every view.
+      if (facts) parts.push({ text: facts });
+
       parts.push({ text: "CUSTOMER — The Base Model (The person to dress - PRESERVE THEIR EXACT IDENTITY, POSE, POSITION IN THE FRAME, CAMERA DISTANCE AND BACKGROUND):" });
       parts.push({ inline_data: { mime_type: INPUT_MIME, data: cleanBase64(baseImage) } });
 
@@ -466,7 +482,8 @@ const buildPayloadParts = (
 
     const inputSlots = {
       hasFullDress: !!fullDress,
-      hasTop: !!topFront,
+      // A "blouse" photo the route found to be the saree itself is dropped from prepared.blouse.
+      hasTop: prepared && prepared.saree ? !!prepared.blouse : !!topFront,
       hasBottom: !!bottom,
       hasReference: false
     };
@@ -506,7 +523,7 @@ const buildPayloadParts = (
     // Guarded so a cancel while the views are still running is never an unhandled rejection.
     const asDataUri = (b64) => (b64 ? `data:${INPUT_MIME};base64,${cleanBase64(b64)}` : null);
     const extraWork = afterFront
-      ? Promise.resolve().then(() => afterFront(generatedFront, { saree: asDataUri(processedFullDress), blouse: asDataUri(processedTopFront), extras: processedExtras.map(asDataUri) }))
+      ? Promise.resolve().then(() => afterFront(generatedFront, { saree: asDataUri(processedFullDress), blouse: asDataUri(processedTopFront), extras: processedExtras.map(asDataUri), facts }))
       : null;
     if (extraWork) extraWork.catch(() => {});
 
@@ -581,6 +598,7 @@ module.exports = {
   prepareGarment,
   prepareInputs,
   toDataUri,
+  smallCopy,
   catalogAspectRatio,
   pickEnvironment,
   COLOUR_VARIANT_MODE,

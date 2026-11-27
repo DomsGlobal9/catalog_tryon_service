@@ -41,7 +41,7 @@ The gateway strips the name and forwards the rest of the path unchanged, so
 
 | Limit | Value | Why it matters |
 | :--- | :--- | :--- |
-| Request timeout | **90 s** | Generation takes 30–70 s. At the previous 30 s setting, slower generations were cut off mid-stream. |
+| Request timeout | **300 s** | A catalog with product shots takes 40–110 s (Gemini's speed varies through the day). At an old 30 s setting, slower generations were cut off mid-stream. |
 | Max payload | **50 MB** | Matches the service's own body limit, so a base64 image accepted by one is accepted by the other. |
 
 These are gateway-side settings, not service settings — a direct call to the service is not subject
@@ -181,6 +181,31 @@ that cannot be used ends the stream with an `ERROR` event such as
 Codes: `IMAGE_DOWNLOAD_FAILED`, `IMAGE_NOT_FOUND`, `IMAGE_TOO_LARGE`, `IMAGE_DOWNLOAD_TIMEOUT`,
 `IMAGE_SOURCE_NOT_ALLOWED`, `INVALID_IMAGE`.
 
+#### Before the views: one look at all the saree photos (since 27 November 2026)
+
+For every SAREE request (full runs and `productShotsOnly`) the service first looks at all the photos -
+`saree`, `sareeExtras` and `blouse` - with a text model, in parallel with the same-saree check of the extras:
+
+* **The best photo becomes the main one.** When the photo sent in `saree` is a crumpled or swirled close-up
+  and an extra shows the whole saree better, they swap. The stream says so:
+  `{"type":"STATUS","message":"Using extra photo 1 as the main saree photo: it shows the whole saree better than the close-up sent as the main photo."}`
+* **A "blouse" photo that is really the saree** is used as a saree photo instead (if there is room for a
+  fourth extra) and the blouse is made to match:
+  `{"type":"STATUS","message":"The blouse photo shows the saree itself, not a blouse: ..."}`. A folded
+  piece of the saree's own fabric can look exactly like a blouse piece, so send a real blouse photo or none.
+* **The fabric facts are written down** - body colour, body stripes (direction, colour, spacing), body
+  motifs, border, pallu - and given to every view and every product shot as rules the picture must keep
+  ("thin vertical gold stripes run through every pleat"). Product shots are also checked for the stripes
+  (`differences` may name `same_stripes`).
+
+Why: a maroon saree with thin vertical gold stripes came back with no stripes in the pleats, a striped
+blouse and a gold chain on its plain red border - the main photo was a crumpled close-up, a folded saree
+photo was sent as the blouse, and nothing named the stripes. With the same photos, all six pictures now
+keep the stripes.
+
+The look takes about 7-15 s and has at most 15 s (`SAREE_LOOK_BUDGET_MS`); past that, or if it fails, the
+job goes on with the photos as sent. It never stops a job.
+
 #### Category handling
 
 `category` is upper-cased, then resolved through an alias table before selecting the prompt:
@@ -243,7 +268,7 @@ Two optional switches on the object form, both `false` by default:
 
 **What to expect:**
 
-* **One colour per request.** The gateway closes a request at 90 seconds and one four-view catalog
+* **One colour per request.** The gateway closes a request at 300 seconds and one catalog
   takes about 60–110 seconds, so several colours in one request would time out. Loop over colours,
   one request each, with a **different `clientId` per colour** — the same `clientId` cancels the
   previous job.
