@@ -344,6 +344,9 @@ const FOLDED = 'neatly folded into a flat rectangle';
       const recoloured = factsText(STRIPED, { colour: { name: 'Royal Blue' } });
       check('with a colour variant the facts name the new colour and drop the old one', /becomes Royal Blue/.test(recoloured) && !/dark maroon/.test(recoloured) && /thin vertical gold stripes/.test(recoloured), recoloured);
       const plain = factsText({ ...READ_PLAIN, body_stripes: 'none', body_motifs: 'none' });
+      check('a pallu no photo shows continues the body - no paisleys, no horizontal bands', /Pallu: NOT shown in any photo/.test(recoloured) && /continue the BODY/.test(recoloured) && /no paisleys/.test(recoloured) && /no horizontal bands/.test(recoloured), recoloured);
+      const withPallu = factsText({ ...STRIPED, pallu: 'gold paisleys on a red ground' });
+      check('a pallu a photo shows is described as it is, not replaced', /Pallu: gold paisleys on a red ground\./.test(withPallu) && !/NOT shown/.test(withPallu), withPallu);
       check('a saree without stripes or motifs is told "none - do not add any"', /Body stripes: none - do not add any/.test(plain) && /Body motifs: none - do not add any/.test(plain), plain);
 
       // Unusable answer: asked once more; then the job goes on as sent, no facts, no STATUS.

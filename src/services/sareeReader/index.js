@@ -109,7 +109,10 @@ function factsText(p, { colour = null } = {}) {
   lines.push(shown(p.body_stripes) ? `- Body stripes: ${clean(p.body_stripes)}. They run through the WHOLE body, including every pleat and the part over the shoulder.` : '- Body stripes: none - do not add any.');
   lines.push(shown(p.body_motifs) ? `- Body motifs: ${clean(p.body_motifs)}.` : '- Body motifs: none - do not add any.');
   if (shown(p.border)) lines.push(`- Border: ${clean(p.border)}. Nothing else is added to it.`);
+  // Production, 27 Nov: no photo showed the maroon saree's pallu and the views invented one - paisleys
+  // and horizontal gold bands - which the product shots then copied. Unseen, it continues the body.
   if (shown(p.pallu)) lines.push(`- Pallu: ${clean(p.pallu)}.`);
+  else lines.push('- Pallu: NOT shown in any photo, so it is not known. Make it continue the BODY\'s own design - the same stripes and motifs at the same spacing - with the same border along its edge. Do NOT invent a pallu design: no new motifs (no paisleys, peacocks, figures), no horizontal bands, no new colours.');
   const keep = Array.isArray(p.must_keep) ? p.must_keep.map(clean).filter(Boolean).slice(0, 6) : [];
   if (keep.length) lines.push(...keep.map((k) => `- MUST KEEP: ${k}`));
   return lines.length ? `SAREE FACTS (read from the photos; every one of them must be true in your picture):\n${lines.join('\n')}` : null;
